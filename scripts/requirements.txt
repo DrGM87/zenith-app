@@ -1,0 +1,18 @@
+# Zenith — Python sidecar dependencies
+# Install: pip install -r scripts/requirements.txt
+
+# ── Core (required) ──
+Pillow>=10.0.0            # Image processing (compress, resize, EXIF strip, WebP, palette)
+qrcode[pil]>=7.4          # QR code generation from URLs/text
+
+# ── PDF Processing ──
+pdfplumber>=0.10.0         # PDF text extraction (primary)
+PyPDF2>=3.0.0              # PDF merge/compress (fallback)
+pikepdf>=8.0.0             # PDF compression (preferred, faster)
+reportlab>=4.0.0           # PDF generation (OCR → searchable PDF)
+
+# ── OCR ──
+pytesseract>=0.3.10        # Tesseract OCR Python wrapper (requires Tesseract binary)
+
+# ── Optional (enhanced features) ──
+pyminizip>=0.2.6           # Encrypted ZIP (AES-256) — fallback if 7z not available

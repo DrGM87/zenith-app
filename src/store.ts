@@ -21,6 +21,11 @@ export interface AppearanceSettings {
   accent_color: string;
   font_size: number;
   animation_speed: number;
+  border_glow?: boolean;
+  border_glow_speed?: number;
+  aurora_bg?: boolean;
+  aurora_speed?: number;
+  spotlight_cards?: boolean;
 }
 
 export interface BehaviorSettings {
@@ -76,6 +81,24 @@ export interface TokenUsage {
   total_cost_usd: number;
 }
 
+export interface RenameSuggestion {
+  stem: string;
+  full_name: string;
+  new_path: string;
+}
+
+export interface RenameState {
+  itemId: string;
+  path: string;
+  originalName: string;
+  originalStem: string;
+  extension: string;
+  suggestions: RenameSuggestion[];
+  activeIndex: number;
+  loading: boolean;
+  error?: string;
+}
+
 export interface PreviewPane {
   id: string;
   item: StagedItem;
@@ -106,6 +129,10 @@ interface ZenithState {
   isStackMode: boolean;
   selectedIds: Set<string>;
   previewPanes: PreviewPane[];
+  renameStates: Record<string, RenameState>;
+  batchRenameMode: boolean;
+  renameUndoCount: number;
+  renameRedoCount: number;
 
   setExpanded: (expanded: boolean) => void;
   setDragOver: (over: boolean) => void;
@@ -128,6 +155,12 @@ interface ZenithState {
   startDragOut: (path: string) => Promise<void>;
   trackTokenUsage: (provider: string, model: string, inputTokens: number, outputTokens: number) => Promise<void>;
 
+  setRenameState: (itemId: string, state: RenameState | null) => void;
+  cycleRenameSuggestion: (itemId: string) => void;
+  setBatchRenameMode: (on: boolean) => void;
+  setRenameUndoCounts: (undo: number, redo: number) => void;
+  refreshRenameCounts: () => Promise<void>;
+
   openPreview: (item: StagedItem) => void;
   closePreview: (id: string) => void;
   closeAllPreviews: () => void;
@@ -145,6 +178,10 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
   isStackMode: false,
   selectedIds: new Set<string>(),
   previewPanes: [],
+  renameStates: {},
+  batchRenameMode: false,
+  renameUndoCount: 0,
+  renameRedoCount: 0,
 
   setExpanded: (expanded) => set({ isExpanded: expanded }),
   setDragOver: (over) => set({ isDragOver: over }),
@@ -230,6 +267,25 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
     } catch (e) {
       console.error("Failed to start drag out:", e);
     }
+  },
+
+  setRenameState: (itemId: string, state: RenameState | null) => set((s) => {
+    const next = { ...s.renameStates };
+    if (state) next[itemId] = state; else delete next[itemId];
+    return { renameStates: next };
+  }),
+  cycleRenameSuggestion: (itemId: string) => set((s) => {
+    const rs = s.renameStates[itemId];
+    if (!rs || rs.suggestions.length <= 1) return s;
+    return { renameStates: { ...s.renameStates, [itemId]: { ...rs, activeIndex: (rs.activeIndex + 1) % rs.suggestions.length } } };
+  }),
+  setBatchRenameMode: (on: boolean) => set({ batchRenameMode: on }),
+  setRenameUndoCounts: (undo: number, redo: number) => set({ renameUndoCount: undo, renameRedoCount: redo }),
+  refreshRenameCounts: async () => {
+    try {
+      const r = JSON.parse(await invoke<string>("get_rename_history_counts"));
+      set({ renameUndoCount: r.undo_count ?? 0, renameRedoCount: r.redo_count ?? 0 });
+    } catch { /* ignore */ }
   },
 
   openPreview: (item: StagedItem) => set((s) => {

@@ -82,7 +82,7 @@ function SInput({ c }: { c: ComponentDef }) {
   const isPassword = c.password as boolean | undefined;
   return (
     <div className="flex flex-col gap-1">
-      {c.label && (
+      {Boolean(c.label) && (
         <label className="text-[11px] text-white/50 font-medium uppercase tracking-wider">
           {String(c.label ?? "")}
         </label>
@@ -111,7 +111,7 @@ function SInput({ c }: { c: ComponentDef }) {
 function SMultiline({ c }: { c: ComponentDef }) {
   return (
     <div className="flex flex-col gap-1">
-      {c.label && (
+      {Boolean(c.label) && (
         <label className="text-[11px] text-white/50 font-medium uppercase tracking-wider">
           {String(c.label ?? "")}
         </label>
@@ -134,7 +134,7 @@ function SSelect({ c }: { c: ComponentDef }) {
   const options = (c.options as { label: string; value: string }[]) || [];
   return (
     <div className="flex flex-col gap-1">
-      {c.label && (
+      {Boolean(c.label) && (
         <label className="text-[11px] text-white/50 font-medium uppercase tracking-wider">
           {String(c.label ?? "")}
         </label>
@@ -208,7 +208,7 @@ function SProgress({ c }: { c: ComponentDef }) {
   const pct = (c.value as number) || 0;
   return (
     <div className="flex flex-col gap-1">
-      {c.label && (
+      {Boolean(c.label) && (
         <span className="text-[11px] text-white/50">{String(c.label ?? "")}</span>
       )}
       <div className="h-2 rounded-full bg-white/8 overflow-hidden">
@@ -255,7 +255,7 @@ function SCard({ c }: { c: ComponentDef }) {
   const children = (c.children as ComponentDef[]) || [];
   return (
     <div className="bg-white/4 border border-white/6 rounded-xl p-3 flex flex-col gap-2">
-      {c.title && (
+      {Boolean(c.title) && (
         <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">
           {String(c.title ?? "")}
         </span>

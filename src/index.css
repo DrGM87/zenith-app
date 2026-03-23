@@ -59,3 +59,212 @@ html, body, #root {
 .script-content .stat { text-align: center; }
 .script-content .stat-value { font-size: 1.5em; font-weight: 700; color: #22d3ee; }
 .script-content .stat-label { font-size: 0.75em; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Smart Rename shimmer animation */
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   React Bits — SpotlightCard
+   ═══════════════════════════════════════════════════════ */
+.card-spotlight {
+  position: relative;
+  overflow: hidden;
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+  --spotlight-color: rgba(255, 255, 255, 0.05);
+}
+.card-spotlight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle 120px at var(--mouse-x) var(--mouse-y), var(--spotlight-color), transparent 80%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+.card-spotlight:hover::before {
+  opacity: 1;
+}
+
+/* ═══════════════════════════════════════════════════════
+   React Bits — ShinyText
+   ═══════════════════════════════════════════════════════ */
+.shiny-text {
+  display: inline-block;
+  animation: shiny-slide linear infinite;
+}
+@keyframes shiny-slide {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   React Bits — BorderGlow
+   ═══════════════════════════════════════════════════════ */
+.border-glow-wrapper {
+  position: relative;
+  isolation: isolate;
+}
+.border-glow-ring {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--glow-angle, 0deg),
+    transparent 0%,
+    var(--glow-color-1, rgba(139,92,246,0.5)) 25%,
+    var(--glow-color-2, rgba(34,211,238,0.5)) 50%,
+    transparent 75%
+  );
+  opacity: var(--glow-intensity, 1);
+  animation: glow-rotate var(--glow-speed, 4s) linear infinite;
+  z-index: -1;
+  filter: blur(2px);
+}
+.border-glow-inner {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+@property --glow-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes glow-rotate {
+  from { --glow-angle: 0deg; }
+  to { --glow-angle: 360deg; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   React Bits — SoftAurora
+   ═══════════════════════════════════════════════════════ */
+.soft-aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: inherit;
+}
+.soft-aurora::before {
+  content: '';
+  position: absolute;
+  inset: -60%;
+  background:
+    radial-gradient(ellipse 50% 60% at 15% 45%, var(--aurora-c1, rgba(139,92,246,0.12)), transparent 70%),
+    radial-gradient(ellipse 40% 50% at 85% 55%, var(--aurora-c2, rgba(34,211,238,0.08)), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 50% 85%, var(--aurora-c3, rgba(236,72,153,0.06)), transparent 70%);
+  animation: aurora-drift var(--aurora-speed, 8s) ease-in-out infinite alternate;
+}
+.soft-aurora::after {
+  content: '';
+  position: absolute;
+  inset: -60%;
+  background:
+    radial-gradient(ellipse 35% 45% at 70% 30%, var(--aurora-c2, rgba(34,211,238,0.06)), transparent 70%),
+    radial-gradient(ellipse 50% 35% at 30% 70%, var(--aurora-c1, rgba(139,92,246,0.08)), transparent 70%);
+  animation: aurora-drift-alt var(--aurora-speed, 8s) ease-in-out infinite alternate-reverse;
+}
+@keyframes aurora-drift {
+  0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+  50% { transform: translate(8%, -6%) rotate(2deg) scale(1.05); }
+  100% { transform: translate(-5%, 8%) rotate(-1deg) scale(0.98); }
+}
+@keyframes aurora-drift-alt {
+  0% { transform: translate(0, 0) rotate(0deg) scale(1.02); }
+  50% { transform: translate(-6%, 5%) rotate(-2deg) scale(0.97); }
+  100% { transform: translate(7%, -3%) rotate(1.5deg) scale(1.04); }
+}
+
+/* ═══════════════════════════════════════════════════════
+   React Bits — MagicRings
+   ═══════════════════════════════════════════════════════ */
+.magic-rings {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.magic-ring-core {
+  position: absolute;
+  width: 33%;
+  height: 33%;
+  border-radius: 50%;
+  z-index: 2;
+}
+.magic-ring-r1, .magic-ring-r2, .magic-ring-r3 {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid;
+  opacity: 0;
+  animation: magic-ring-pulse 2.4s ease-out infinite;
+}
+.magic-ring-r1 {
+  width: 55%;
+  height: 55%;
+  animation-delay: 0s;
+}
+.magic-ring-r2 {
+  width: 80%;
+  height: 80%;
+  animation-delay: 0.5s;
+}
+.magic-ring-r3 {
+  width: 100%;
+  height: 100%;
+  animation-delay: 1.0s;
+}
+@keyframes magic-ring-pulse {
+  0% { transform: scale(0.4); opacity: 0; }
+  12% { opacity: 0.95; }
+  40% { opacity: 0.5; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   React Bits — Carousel
+   ═══════════════════════════════════════════════════════ */
+.carousel-container {
+  position: relative;
+  overflow: hidden;
+  padding: 8px;
+}
+.carousel-track {
+  display: flex;
+  cursor: grab;
+}
+.carousel-track:active { cursor: grabbing; }
+.carousel-card {
+  flex-shrink: 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.carousel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.4);
+  cursor: pointer;
+}
+
+/* ═══════════════════════════════════════════════════════
+   React Bits — ShinyBar (loading bar)
+   ═══════════════════════════════════════════════════════ */
+.shiny-bar {
+  height: 18px;
+  border-radius: 6px;
+  animation: shimmer 1.5s ease-in-out infinite;
+}

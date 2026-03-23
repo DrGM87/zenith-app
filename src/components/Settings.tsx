@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+// ReactBits effects are configured here but rendered in Bubble.tsx
 
 interface GeneralSettings {
   launch_on_startup: boolean;
@@ -16,6 +17,11 @@ interface AppearanceSettings {
   accent_color: string;
   font_size: number;
   animation_speed: number;
+  border_glow: boolean;
+  border_glow_speed: number;
+  aurora_bg: boolean;
+  aurora_speed: number;
+  spotlight_cards: boolean;
 }
 
 interface BehaviorSettings {
@@ -404,26 +410,6 @@ export function Settings() {
             </SettingGroup>
             <SettingGroup title="Window">
               <Slider
-                label="Background opacity"
-                description="Transparency of the Zenith panel"
-                value={settings.appearance.opacity}
-                min={0.3}
-                max={1}
-                step={0.01}
-                displayValue={`${Math.round(settings.appearance.opacity * 100)}%`}
-                onChange={(v) => updateAppearance("opacity", v)}
-              />
-              <Slider
-                label="Blur strength"
-                description="Backdrop blur intensity"
-                value={settings.appearance.blur_strength}
-                min={0}
-                max={80}
-                step={1}
-                displayValue={`${settings.appearance.blur_strength}px`}
-                onChange={(v) => updateAppearance("blur_strength", v)}
-              />
-              <Slider
                 label="Corner radius"
                 description="Roundness of the panel corners"
                 value={settings.appearance.corner_radius}
@@ -432,6 +418,50 @@ export function Settings() {
                 step={1}
                 displayValue={`${settings.appearance.corner_radius}px`}
                 onChange={(v) => updateAppearance("corner_radius", v)}
+              />
+            </SettingGroup>
+            <SettingGroup title="Effects">
+              <Toggle
+                label="Border glow"
+                description="Animated gradient glow around the panel and pill"
+                checked={settings.appearance.border_glow !== false}
+                onChange={(v) => updateAppearance("border_glow", v)}
+              />
+              {settings.appearance.border_glow !== false && (
+                <Slider
+                  label="Glow rotation speed"
+                  description="How fast the border glow rotates"
+                  value={settings.appearance.border_glow_speed ?? 4}
+                  min={1}
+                  max={12}
+                  step={0.5}
+                  displayValue={`${(settings.appearance.border_glow_speed ?? 4).toFixed(1)}s`}
+                  onChange={(v) => updateAppearance("border_glow_speed", v)}
+                />
+              )}
+              <Toggle
+                label="Aurora background"
+                description="Soft animated gradient aurora behind panel content"
+                checked={settings.appearance.aurora_bg !== false}
+                onChange={(v) => updateAppearance("aurora_bg", v)}
+              />
+              {settings.appearance.aurora_bg !== false && (
+                <Slider
+                  label="Aurora animation speed"
+                  description="Duration of one aurora cycle"
+                  value={settings.appearance.aurora_speed ?? 8}
+                  min={3}
+                  max={20}
+                  step={1}
+                  displayValue={`${settings.appearance.aurora_speed ?? 8}s`}
+                  onChange={(v) => updateAppearance("aurora_speed", v)}
+                />
+              )}
+              <Toggle
+                label="Spotlight cards"
+                description="Mouse-tracking highlight effect on file cards"
+                checked={settings.appearance.spotlight_cards !== false}
+                onChange={(v) => updateAppearance("spotlight_cards", v)}
               />
             </SettingGroup>
             <SettingGroup title="Typography">

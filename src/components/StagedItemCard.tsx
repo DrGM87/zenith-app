@@ -1,9 +1,10 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useZenithStore, type StagedItem } from "../store";
+import { useZenithStore, type StagedItem, type RenameState } from "../store";
 import { formatFileSize, getFileIcon, getExtensionColor } from "../utils";
 import { FolderTree } from "./FolderTree";
+import { SpotlightCard, ShinyBar } from "./ReactBits";
 
 function formatTimeLeft(ms: number): string {
   if (ms <= 0) return "Expired";
@@ -34,7 +35,7 @@ const PDF_EXTS = new Set(["pdf"]);
 const TEXT_EXTS = new Set(["txt", "md", "log", "csv", "json", "xml", "html", "py", "js", "ts", "tsx", "rs", "css"]);
 const DATA_EXTS = new Set(["csv", "tsv"]);
 const MEDIA_EXTS = new Set(["mov", "avi", "mkv", "wmv", "flv", "webm", "m4v", "mp4", "mp3", "wav", "flac", "aac", "ogg", "wma"]);
-const SCANNABLE_EXTS = new Set(["exe", "msi", "dll", "bat", "cmd", "ps1", "zip", "rar", "7z", "tar", "gz"]);
+// SCANNABLE_EXTS removed — VirusTotal scan is now universal for all files/folders
 const URL_REGEX = /^https?:\/\/[^\s]+$/i;
 
 const LANGUAGES = [
@@ -59,11 +60,11 @@ function getActionsForItem(item: StagedItem): ItemAction[] {
   if (IMAGE_EXTS.has(ext)) {
     actions.push({ icon: "fa-solid fa-compress", label: "Compress", action: "compress_image", color: "#22d3ee" });
     actions.push({ icon: "fa-solid fa-expand", label: "Resize", action: "resize_image", color: "#06b6d4" });
+    actions.push({ icon: "fa-solid fa-palette", label: "Palette", action: "extract_palette", color: "#ec4899" });
     actions.push({ icon: "fa-solid fa-eye-slash", label: "Strip EXIF", action: "strip_exif", color: "#f59e0b" });
     if (ext !== "webp") {
       actions.push({ icon: "fa-solid fa-arrow-right-arrow-left", label: "WebP", action: "convert_webp", color: "#8b5cf6" });
     }
-    actions.push({ icon: "fa-solid fa-palette", label: "Palette", action: "extract_palette", color: "#ec4899" });
     actions.push({ icon: "fa-solid fa-code", label: "Base64", action: "file_to_base64", color: "#6366f1" });
     actions.push({ icon: "fa-solid fa-font", label: "OCR", action: "ocr", color: "#14b8a6" });
     actions.push({ icon: "fa-solid fa-file-pdf", label: "OCR → PDF", action: "ocr_to_pdf", color: "#0ea5e9" });
@@ -92,8 +93,8 @@ function getActionsForItem(item: StagedItem): ItemAction[] {
     actions.push({ icon: "fa-solid fa-film", label: "Convert", action: "convert_media", color: "#a855f7" });
   }
 
-  // ── Security scan (executables, archives) ──
-  if (hasPath && SCANNABLE_EXTS.has(ext)) {
+  // ── Security scan (ALL files and folders) ──
+  if (hasPath) {
     actions.push({ icon: "fa-solid fa-shield-halved", label: "Scan", action: "scan_virustotal_file", color: "#22d3ee" });
   }
 
@@ -115,7 +116,8 @@ function getActionsForItem(item: StagedItem): ItemAction[] {
 }
 
 export function StagedItemCard({ item, index }: Props) {
-  const { removeItem, startDragOut, stageFile, toggleSelect, selectedIds, settings, trackTokenUsage, openPreview } = useZenithStore();
+  const { removeItem, startDragOut, stageFile, toggleSelect, selectedIds, settings, trackTokenUsage, openPreview, setRenameState, cycleRenameSuggestion, renameStates, refreshRenameCounts } = useZenithStore();
+  const renameState = renameStates[item.id] as RenameState | undefined;
   const isSelected = selectedIds.has(item.id);
   const [isHovered, setIsHovered] = useState(false);
   const [showMore, setShowMore] = useState(false);
@@ -143,6 +145,7 @@ export function StagedItemCard({ item, index }: Props) {
   const [showConvertMenu, setShowConvertMenu] = useState(false);
   const [actionResult, setActionResult] = useState<{ label: string; text: string; action: string } | null>(null);
   const [scanBadge, setScanBadge] = useState<"safe" | "malicious" | "unknown" | null>(null);
+  const [vtReport, setVtReport] = useState<Record<string, unknown> | null>(null);
   const [processing, setProcessing] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState<string | null>(null);
@@ -228,10 +231,13 @@ export function StagedItemCard({ item, index }: Props) {
       try {
         const argsJson = JSON.stringify({ path: item.path, vt_api_key: vtKey });
         const r = JSON.parse(await invoke<string>("process_file", { action: "scan_virustotal", argsJson }));
-        if (r.ok && r.verdict === "safe") { setScanBadge("safe"); showToastMsg(`Safe (${r.total} engines)`); }
-        else if (r.ok && r.verdict === "malicious") { setScanBadge("malicious"); showToastMsg(`Malicious! ${r.malicious}/${r.total} detections`); }
-        else if (r.ok && r.verdict === "unknown") { setScanBadge("unknown"); showToastMsg(r.message || "Not in VT database"); }
-        else showToastMsg(r.error || "Scan failed");
+        if (r.ok && r.verdict) {
+          setScanBadge(r.verdict === "malicious" ? "malicious" : r.verdict === "safe" ? "safe" : "unknown");
+          setVtReport(r);
+          if (r.verdict === "safe") showToastMsg(`Safe (${r.total} engines)`);
+          else if (r.verdict === "malicious") showToastMsg(`Malicious! ${r.malicious}/${r.total} detections`);
+          else showToastMsg(r.message || "Not in VT database");
+        } else showToastMsg(r.error || "Scan failed");
       } catch (e) { showToastMsg(String(e)); }
       finally { setProcessing(null); }
       return;
@@ -245,11 +251,16 @@ export function StagedItemCard({ item, index }: Props) {
       try {
         const argsJson = JSON.stringify({ url: item.name.trim(), vt_api_key: vtKey });
         const r = JSON.parse(await invoke<string>("process_file", { action: "scan_virustotal", argsJson }));
-        if (r.ok && r.verdict === "safe") { setScanBadge("safe"); showToastMsg(`Safe (${r.total} engines)`); }
-        else if (r.ok && r.verdict === "malicious") { setScanBadge("malicious"); showToastMsg(`Malicious! ${r.malicious}/${r.total} detections`); }
-        else if (r.ok && r.verdict === "submitted") showToastMsg(r.message || "Submitted for analysis");
-        else if (r.ok && r.verdict === "unknown") { setScanBadge("unknown"); showToastMsg(r.message || "Unknown"); }
-        else showToastMsg(r.error || "Scan failed");
+        if (r.ok && r.verdict) {
+          if (r.verdict !== "submitted") {
+            setScanBadge(r.verdict === "malicious" ? "malicious" : r.verdict === "safe" ? "safe" : "unknown");
+            setVtReport(r);
+          }
+          if (r.verdict === "safe") showToastMsg(`Safe (${r.total} engines)`);
+          else if (r.verdict === "malicious") showToastMsg(`Malicious! ${r.malicious}/${r.total} detections`);
+          else if (r.verdict === "submitted") showToastMsg(r.message || "Submitted for analysis");
+          else showToastMsg(r.message || "Unknown");
+        } else showToastMsg(r.error || "Scan failed");
       } catch (e) { showToastMsg(String(e)); }
       finally { setProcessing(null); }
       return;
@@ -275,7 +286,26 @@ export function StagedItemCard({ item, index }: Props) {
       const prompts = settings?.ai_prompts;
       if (action === "convert_webp") extraArgs.quality = settings?.processing?.webp_quality ?? 85;
       if (action === "ocr") { Object.assign(extraArgs, getDefaultApiKey()); extraArgs.system_prompt = prompts?.ocr; }
-      if (action === "smart_rename") { Object.assign(extraArgs, getDefaultApiKey()); extraArgs.system_prompt = prompts?.smart_rename; }
+      if (action === "smart_rename") {
+        // New 3-suggestion flow: set loading state, call Python, store suggestions
+        setRenameState(item.id, { itemId: item.id, path: item.path, originalName: item.name, originalStem: item.name.replace(/\.[^.]+$/, ""), extension: item.extension ? `.${item.extension}` : "", suggestions: [], activeIndex: 0, loading: true });
+        try {
+          const argsJson = JSON.stringify({ path: item.path, ...getDefaultApiKey(), system_prompt: prompts?.smart_rename });
+          const resultStr = await invoke<string>("process_file", { action: "smart_rename", argsJson });
+          const result = JSON.parse(resultStr);
+          if (result.token_usage) trackTokenUsage(result.token_usage.provider, result.token_usage.model, result.token_usage.input_tokens, result.token_usage.output_tokens);
+          if (result.ok && result.suggestions && result.suggestions.length > 0) {
+            setRenameState(item.id, { itemId: item.id, path: item.path, originalName: result.original_name, originalStem: result.original_stem, extension: result.extension, suggestions: result.suggestions, activeIndex: 0, loading: false });
+          } else {
+            setRenameState(item.id, null);
+            showToastMsg(result.error || "No suggestions returned");
+          }
+        } catch (e) {
+          setRenameState(item.id, null);
+          showToastMsg(String(e));
+        } finally { setProcessing(null); }
+        return;
+      }
       if (action === "summarize_file") { Object.assign(extraArgs, getDefaultApiKey()); extraArgs.system_prompt = prompts?.summarize; }
       if (action === "generate_dashboard") { Object.assign(extraArgs, getDefaultApiKey()); extraArgs.system_prompt = prompts?.dashboard; }
       if (action === "ocr_to_pdf") { /* local only, no API key */ }
@@ -318,6 +348,8 @@ export function StagedItemCard({ item, index }: Props) {
         else if (result.has_missing_fields !== undefined) showToastMsg(`CSV: ${result.rows} rows${result.has_missing_fields ? " (some N/A)" : ""}`);
         else if (result.rows) showToastMsg(`Dashboard: ${result.rows} rows`);
         else showToastMsg("Done!");
+      } else if (result.ok && result.suggestions) {
+        // Handled by smart_rename branch above
       } else if (result.ok && result.suggested_name) {
         showToastMsg(`Rename → ${result.suggested_name}`);
       } else {
@@ -431,6 +463,7 @@ export function StagedItemCard({ item, index }: Props) {
         background: isHovered ? "rgba(255, 255, 255, 0.06)" : "rgba(255, 255, 255, 0.02)",
       }}
     >
+    <SpotlightCard className="rounded-xl" spotlightColor="rgba(139,92,246,0.12)" disabled={settings?.appearance?.spotlight_cards === false}>
       {/* Main row */}
       <div className="flex items-center gap-3 px-3 py-2.5">
         {/* Selection checkbox */}
@@ -472,7 +505,62 @@ export function StagedItemCard({ item, index }: Props) {
 
           {/* File info */}
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-medium text-white/90 truncate leading-tight">{item.name}</p>
+            {renameState && renameState.loading ? (
+              <ShinyBar />
+            ) : renameState && renameState.suggestions.length > 0 ? (
+              <div className="flex items-center gap-1 min-w-0" onMouseDown={(e) => e.stopPropagation()}>
+                <p className="text-[13px] font-medium text-purple-300 truncate leading-tight flex-1" title={renameState.suggestions[renameState.activeIndex]?.full_name}>
+                  {renameState.suggestions[renameState.activeIndex]?.full_name}
+                </p>
+                <button onClick={(e) => { e.stopPropagation(); cycleRenameSuggestion(item.id); }} className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] text-amber-300 hover:bg-amber-500/15 transition-colors" title="Cycle suggestion">
+                  <i className="fa-solid fa-dice" />
+                </button>
+                <button onClick={async (e) => {
+                  e.stopPropagation();
+                  const s = renameState.suggestions[renameState.activeIndex];
+                  try {
+                    const r = JSON.parse(await invoke<string>("apply_rename", { oldPath: renameState.path, newStem: s.stem }));
+                    if (r.renamed) {
+                      showToastMsg(`Renamed → ${r.new_name}`);
+                      setRenameState(item.id, null);
+                      refreshRenameCounts();
+                      useZenithStore.setState((st) => ({
+                        items: st.items.map((it) => it.id === item.id ? { ...it, name: r.new_name, path: r.new_path } : it),
+                      }));
+                    } else showToastMsg(r.reason || "Not renamed");
+                  } catch (err) { showToastMsg(String(err)); }
+                }} className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] text-emerald-400 hover:bg-emerald-500/15 transition-colors" title="Accept">
+                  <i className="fa-solid fa-check" />
+                </button>
+                <button onClick={(e) => {
+                  e.stopPropagation();
+                  const s = renameState.suggestions[renameState.activeIndex];
+                  const newName = prompt("Edit filename (stem only, extension preserved):", s.stem);
+                  if (newName && newName.trim()) {
+                    (async () => {
+                      try {
+                        const r = JSON.parse(await invoke<string>("apply_rename", { oldPath: renameState.path, newStem: newName.trim() }));
+                        if (r.renamed) {
+                          showToastMsg(`Renamed → ${r.new_name}`);
+                          setRenameState(item.id, null);
+                          refreshRenameCounts();
+                          useZenithStore.setState((st) => ({
+                            items: st.items.map((it) => it.id === item.id ? { ...it, name: r.new_name, path: r.new_path } : it),
+                          }));
+                        } else showToastMsg(r.reason || "Not renamed");
+                      } catch (err) { showToastMsg(String(err)); }
+                    })();
+                  }
+                }} className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] text-cyan-300 hover:bg-cyan-500/15 transition-colors" title="Manual edit">
+                  <i className="fa-solid fa-pen" />
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); setRenameState(item.id, null); }} className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] text-white/30 hover:text-white/60 transition-colors" title="Cancel">
+                  <i className="fa-solid fa-xmark" />
+                </button>
+              </div>
+            ) : (
+              <p className="text-[13px] font-medium text-white/90 truncate leading-tight">{item.name}</p>
+            )}
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-[11px] text-white/40">{formatFileSize(item.size)}</span>
               {hasTimer && timeLeft && (
@@ -1040,6 +1128,101 @@ export function StagedItemCard({ item, index }: Props) {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* VirusTotal Scan Report */}
+            <AnimatePresence>
+              {vtReport && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-3 pb-2">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <i className="fa-solid fa-shield-halved text-[9px]" style={{ color: (vtReport as Record<string,unknown>).verdict === "safe" ? "#22c55e" : (vtReport as Record<string,unknown>).verdict === "malicious" ? "#ef4444" : "#f59e0b" }} />
+                      <span className="text-[10px] font-medium text-white/50">VirusTotal Report</span>
+                      <div className="ml-auto flex gap-1">
+                        <button onClick={() => handleAction((vtReport as Record<string,unknown>).scan_type === "file" ? "scan_virustotal_file" : "scan_virustotal_url")} className="px-1.5 py-0.5 rounded text-[9px] font-medium text-amber-300 hover:bg-amber-500/15 transition-colors" title="Re-scan"><i className="fa-solid fa-rotate-right text-[8px] mr-0.5" />Rescan</button>
+                        <button onClick={() => setVtReport(null)} className="px-1 py-0.5 text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                      </div>
+                    </div>
+                    {(() => {
+                      const rpt = vtReport as Record<string, unknown>;
+                      const scanType = String(rpt.scan_type || "");
+                      const verdict = rpt.verdict as string;
+                      const mal = rpt.malicious as number;
+                      const total = rpt.total as number;
+                      const stats = rpt.stats as Record<string, number> | undefined;
+                      const detections = (rpt.detections ?? []) as Array<{engine: string; category: string; result: string}>;
+                      const verdictColor = verdict === "safe" ? "#22c55e" : verdict === "malicious" ? "#ef4444" : "#f59e0b";
+                      const safeCount = total - mal;
+                      const pct = total > 0 ? Math.round((safeCount / total) * 100) : 0;
+                      return (
+                        <div className="rounded-lg bg-black/20 border border-white/5 p-2 space-y-2 max-h-48 overflow-y-auto">
+                          {/* Verdict bar */}
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between mb-0.5">
+                                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: verdictColor }}>{verdict}</span>
+                                <span className="text-[10px] text-white/40">{mal}/{total} flagged</span>
+                              </div>
+                              <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: verdictColor }} />
+                              </div>
+                            </div>
+                          </div>
+                          {/* Stats breakdown */}
+                          {stats && (
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                              {Object.entries(stats).filter(([,v]) => v > 0).map(([k, v]) => (
+                                <span key={k} className="text-[9px] text-white/40"><span className={`font-medium ${k === "malicious" ? "text-red-400" : k === "suspicious" ? "text-amber-400" : k === "harmless" || k === "undetected" ? "text-emerald-400/70" : "text-white/30"}`}>{v}</span> {k}</span>
+                              ))}
+                            </div>
+                          )}
+                          {/* File metadata */}
+                          {scanType === "file" && (
+                            <div className="space-y-0.5 text-[9px] text-white/35 font-mono">
+                              {Boolean(rpt.file_type) && <div><span className="text-white/50">Type:</span> {String(rpt.file_type)}</div>}
+                              {Boolean(rpt.hash) && <div><span className="text-white/50">SHA-256:</span> {String(rpt.hash).substring(0, 16)}...</div>}
+                              {Boolean(rpt.magic) && <div><span className="text-white/50">Magic:</span> {String(rpt.magic).substring(0, 60)}</div>}
+                              {(rpt.tags as string[] | undefined)?.length ? <div><span className="text-white/50">Tags:</span> {(rpt.tags as string[]).join(", ")}</div> : null}
+                            </div>
+                          )}
+                          {/* URL metadata */}
+                          {scanType === "url" && (
+                            <div className="space-y-0.5 text-[9px] text-white/35 font-mono">
+                              {Boolean(rpt.title) && <div><span className="text-white/50">Title:</span> {String(rpt.title)}</div>}
+                              {(rpt.categories as string[] | undefined)?.length ? <div><span className="text-white/50">Categories:</span> {(rpt.categories as string[]).join(", ")}</div> : null}
+                            </div>
+                          )}
+                          {/* Community */}
+                          {Boolean(rpt.community_votes) && (
+                            <div className="text-[9px] text-white/35">
+                              <span className="text-white/50">Community:</span>{" "}
+                              <span className="text-emerald-400/70">{(rpt.community_votes as Record<string,number>).harmless}↑</span>{" "}
+                              <span className="text-red-400/70">{(rpt.community_votes as Record<string,number>).malicious}↓</span>
+                              {rpt.reputation != null && <span className="ml-2 text-white/50">Rep: {Number(rpt.reputation)}</span>}
+                            </div>
+                          )}
+                          {/* Detections list */}
+                          {detections.length > 0 && (
+                            <div>
+                              <div className="text-[9px] font-medium text-red-400/80 mb-0.5">Detections ({detections.length})</div>
+                              <div className="space-y-px">
+                                {detections.slice(0, 15).map((d) => (
+                                  <div key={d.engine} className="flex items-center gap-1.5 text-[9px]">
+                                    <span className="text-red-400">●</span>
+                                    <span className="text-white/50 font-medium">{d.engine}</span>
+                                    <span className="text-white/30 truncate">{d.result || d.category}</span>
+                                  </div>
+                                ))}
+                                {detections.length > 15 && <div className="text-[9px] text-white/25 pl-3">+{detections.length - 15} more</div>}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1057,6 +1240,7 @@ export function StagedItemCard({ item, index }: Props) {
           </motion.div>
         )}
       </AnimatePresence>
+    </SpotlightCard>
     </motion.div>
   );
 }

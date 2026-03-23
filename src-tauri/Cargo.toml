@@ -28,4 +28,5 @@ base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "ico", "webp"] }
 drag = "2"
 wasmtime = "29"
+uuid = { version = "1", features = ["v4"] }
 

@@ -295,43 +295,167 @@ def split_file(args):
 
 
 def smart_rename(args):
-    """Use LLM to suggest a better filename."""
+    """Content-aware smart rename: extracts file 'soul' then generates 3 suggestions."""
     path = args["path"]
     api_key = args.get("api_key", "")
     provider = args.get("provider", "openai")
     model = args.get("model", "")
-    prompt = args.get("prompt", "Suggest a clear, descriptive filename for this file. Return ONLY the filename without extension. No explanation.")
+    naming_format = args.get("naming_format", "Date_Context_Detail")
+    max_length = args.get("max_length", 60)
+    date_prefix = args.get("date_prefix", False)
 
     if not api_key:
         return {"error": "API key required. Set it in Settings > API Keys."}
 
     name = os.path.basename(path)
-    ext = os.path.splitext(name)[1]
+    ext = os.path.splitext(name)[1].lower()
     file_size = os.path.getsize(path)
 
-    # Read first 2000 chars of text files for context
+    # ── Step 1: Content Extraction (the "soul" of the file) ──
     file_context = ""
-    text_exts = {".txt", ".md", ".log", ".csv", ".json", ".xml", ".html", ".py", ".js", ".ts"}
-    if ext.lower() in text_exts:
+    context_method = "filename_only"
+
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".tif", ".heic", ".svg"}
+    code_exts = {".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go", ".java", ".c", ".cpp", ".h", ".rb", ".php", ".swift", ".kt", ".sh", ".bat", ".ps1"}
+    text_exts = {".txt", ".md", ".log", ".rtf"}
+    data_exts = {".csv", ".tsv", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf"}
+    doc_exts = {".html", ".htm", ".tex", ".rst"}
+
+    if ext in image_exts:
+        # Vision model: send low-res base64 to LLM
+        try:
+            import base64
+            with open(path, "rb") as f:
+                raw = f.read(500_000)  # limit to 500KB
+            img_b64 = base64.b64encode(raw).decode()
+            mime = "image/png" if ext == ".png" else "image/jpeg"
+            vision_result = _call_llm_vision(provider, api_key, model,
+                "Describe this image in 2-3 sentences for file naming purposes. Focus on: subject, location, date if visible, key objects.",
+                img_b64, mime)
+            if "text" in vision_result:
+                file_context = vision_result["text"][:500]
+                context_method = "vision"
+        except Exception:
+            pass
+
+    elif ext == ".pdf":
+        # Extract first page text
+        try:
+            import pdfplumber
+            with pdfplumber.open(path) as pdf:
+                if pdf.pages:
+                    file_context = (pdf.pages[0].extract_text() or "")[:1500]
+                    context_method = "pdf_text"
+        except ImportError:
+            try:
+                from PyPDF2 import PdfReader
+                reader = PdfReader(path)
+                if reader.pages:
+                    file_context = (reader.pages[0].extract_text() or "")[:1500]
+                    context_method = "pdf_text"
+            except ImportError:
+                pass
+
+    elif ext in code_exts:
         try:
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 file_context = f.read(2000)
+            context_method = "code_preview"
         except:
             pass
 
-    full_prompt = f"{prompt}\n\nCurrent filename: {name}\nFile size: {file_size} bytes\nExtension: {ext}"
+    elif ext in text_exts | data_exts | doc_exts:
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                file_context = f.read(2000)
+            context_method = "text_preview"
+        except:
+            pass
+
+    else:
+        # Audio/Video: try to read EXIF/metadata via file header
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                file_context = f.read(500)
+            context_method = "header_preview"
+        except:
+            pass
+
+    # ── Step 2: LLM Prompt with format enforcement ──
+    today = __import__("datetime").date.today().isoformat()
+    sys_prompt = args.get("system_prompt",
+        "You are an expert file organizer. Based on the file content provided, "
+        "generate exactly 3 highly descriptive, concise filename stems (NO extension). "
+        f"Use the naming format: {naming_format}. "
+        f"Maximum {max_length} characters per name. "
+        "Return STRICTLY a JSON array of 3 strings, nothing else.")
+
+    content_block = ""
     if file_context:
-        full_prompt += f"\nFile content preview:\n{file_context[:1000]}"
+        content_block = f"\nExtracted content ({context_method}):\n{file_context[:1200]}"
 
-    sys_prompt = args.get("system_prompt", "")
-    suggested = _call_llm(provider, api_key, model, full_prompt, system_prompt=sys_prompt)
-    if "error" in suggested:
-        return suggested
+    full_prompt = (
+        f"Current filename: {name}\n"
+        f"File size: {file_size} bytes\n"
+        f"Extension: {ext}\n"
+        f"Today's date: {today}"
+        f"{content_block}\n\n"
+        f"Generate 3 filename suggestions (stems only, no extension). "
+        f"Return as JSON array: [\"name1\", \"name2\", \"name3\"]"
+    )
+    if date_prefix:
+        full_prompt += f"\nAlways prepend today's date ({today}) to each name."
 
-    new_name = suggested["text"].strip().strip('"').strip("'") + ext
-    new_path = os.path.join(os.path.dirname(path), new_name)
-    return {"suggested_name": new_name, "original_name": name,
-            "new_path": new_path, "preview": True}
+    result = _call_llm(provider, api_key, model, full_prompt, system_prompt=sys_prompt)
+    if "error" in result:
+        return result
+
+    # ── Step 3: Parse suggestions ──
+    text = result["text"].strip()
+    suggestions = []
+    try:
+        # Extract JSON array from response (handles markdown code blocks)
+        if "```" in text:
+            start = text.index("[")
+            end = text.rindex("]") + 1
+            text = text[start:end]
+        elif text.startswith("["):
+            pass
+        else:
+            # Try to find array in text
+            start = text.index("[")
+            end = text.rindex("]") + 1
+            text = text[start:end]
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            suggestions = [str(s).strip().strip('"').strip("'")[:max_length] for s in parsed[:3]]
+    except (json.JSONDecodeError, ValueError):
+        # Fallback: treat entire response as single suggestion
+        clean = text.strip().strip('"').strip("'").strip("[]")
+        suggestions = [clean[:max_length]]
+
+    if not suggestions:
+        return {"error": "LLM returned no suggestions"}
+
+    # Build full paths for each suggestion (extension always preserved by Rust)
+    original_dir = os.path.dirname(path)
+    results = []
+    for stem in suggestions:
+        full_name = stem + ext
+        results.append({
+            "stem": stem,
+            "full_name": full_name,
+            "new_path": os.path.join(original_dir, full_name)
+        })
+
+    return {
+        "suggestions": results,
+        "original_name": name,
+        "original_stem": os.path.splitext(name)[0],
+        "extension": ext,
+        "context_method": context_method,
+        "preview": True
+    }
 
 
 def smart_sort(args):
@@ -1081,6 +1205,65 @@ def _call_llm_vision(provider, api_key, model, prompt, img_b64, mime):
         return {"error": str(e)}
 
 
+def _vt_parse_report(data, scan_type, identifier):
+    """Parse a VT API v3 response into a rich result dict for the GUI."""
+    attrs = data.get("data", {}).get("attributes", {})
+    stats = attrs.get("last_analysis_stats", {})
+    results = attrs.get("last_analysis_results", {})
+    malicious = stats.get("malicious", 0) + stats.get("suspicious", 0)
+    total = sum(stats.values()) if stats else 0
+    verdict = "malicious" if malicious > 0 else "safe"
+
+    # Build per-engine detections list (only flagged engines)
+    detections = []
+    for eng_name, eng_data in results.items():
+        cat = eng_data.get("category", "")
+        if cat in ("malicious", "suspicious"):
+            detections.append({
+                "engine": eng_name,
+                "category": cat,
+                "result": eng_data.get("result", ""),
+                "version": eng_data.get("engine_version", ""),
+            })
+    detections.sort(key=lambda d: d["engine"])
+
+    report = {
+        "scan_type": scan_type,
+        "verdict": verdict,
+        "malicious": malicious,
+        "total": total,
+        "stats": stats,
+        "detections": detections,
+    }
+
+    if scan_type == "file":
+        report["hash"] = identifier
+        report["sha1"] = attrs.get("sha1", "")
+        report["md5"] = attrs.get("md5", "")
+        report["file_type"] = attrs.get("type_description", "")
+        report["file_size"] = attrs.get("size", 0)
+        report["names"] = attrs.get("names", [])[:5]
+        report["tags"] = attrs.get("tags", [])[:10]
+        report["reputation"] = attrs.get("reputation", 0)
+        votes = attrs.get("total_votes", {})
+        report["community_votes"] = {"harmless": votes.get("harmless", 0), "malicious": votes.get("malicious", 0)}
+        report["last_analysis_date"] = attrs.get("last_analysis_date", 0)
+        report["first_submission_date"] = attrs.get("first_submission_date", 0)
+        report["magic"] = attrs.get("magic", "")
+    else:
+        report["url"] = identifier
+        report["last_final_url"] = attrs.get("last_final_url", identifier)
+        report["title"] = attrs.get("title", "")
+        report["last_analysis_date"] = attrs.get("last_analysis_date", 0)
+        cats = attrs.get("categories", {})
+        report["categories"] = list(set(cats.values()))[:5] if cats else []
+        report["reputation"] = attrs.get("reputation", 0)
+        votes = attrs.get("total_votes", {})
+        report["community_votes"] = {"harmless": votes.get("harmless", 0), "malicious": votes.get("malicious", 0)}
+
+    return report
+
+
 def scan_virustotal(args):
     """Scan a file hash or URL via the VirusTotal API v3."""
     import urllib.request, urllib.error, hashlib
@@ -1105,12 +1288,7 @@ def scan_virustotal(args):
             req = urllib.request.Request(api_url, headers=headers)
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode())
-            stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
-            malicious = stats.get("malicious", 0)
-            total = sum(stats.values()) if stats else 0
-            verdict = "malicious" if malicious > 0 else "safe"
-            return {"scan_type": "file", "hash": file_hash, "verdict": verdict,
-                    "malicious": malicious, "total": total, "stats": stats}
+            return _vt_parse_report(data, "file", file_hash)
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return {"scan_type": "file", "hash": file_hash, "verdict": "unknown",
@@ -1120,7 +1298,7 @@ def scan_virustotal(args):
             return {"error": str(e)}
 
     elif url:
-        # URL scan: submit URL for analysis
+        # URL scan: look up URL report, submit if not found
         import base64 as b64mod
         url_id = b64mod.urlsafe_b64encode(url.encode()).decode().rstrip("=")
         api_url = f"https://www.virustotal.com/api/v3/urls/{url_id}"
@@ -1128,12 +1306,7 @@ def scan_virustotal(args):
             req = urllib.request.Request(api_url, headers=headers)
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode())
-            stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
-            malicious = stats.get("malicious", 0) + stats.get("suspicious", 0)
-            total = sum(stats.values()) if stats else 0
-            verdict = "malicious" if malicious > 0 else "safe"
-            return {"scan_type": "url", "url": url, "verdict": verdict,
-                    "malicious": malicious, "total": total, "stats": stats}
+            return _vt_parse_report(data, "url", url)
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 # URL not yet scanned — submit it

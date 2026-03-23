@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useZenithStore, type PreviewPane } from "../store";
 import { formatFileSize, getExtensionColor } from "../utils";
+import { SpotlightCard } from "./ReactBits";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff", "svg", "ico"]);
 const VIDEO_EXTS = new Set(["mp4", "webm", "ogv", "m4v"]);
@@ -275,6 +276,7 @@ function SinglePreviewPane({ pane, onClose }: { pane: PreviewPane; onClose: () =
         maxHeight: "320px",
       }}
     >
+    <SpotlightCard className="rounded-xl" spotlightColor="rgba(34,211,238,0.10)">
       {/* Preview header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-white/5" style={{ background: "rgba(0,0,0,0.15)" }}>
         <div
@@ -301,6 +303,7 @@ function SinglePreviewPane({ pane, onClose }: { pane: PreviewPane; onClose: () =
       </div>
       {/* Preview body */}
       <PreviewContent pane={pane} />
+    </SpotlightCard>
     </motion.div>
   );
 }

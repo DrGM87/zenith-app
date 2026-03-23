@@ -8,6 +8,7 @@ import { useZenithStore } from "../store";
 import { StagedItemCard } from "./StagedItemCard";
 import { PreviewDrawer } from "./PreviewDrawer";
 import { useMagneticHover } from "../hooks/useMagneticHover";
+import { BorderGlow, SoftAurora, MagicRings } from "./ReactBits";
 
 export function Bubble() {
   const {
@@ -31,6 +32,10 @@ export function Bubble() {
     loadItems,
     loadSettings,
     trackTokenUsage,
+    renameUndoCount,
+    renameRedoCount,
+    refreshRenameCounts,
+    setBatchRenameMode,
   } = useZenithStore();
 
   const [zipping, setZipping] = useState(false);
@@ -66,11 +71,13 @@ export function Bubble() {
   const sc = settings?.shortcuts;
 
   const accent = ap?.accent_color ?? "#22d3ee";
-  const opacity = ap?.opacity ?? 0.92;
-  const blur = ap?.blur_strength ?? 40;
   const radius = ap?.corner_radius ?? 20;
   const fontSize = ap?.font_size ?? 13;
   const collapseDelay = bh?.collapse_delay_ms ?? 1200;
+  const glowEnabled = ap?.border_glow !== false;
+  const glowSpeed = ap?.border_glow_speed ?? 4;
+  const auroraEnabled = ap?.aurora_bg !== false;
+  const auroraSpeed = ap?.aurora_speed ?? 8;
 
   const spring = useMemo(() => {
     const speed = ap?.animation_speed ?? 1;
@@ -97,8 +104,9 @@ export function Bubble() {
   }, [setExpanded, setDragOver, collapseDelay, pinned]);
 
   useEffect(() => {
-    loadSettings();
     loadItems();
+    loadSettings();
+    refreshRenameCounts();
     invoke("resize_window", { expanded: false });
 
     const unlisten = listen<{ paths: string[] }>("tauri://drag-drop", (event) => {
@@ -245,27 +253,25 @@ export function Bubble() {
             transition={spring}
             onMouseEnter={expand}
             onMouseLeave={scheduleCollapse}
-            className="w-full flex flex-col overflow-hidden"
+            className="w-full flex flex-col"
+            style={{ maxHeight: "calc(100vh - 24px)" }}
+          >
+          <BorderGlow color1={`${accent}66`} color2="rgba(139,92,246,0.4)" borderRadius={radius} speed={glowSpeed} enabled={glowEnabled}>
+          <div
+            className="w-full flex flex-col overflow-hidden relative"
             style={{
               maxHeight: "calc(100vh - 24px)",
-              background: `rgba(18, 18, 24, ${opacity})`,
-              backdropFilter: `blur(${blur}px) saturate(180%)`,
-              WebkitBackdropFilter: `blur(${blur}px) saturate(180%)`,
+              background: "rgb(14, 14, 20)",
               borderRadius: `${radius}px`,
-              border: "1px solid rgba(255, 255, 255, 0.08)",
-              boxShadow:
-                "0 32px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 1px 0 rgba(255, 255, 255, 0.06) inset",
+              border: "1px solid rgba(255, 255, 255, 0.06)",
+              boxShadow: "0 32px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.03) inset",
             }}
           >
+            {auroraEnabled && <SoftAurora color1={`${accent}18`} color2="rgba(139,92,246,0.10)" color3="rgba(236,72,153,0.05)" speed={auroraSpeed} />}
             {/* Header */}
             <div className="flex items-center justify-between px-4 pt-4 pb-2">
               <div className="flex items-center gap-2.5">
-                <motion.div
-                  className="w-2 h-2 rounded-full"
-                  style={{ background: accent }}
-                  animate={{ scale: [1, 1.3, 1] }}
-                  transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-                />
+                <MagicRings color={accent} color2="#ec4899" color3="#f59e0b" size={21} />
                 <span style={{ fontSize: `${fontSize}px` }} className="font-semibold text-white/90 tracking-wide uppercase">
                   Zenith
                 </span>
@@ -288,6 +294,47 @@ export function Bubble() {
                     Clear all
                   </motion.button>
                 )}
+                {/* Undo/Redo rename buttons */}
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  disabled={renameUndoCount === 0}
+                  onClick={async () => {
+                    try {
+                      const r = JSON.parse(await invoke<string>("undo_last_rename"));
+                      if (r.undone) {
+                        setFooterToast(`Undo: restored ${r.restored_path.split(/[\\/]/).pop()}`);
+                        setTimeout(() => setFooterToast(null), 2500);
+                        refreshRenameCounts();
+                        loadItems();
+                      }
+                    } catch (e) { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); }
+                  }}
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${renameUndoCount > 0 ? "text-white/50 hover:text-white/90 hover:bg-white/5" : "text-white/15 cursor-not-allowed"}`}
+                  title={`Undo rename (${renameUndoCount})`}
+                >
+                  <i className="fa-solid fa-rotate-left text-[11px]" />
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  disabled={renameRedoCount === 0}
+                  onClick={async () => {
+                    try {
+                      const r = JSON.parse(await invoke<string>("redo_last_rename"));
+                      if (r.redone) {
+                        setFooterToast(`Redo: renamed to ${r.new_path.split(/[\\/]/).pop()}`);
+                        setTimeout(() => setFooterToast(null), 2500);
+                        refreshRenameCounts();
+                        loadItems();
+                      }
+                    } catch (e) { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); }
+                  }}
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${renameRedoCount > 0 ? "text-white/50 hover:text-white/90 hover:bg-white/5" : "text-white/15 cursor-not-allowed"}`}
+                  title={`Redo rename (${renameRedoCount})`}
+                >
+                  <i className="fa-solid fa-rotate-right text-[11px]" />
+                </motion.button>
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
@@ -426,6 +473,67 @@ export function Bubble() {
                             <i className="fa-solid fa-envelope text-[9px] mr-1" />Email
                           </button>
                         </>
+                      )}
+                      {selectedPaths.length >= 1 && (
+                          <button
+                            disabled={batchProcessing !== null}
+                            onClick={async () => {
+                              const vtKey = settings?.vt_api_key;
+                              if (!vtKey) { setFooterToast("Set VirusTotal API key in Settings"); setTimeout(() => setFooterToast(null), 2500); return; }
+                              setBatchProcessing("batch_scan");
+                              let safe = 0, mal = 0, unk = 0;
+                              for (const p of selectedPaths) {
+                                try {
+                                  const argsJson = JSON.stringify({ path: p, vt_api_key: vtKey });
+                                  const r = JSON.parse(await invoke<string>("process_file", { action: "scan_virustotal", argsJson }));
+                                  if (r.ok && r.verdict === "safe") safe++;
+                                  else if (r.ok && r.verdict === "malicious") mal++;
+                                  else unk++;
+                                } catch { unk++; }
+                              }
+                              setFooterToast(`Scan: ${safe} safe, ${mal} malicious, ${unk} unknown`);
+                              setBatchProcessing(null);
+                              setTimeout(() => setFooterToast(null), 4000);
+                            }}
+                            className="px-2 py-0.5 rounded text-[10px] font-medium text-cyan-300 hover:bg-cyan-500/15 transition-colors disabled:opacity-40"
+                            title="VirusTotal scan selected"
+                          >
+                            {batchProcessing === "batch_scan" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-shield-halved text-[9px] mr-1" />}
+                            Scan
+                          </button>
+                      )}
+                      {selectedPaths.length >= 2 && (
+                          <button
+                            disabled={batchProcessing !== null}
+                            onClick={async () => {
+                              setBatchProcessing("batch_rename");
+                              const apiKey = getDefaultApiKey();
+                              if (!apiKey.api_key) { setFooterToast("Set API key in Settings"); setTimeout(() => setFooterToast(null), 2500); setBatchProcessing(null); return; }
+                              setBatchRenameMode(true);
+                              for (const it of selectedItems.filter((i) => i.path.length > 0)) {
+                                useZenithStore.getState().setRenameState(it.id, { itemId: it.id, path: it.path, originalName: it.name, originalStem: it.name.replace(/\.[^.]+$/, ""), extension: it.extension ? `.${it.extension}` : "", suggestions: [], activeIndex: 0, loading: true });
+                                try {
+                                  const argsJson = JSON.stringify({ path: it.path, ...apiKey, system_prompt: settings?.ai_prompts?.smart_rename });
+                                  const resultStr = await invoke<string>("process_file", { action: "smart_rename", argsJson });
+                                  const result = JSON.parse(resultStr);
+                                  if (result.token_usage) trackTokenUsage(result.token_usage.provider, result.token_usage.model, result.token_usage.input_tokens, result.token_usage.output_tokens);
+                                  if (result.ok && result.suggestions?.length > 0) {
+                                    useZenithStore.getState().setRenameState(it.id, { itemId: it.id, path: it.path, originalName: result.original_name, originalStem: result.original_stem, extension: result.extension, suggestions: result.suggestions, activeIndex: 0, loading: false });
+                                  } else {
+                                    useZenithStore.getState().setRenameState(it.id, null);
+                                  }
+                                } catch { useZenithStore.getState().setRenameState(it.id, null); }
+                              }
+                              setBatchProcessing(null);
+                              setFooterToast(`Batch rename: review suggestions on each card`);
+                              setTimeout(() => setFooterToast(null), 3000);
+                            }}
+                            className="px-2 py-0.5 rounded text-[10px] font-medium text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
+                            title="AI Batch Rename selected"
+                          >
+                            {batchProcessing === "batch_rename" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-wand-magic-sparkles text-[9px] mr-1" />}
+                            Rename
+                          </button>
                       )}
                       {selectedItems.filter((i) => i.extension.toLowerCase() === "pdf").length >= 2 && (
                         <button
@@ -774,6 +882,8 @@ export function Bubble() {
                 )}
               </AnimatePresence>
             </div>
+          </div>
+          </BorderGlow>
           </motion.div>
         ) : (
           /* Collapsed pill with magnetic hover */
@@ -788,26 +898,20 @@ export function Bubble() {
             onMouseLeave={() => { scheduleCollapse(); magnetic.onMouseLeave(); }}
             onMouseMove={magnetic.onMouseMove}
             whileHover={{ scale: 1.08 }}
-            className="cursor-pointer flex items-center gap-2 px-4 py-2 select-none"
+            className="cursor-pointer select-none"
+            style={{ ...magnetic.style }}
+          >
+          <BorderGlow color1={`${accent}55`} color2="rgba(139,92,246,0.35)" borderRadius={Math.min(radius, 16)} speed={glowSpeed} enabled={glowEnabled}>
+          <div
+            className="flex items-center gap-2 px-3 py-2 relative overflow-hidden"
             style={{
-              ...magnetic.style,
-              background: `rgba(18, 18, 24, ${Math.min(opacity + 0.05, 1)})`,
-              backdropFilter: `blur(${blur}px) saturate(180%)`,
-              WebkitBackdropFilter: `blur(${blur}px) saturate(180%)`,
+              background: "rgb(14, 14, 20)",
               borderRadius: `${Math.min(radius, 16)}px`,
-              border: "1px solid rgba(255, 255, 255, 0.08)",
-              boxShadow: "0 8px 32px rgba(0, 0, 0, 0.4)",
+              border: "1px solid rgba(255, 255, 255, 0.06)",
+              boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
             }}
           >
-            <motion.div
-              className="w-2 h-2 rounded-full"
-              style={{ background: accent }}
-              animate={{ scale: [1, 1.4, 1], opacity: [0.6, 1, 0.6] }}
-              transition={{ repeat: Infinity, duration: 2 }}
-            />
-            <span className="text-[12px] font-semibold text-white/70 tracking-wide">
-              ZENITH
-            </span>
+            <MagicRings color={accent} color2="#ec4899" color3="#f59e0b" size={18} />
             {items.length > 0 && (
               <motion.span
                 initial={{ scale: 0 }}
@@ -818,6 +922,8 @@ export function Bubble() {
                 {items.length}
               </motion.span>
             )}
+          </div>
+          </BorderGlow>
           </motion.div>
         )}
       </AnimatePresence>

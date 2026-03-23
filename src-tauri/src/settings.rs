@@ -164,7 +164,21 @@ pub struct AppearanceSettings {
     pub accent_color: String,
     pub font_size: f64,
     pub animation_speed: f64,
+    #[serde(default = "default_true")]
+    pub border_glow: bool,
+    #[serde(default = "default_glow_speed")]
+    pub border_glow_speed: f64,
+    #[serde(default = "default_true")]
+    pub aurora_bg: bool,
+    #[serde(default = "default_aurora_speed")]
+    pub aurora_speed: f64,
+    #[serde(default = "default_true")]
+    pub spotlight_cards: bool,
 }
+
+fn default_true() -> bool { true }
+fn default_glow_speed() -> f64 { 4.0 }
+fn default_aurora_speed() -> f64 { 8.0 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorSettings {
@@ -207,6 +221,11 @@ impl Default for ZenithSettings {
                 accent_color: "#22d3ee".to_string(),
                 font_size: 13.0,
                 animation_speed: 1.0,
+                border_glow: true,
+                border_glow_speed: 4.0,
+                aurora_bg: true,
+                aurora_speed: 8.0,
+                spotlight_cards: true,
             },
             behavior: BehaviorSettings {
                 collapse_delay_ms: 1200,

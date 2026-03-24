@@ -893,7 +893,8 @@ fn move_files(moves_json: String) -> Result<String, String> {
 
 #[tauri::command]
 fn undo_moves() -> Result<String, String> {
-    let history_path = std::env::temp_dir().join("Zenith").join("mapping_history.json");
+    let temp = std::env::temp_dir().join("Zenith");
+    let history_path = temp.join("mapping_history.json");
     if !history_path.exists() {
         return Err("No move history found".to_string());
     }
@@ -917,17 +918,167 @@ fn undo_moves() -> Result<String, String> {
         }
     }
 
-    // Clean up empty folders created during organize
+    // Delete downloaded posters from the latest transaction JSON
+    let mut posters_deleted = 0;
+    if let Ok(entries) = fs::read_dir(&temp) {
+        let mut tx_files: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.file_name().unwrap_or_default().to_string_lossy().starts_with("tx_"))
+            .collect();
+        tx_files.sort();
+        if let Some(latest_tx) = tx_files.last() {
+            if let Ok(tx_content) = fs::read_to_string(latest_tx) {
+                if let Ok(tx_data) = serde_json::from_str::<serde_json::Value>(&tx_content) {
+                    if let Some(posters) = tx_data["posters"].as_array() {
+                        for poster in posters {
+                            if let Some(pp) = poster.as_str() {
+                                if fs::remove_file(pp).is_ok() {
+                                    posters_deleted += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            fs::remove_file(latest_tx).ok();
+        }
+    }
+
+    // Clean up empty folders created during organize (walk up parents)
+    let mut dirs_to_check: Vec<PathBuf> = Vec::new();
     for mv in &moves {
         if let Some(new_path) = mv["new_path"].as_str() {
-            if let Some(parent) = PathBuf::from(new_path).parent() {
-                let _ = fs::remove_dir(parent); // Only removes if empty
+            let mut p = PathBuf::from(new_path);
+            while let Some(parent) = p.parent() {
+                if parent == p || parent.to_string_lossy().len() <= 3 { break; }
+                dirs_to_check.push(parent.to_path_buf());
+                p = parent.to_path_buf();
+            }
+        }
+    }
+    // Sort deepest first so we remove children before parents
+    dirs_to_check.sort_by(|a, b| b.to_string_lossy().len().cmp(&a.to_string_lossy().len()));
+    dirs_to_check.dedup();
+    for dir in &dirs_to_check {
+        let _ = fs::remove_dir(dir); // Only removes if empty
+    }
+
+    fs::remove_file(&history_path).ok();
+    Ok(serde_json::json!({"reverted": reverted, "posters_deleted": posters_deleted}).to_string())
+}
+
+#[tauri::command]
+fn walk_directory(paths_json: String) -> Result<String, String> {
+    let input_paths: Vec<String> = serde_json::from_str(&paths_json)
+        .map_err(|e| format!("Invalid JSON: {}", e))?;
+
+    let mut files: Vec<serde_json::Value> = Vec::new();
+
+    for p in &input_paths {
+        let path = PathBuf::from(p);
+        if path.is_file() {
+            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            files.push(serde_json::json!({
+                "path": p,
+                "name": path.file_name().unwrap_or_default().to_string_lossy(),
+                "size": size,
+                "is_expanded": false,
+            }));
+        } else if path.is_dir() {
+            for entry in walkdir::WalkDir::new(&path)
+                .follow_links(true)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let ep = entry.path();
+                if ep.is_file() {
+                    let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    let rel = ep.strip_prefix(&path).unwrap_or(ep);
+                    files.push(serde_json::json!({
+                        "path": ep.to_string_lossy(),
+                        "name": ep.file_name().unwrap_or_default().to_string_lossy(),
+                        "size": size,
+                        "is_expanded": true,
+                        "source_folder": p,
+                        "relative_path": rel.to_string_lossy(),
+                    }));
+                }
             }
         }
     }
 
-    fs::remove_file(&history_path).ok();
-    Ok(serde_json::json!({"reverted": reverted}).to_string())
+    Ok(serde_json::json!({
+        "files": files,
+        "total": files.len(),
+    }).to_string())
+}
+
+#[tauri::command]
+fn execute_studio_plan(moves_json: String) -> Result<String, String> {
+    let moves: Vec<serde_json::Value> = serde_json::from_str(&moves_json)
+        .map_err(|e| format!("Invalid JSON: {}", e))?;
+
+    let mut executed: Vec<serde_json::Value> = Vec::new();
+    let mut poster_files: Vec<String> = Vec::new();
+
+    for mv in &moves {
+        let old_path = mv["old_path"].as_str().ok_or("Missing old_path")?;
+        let new_path = mv["new_path"].as_str().ok_or("Missing new_path")?;
+        let poster_url = mv["poster_url"].as_str().unwrap_or("");
+
+        let new_pb = PathBuf::from(new_path);
+        if let Some(parent) = new_pb.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Cannot create dir: {}", e))?;
+        }
+
+        // Download poster if URL provided
+        if !poster_url.is_empty() {
+            if let Some(parent) = new_pb.parent() {
+                let poster_ext = if poster_url.contains(".png") { "png" } else { "jpg" };
+                let poster_name = format!(
+                    "poster.{}",
+                    poster_ext
+                );
+                let poster_path = parent.join(&poster_name);
+                // Best-effort download — don't fail the whole plan on poster errors
+                if let Ok(output) = std::process::Command::new("curl")
+                    .args(["-sL", "-o", &poster_path.to_string_lossy(), poster_url])
+                    .output()
+                {
+                    if output.status.success() && poster_path.exists() {
+                        poster_files.push(poster_path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+
+        fs::rename(old_path, new_path)
+            .map_err(|e| format!("Failed to move {} -> {}: {}", old_path, new_path, e))?;
+        executed.push(serde_json::json!({"old_path": old_path, "new_path": new_path}));
+    }
+
+    // Save undo mapping (includes poster paths for cleanup)
+    let temp = std::env::temp_dir().join("Zenith");
+    fs::create_dir_all(&temp).ok();
+    let tx_id = uuid::Uuid::new_v4().to_string();
+    let tx_path = temp.join(format!("tx_{}.json", tx_id));
+    let tx_data = serde_json::json!({
+        "moves": executed,
+        "posters": poster_files,
+    });
+    fs::write(&tx_path, serde_json::to_string_pretty(&tx_data).unwrap_or_default()).ok();
+
+    // Also save as latest mapping_history.json for undo_moves compatibility
+    let history_path = temp.join("mapping_history.json");
+    let history_json = serde_json::to_string_pretty(&executed).map_err(|e| e.to_string())?;
+    fs::write(&history_path, &history_json).map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({
+        "moved": executed.len(),
+        "posters_downloaded": poster_files.len(),
+        "transaction_id": tx_id,
+    }).to_string())
 }
 
 #[tauri::command]
@@ -1164,6 +1315,8 @@ pub fn run() {
             email_files,
             move_files,
             undo_moves,
+            execute_studio_plan,
+            walk_directory,
             apply_rename,
             undo_last_rename,
             redo_last_rename,

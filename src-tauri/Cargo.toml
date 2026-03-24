@@ -29,4 +29,5 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 drag = "2"
 wasmtime = "29"
 uuid = { version = "1", features = ["v4"] }
+walkdir = "2"
 

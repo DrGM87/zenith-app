@@ -1205,8 +1205,106 @@ def _call_llm_vision(provider, api_key, model, prompt, img_b64, mime):
         return {"error": str(e)}
 
 
-def _vt_parse_report(data, scan_type, identifier):
-    """Parse a VT API v3 response into a rich result dict for the GUI."""
+def _vt_api_get(api_url, headers, timeout=30):
+    """Helper: GET a VT API v3 endpoint. Returns (data_dict, None) or (None, error_dict)."""
+    import urllib.request, urllib.error
+    try:
+        req = urllib.request.Request(api_url, headers={**headers, "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode()), None
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode()
+        except Exception:
+            pass
+        if e.code == 401:
+            return None, {"error": "Invalid VirusTotal API key. Check Settings > API Keys."}
+        if e.code == 403:
+            return None, {"error": "VirusTotal API: forbidden. Your key may lack permissions or quota is exceeded."}
+        if e.code == 404:
+            return None, {"_not_found": True}
+        if e.code == 429:
+            return None, {"error": "VirusTotal API rate limit reached. Wait a minute and try again."}
+        return None, {"error": f"VirusTotal API HTTP {e.code}: {body[:200]}"}
+    except Exception as e:
+        return None, {"error": f"VirusTotal request failed: {e}"}
+
+
+def _vt_upload_file(path, headers):
+    """Upload a file to VT via POST /files (multipart/form-data). Returns analysis_id or error."""
+    import urllib.request, urllib.error
+    file_size = os.path.getsize(path)
+    filename = os.path.basename(path)
+
+    # For files > 32MB, get a special upload URL
+    upload_url = "https://www.virustotal.com/api/v3/files"
+    if file_size > 32 * 1024 * 1024:
+        data, err = _vt_api_get("https://www.virustotal.com/api/v3/files/upload_url", headers)
+        if err:
+            return None, err
+        upload_url = data.get("data", "")
+        if not upload_url:
+            return None, {"error": "Failed to get upload URL for large file."}
+
+    # Build multipart/form-data body
+    boundary = f"----ZenithVTBoundary{os.urandom(8).hex()}"
+    with open(path, "rb") as f:
+        file_data = f.read()
+
+    body = (
+        f"--{boundary}\r\n"
+        f"Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
+        f"Content-Type: application/octet-stream\r\n\r\n"
+    ).encode() + file_data + f"\r\n--{boundary}--\r\n".encode()
+
+    try:
+        req = urllib.request.Request(
+            upload_url, data=body,
+            headers={**headers, "Content-Type": f"multipart/form-data; boundary={boundary}",
+                     "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read().decode())
+        analysis_id = result.get("data", {}).get("id", "")
+        if not analysis_id:
+            return None, {"error": "Upload succeeded but no analysis ID returned."}
+        return analysis_id, None
+    except urllib.error.HTTPError as e:
+        body_text = ""
+        try:
+            body_text = e.read().decode()[:200]
+        except Exception:
+            pass
+        if e.code == 413:
+            return None, {"error": f"File too large for VirusTotal ({file_size // (1024*1024)}MB). Max ~650MB."}
+        if e.code == 429:
+            return None, {"error": "VirusTotal API rate limit. Wait a minute and retry."}
+        return None, {"error": f"Upload failed HTTP {e.code}: {body_text}"}
+    except Exception as e:
+        return None, {"error": f"Upload failed: {e}"}
+
+
+def _vt_poll_analysis(analysis_id, headers, max_wait=120, interval=10):
+    """Poll GET /analyses/{id} until status is 'completed'. Returns (data, None) or (None, error)."""
+    import time
+    api_url = f"https://www.virustotal.com/api/v3/analyses/{analysis_id}"
+    elapsed = 0
+    while elapsed < max_wait:
+        data, err = _vt_api_get(api_url, headers, timeout=30)
+        if err:
+            return None, err
+        status = data.get("data", {}).get("attributes", {}).get("status", "")
+        if status == "completed":
+            return data, None
+        if status not in ("queued", "in-progress", ""):
+            return None, {"error": f"Unexpected analysis status: {status}"}
+        time.sleep(interval)
+        elapsed += interval
+    return None, {"error": f"Analysis still running after {max_wait}s. Try re-scanning in a minute."}
+
+
+def _vt_parse_report_from_object(data, scan_type, identifier):
+    """Parse a VT file/URL object response (GET /files/{id} or GET /urls/{id})."""
     attrs = data.get("data", {}).get("attributes", {})
     stats = attrs.get("last_analysis_stats", {})
     results = attrs.get("last_analysis_results", {})
@@ -1214,7 +1312,6 @@ def _vt_parse_report(data, scan_type, identifier):
     total = sum(stats.values()) if stats else 0
     verdict = "malicious" if malicious > 0 else "safe"
 
-    # Build per-engine detections list (only flagged engines)
     detections = []
     for eng_name, eng_data in results.items():
         cat = eng_data.get("category", "")
@@ -1228,12 +1325,8 @@ def _vt_parse_report(data, scan_type, identifier):
     detections.sort(key=lambda d: d["engine"])
 
     report = {
-        "scan_type": scan_type,
-        "verdict": verdict,
-        "malicious": malicious,
-        "total": total,
-        "stats": stats,
-        "detections": detections,
+        "scan_type": scan_type, "verdict": verdict, "malicious": malicious,
+        "total": total, "stats": stats, "detections": detections,
     }
 
     if scan_type == "file":
@@ -1264,66 +1357,155 @@ def _vt_parse_report(data, scan_type, identifier):
     return report
 
 
+def _vt_parse_report_from_analysis(data, scan_type, identifier):
+    """Parse a VT analysis object response (GET /analyses/{id})."""
+    attrs = data.get("data", {}).get("attributes", {})
+    stats = attrs.get("stats", {})
+    results = attrs.get("results", {})
+    malicious = stats.get("malicious", 0) + stats.get("suspicious", 0)
+    total = sum(stats.values()) if stats else 0
+    verdict = "malicious" if malicious > 0 else "safe"
+
+    detections = []
+    for eng_name, eng_data in results.items():
+        cat = eng_data.get("category", "")
+        if cat in ("malicious", "suspicious"):
+            detections.append({
+                "engine": eng_name,
+                "category": cat,
+                "result": eng_data.get("result", ""),
+                "version": eng_data.get("engine_version", ""),
+            })
+    detections.sort(key=lambda d: d["engine"])
+
+    report = {
+        "scan_type": scan_type, "verdict": verdict, "malicious": malicious,
+        "total": total, "stats": stats, "detections": detections,
+    }
+    if scan_type == "file":
+        report["hash"] = identifier
+    else:
+        report["url"] = identifier
+    return report
+
+
 def scan_virustotal(args):
-    """Scan a file hash or URL via the VirusTotal API v3."""
-    import urllib.request, urllib.error, hashlib
+    """Scan a file or URL via the VirusTotal API v3.
+
+    File flow:
+      1. SHA-256 hash lookup via GET /files/{hash}
+      2. If not found → upload file via POST /files
+      3. Poll GET /analyses/{id} until completed
+      4. Try GET /files/{hash} again for the full rich report
+      5. Fallback to analysis object if the file report isn't ready yet
+
+    URL flow:
+      1. Base64-encoded URL lookup via GET /urls/{id}
+      2. If not found → submit via POST /urls
+      3. Poll GET /analyses/{id} until completed
+      4. Try GET /urls/{id} again for the full report
+    """
     vt_key = args.get("vt_api_key", "")
     if not vt_key:
         return {"error": "VirusTotal API key required. Add it in Settings > API Keys."}
 
     path = args.get("path", "")
-    url = args.get("url", "")
-
+    url_target = args.get("url", "")
     headers = {"x-apikey": vt_key}
 
+    # ── FILE SCAN ──
     if path and os.path.isfile(path):
-        # File scan: compute SHA-256 and look up the hash
-        sha256 = hashlib.sha256()
+        import hashlib as _hl
+        sha256 = _hl.sha256()
         with open(path, "rb") as f:
             for chunk in iter(lambda: f.read(65536), b""):
                 sha256.update(chunk)
         file_hash = sha256.hexdigest()
-        api_url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
-        try:
-            req = urllib.request.Request(api_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode())
-            return _vt_parse_report(data, "file", file_hash)
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return {"scan_type": "file", "hash": file_hash, "verdict": "unknown",
-                        "message": "File not found in VirusTotal database. Upload it at virustotal.com for analysis."}
-            return {"error": f"VirusTotal API error {e.code}"}
-        except Exception as e:
-            return {"error": str(e)}
 
-    elif url:
-        # URL scan: look up URL report, submit if not found
-        import base64 as b64mod
-        url_id = b64mod.urlsafe_b64encode(url.encode()).decode().rstrip("=")
-        api_url = f"https://www.virustotal.com/api/v3/urls/{url_id}"
+        # Step 1: try hash lookup (fast path — file already known to VT)
+        data, err = _vt_api_get(f"https://www.virustotal.com/api/v3/files/{file_hash}", headers)
+        if data and not err:
+            return _vt_parse_report_from_object(data, "file", file_hash)
+
+        # If error is NOT a 404, return the error
+        if err and not err.get("_not_found"):
+            return err
+
+        # Step 2: file not in VT — upload it
+        analysis_id, upload_err = _vt_upload_file(path, headers)
+        if upload_err:
+            return upload_err
+
+        # Step 3: poll analysis until completed
+        analysis_data, poll_err = _vt_poll_analysis(analysis_id, headers, max_wait=120, interval=10)
+        if poll_err:
+            return poll_err
+
+        # Step 4: try to get the full file report now (richer data)
+        data2, err2 = _vt_api_get(f"https://www.virustotal.com/api/v3/files/{file_hash}", headers)
+        if data2 and not err2:
+            return _vt_parse_report_from_object(data2, "file", file_hash)
+
+        # Fallback: use the analysis object results directly
+        return _vt_parse_report_from_analysis(analysis_data, "file", file_hash)
+
+    # ── URL SCAN ──
+    elif url_target:
+        import base64 as _b64
+        url_id = _b64.urlsafe_b64encode(url_target.encode()).decode().rstrip("=")
+
+        # Step 1: try URL report lookup (fast path)
+        data, err = _vt_api_get(f"https://www.virustotal.com/api/v3/urls/{url_id}", headers)
+        if data and not err:
+            return _vt_parse_report_from_object(data, "url", url_target)
+
+        if err and not err.get("_not_found"):
+            return err
+
+        # Step 2: URL not known — submit for scanning
+        import urllib.request, urllib.error, urllib.parse
         try:
-            req = urllib.request.Request(api_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode())
-            return _vt_parse_report(data, "url", url)
+            submit_data = urllib.parse.urlencode({"url": url_target}).encode()
+            submit_req = urllib.request.Request(
+                "https://www.virustotal.com/api/v3/urls",
+                data=submit_data,
+                headers={**headers, "Content-Type": "application/x-www-form-urlencoded",
+                         "Accept": "application/json"})
+            with urllib.request.urlopen(submit_req, timeout=30) as resp:
+                submit_result = json.loads(resp.read().decode())
+            analysis_id = submit_result.get("data", {}).get("id", "")
+            if not analysis_id:
+                return {"error": "URL submitted but no analysis ID returned."}
         except urllib.error.HTTPError as e:
-            if e.code == 404:
-                # URL not yet scanned — submit it
-                try:
-                    submit_data = urllib.parse.urlencode({"url": url}).encode()
-                    submit_req = urllib.request.Request(
-                        "https://www.virustotal.com/api/v3/urls",
-                        data=submit_data, headers={**headers, "Content-Type": "application/x-www-form-urlencoded"})
-                    with urllib.request.urlopen(submit_req, timeout=30) as resp:
-                        json.loads(resp.read().decode())
-                    return {"scan_type": "url", "url": url, "verdict": "submitted",
-                            "message": "URL submitted for analysis. Re-scan in a minute for results."}
-                except Exception as ex:
-                    return {"error": f"Failed to submit URL: {ex}"}
-            return {"error": f"VirusTotal API error {e.code}"}
-        except Exception as e:
-            return {"error": str(e)}
+            if e.code == 429:
+                return {"error": "VirusTotal API rate limit. Wait a minute and retry."}
+            return {"error": f"Failed to submit URL: HTTP {e.code}"}
+        except Exception as ex:
+            return {"error": f"Failed to submit URL: {ex}"}
+
+        # Step 3: poll analysis
+        analysis_data, poll_err = _vt_poll_analysis(analysis_id, headers, max_wait=60, interval=8)
+        if poll_err:
+            return poll_err
+
+        # Step 4: get the full URL report
+        data2, err2 = _vt_api_get(f"https://www.virustotal.com/api/v3/urls/{url_id}", headers)
+        if data2 and not err2:
+            return _vt_parse_report_from_object(data2, "url", url_target)
+
+        # Fallback: use analysis results
+        return _vt_parse_report_from_analysis(analysis_data, "url", url_target)
+
+    # ── FOLDER SCAN (hash first file inside) ──
+    elif path and os.path.isdir(path):
+        # For folders, scan the first file found inside
+        for root, dirs, files in os.walk(path):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
+                    return scan_virustotal({**args, "path": fpath})
+        return {"error": "No scannable files found in folder."}
+
     else:
         return {"error": "No file path or URL provided for scanning."}
 
@@ -1532,6 +1714,389 @@ def convert_media(args):
         return {"error": "Conversion timed out (5 min limit)."}
 
 
+def smart_organize_studio(args):
+    """v4.6 Auto-Studio: Analyze files by type, call APIs, return a structured plan.
+
+    Routes:
+      - Music (.mp3/.flac/.wav/.ogg/.aac/.m4a) → TheAudioDB lookup
+      - Video (.mp4/.mkv/.avi/.mov/.wmv/.flv/.webm) → OMDB lookup
+      - Images (.jpg/.png/.gif/.bmp/.webp/.tiff/.heic) → LLM vision or EXIF grouping
+      - Documents (.pdf/.doc/.docx/.txt/.md/.csv/.xlsx) → LLM categorization
+      - Other → generic grouping
+
+    Returns a StudioPlan JSON: { folders: [...], base_dir, total_items }
+    """
+    import urllib.request, urllib.error, urllib.parse, re, time, uuid as _uuid
+
+    paths = args.get("paths", [])
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "openai")
+    model = args.get("model", "")
+    omdb_key = args.get("omdb_key", "")
+    base_dir = args.get("base_dir", "")
+    group_images_by = args.get("group_images_by", "date")
+
+    if not paths:
+        return {"error": "No files to organize."}
+    if not base_dir:
+        base_dir = os.path.dirname(paths[0]) if paths else TEMP_DIR
+
+    MUSIC_EXT = {".mp3", ".flac", ".wav", ".ogg", ".aac", ".m4a", ".wma"}
+    VIDEO_EXT = {".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v"}
+    IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".heic", ".heif"}
+    DOC_EXT = {".pdf", ".doc", ".docx", ".txt", ".md", ".csv", ".xlsx", ".xls", ".pptx", ".rtf", ".log"}
+
+    music_files, video_files, image_files, doc_files, other_files = [], [], [], [], []
+    for p in paths:
+        if not os.path.isfile(p):
+            continue
+        ext = os.path.splitext(p)[1].lower()
+        if ext in MUSIC_EXT:
+            music_files.append(p)
+        elif ext in VIDEO_EXT:
+            video_files.append(p)
+        elif ext in IMAGE_EXT:
+            image_files.append(p)
+        elif ext in DOC_EXT:
+            doc_files.append(p)
+        else:
+            other_files.append(p)
+
+    folders = []
+    item_counter = [0]
+
+    def _make_item(old_path, new_name, folder_name, file_type, metadata=None, poster_url=""):
+        item_counter[0] += 1
+        new_path = os.path.join(base_dir, folder_name, new_name)
+        return {
+            "id": f"si_{item_counter[0]}_{_uuid.uuid4().hex[:6]}",
+            "old_path": old_path,
+            "old_name": os.path.basename(old_path),
+            "new_name": new_name,
+            "new_path": new_path,
+            "folder": folder_name,
+            "type": file_type,
+            "enabled": True,
+            "metadata": metadata or {},
+            "poster_url": poster_url,
+            "poster_local": "",
+        }
+
+    # ── MUSIC: TheAudioDB lookup ──
+    if music_files:
+        music_items = []
+        for p in music_files:
+            name = os.path.splitext(os.path.basename(p))[0]
+            ext = os.path.splitext(p)[1]
+            # Try to extract artist - title from filename
+            parts = re.split(r"\s*[-–—]\s*", name, maxsplit=1)
+            artist = parts[0].strip() if len(parts) > 1 else ""
+            track = parts[1].strip() if len(parts) > 1 else name.strip()
+
+            folder_name = "Music"
+            new_name = os.path.basename(p)
+            metadata = {}
+            poster_url = ""
+
+            if artist and track:
+                try:
+                    safe_artist = urllib.parse.quote(artist)
+                    safe_track = urllib.parse.quote(track)
+                    api_url = f"https://www.theaudiodb.com/api/v1/json/2/searchtrack.php?s={safe_artist}&t={safe_track}"
+                    req = urllib.request.Request(api_url, headers={"Accept": "application/json"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        data = json.loads(resp.read().decode())
+                    tracks = data.get("track")
+                    if tracks and len(tracks) > 0:
+                        t = tracks[0]
+                        album = t.get("strAlbum", "Unknown Album")
+                        year = t.get("intYearReleased") or t.get("strReleaseFormat") or ""
+                        art_url = t.get("strTrackThumb") or t.get("strTrack3DCase") or ""
+                        genre = t.get("strGenre", "")
+                        folder_name = f"{album} ({year})" if year else album
+                        clean_track = t.get("strTrack", track)
+                        new_name = f"{clean_track}{ext}"
+                        metadata = {"album": album, "year": str(year), "artist": t.get("strArtist", artist), "genre": genre}
+                        poster_url = art_url
+                    time.sleep(1.5)  # Rate limiting for free tier
+                except Exception:
+                    pass
+
+            music_items.append(_make_item(p, new_name, folder_name, "music", metadata, poster_url))
+
+        # Group music items by folder
+        music_groups = {}
+        for item in music_items:
+            music_groups.setdefault(item["folder"], []).append(item)
+        for folder_name, items in music_groups.items():
+            folders.append({
+                "name": folder_name,
+                "icon": "\U0001f3b5",
+                "items": items,
+                "color": "#a78bfa",
+            })
+
+    # ── VIDEO: OMDB / regex detection ──
+    if video_files:
+        video_items = []
+        for p in video_files:
+            name = os.path.splitext(os.path.basename(p))[0]
+            ext = os.path.splitext(p)[1]
+            folder_name = "Videos"
+            new_name = os.path.basename(p)
+            metadata = {}
+            poster_url = ""
+
+            # Detect SxxExx pattern (TV series)
+            series_match = re.search(r'[Ss](\d{1,2})[Ee](\d{1,3})', name)
+            # Detect year pattern
+            year_match = re.search(r'[\.\s\(\[]?((?:19|20)\d{2})[\.\s\)\]]?', name)
+
+            # Clean the name for API lookup
+            clean = name
+            # Remove common quality/codec tags
+            clean = re.sub(r'[\.\s](1080p|720p|480p|2160p|4[kK]|[Hh]\.?264|[Hh]\.?265|[Hh][Ee][Vv][Cc]|[Xx]264|[Xx]265|BluRay|WEB[\.\-]?DL|WEB[\.\-]?Rip|HDRip|BRRip|DVDRip|HDTV|AMZN|NF|REPACK|PROPER|REMUX|AAC|AC3|DTS|Atmos).*', '', clean, flags=re.IGNORECASE)
+            if series_match:
+                clean = clean[:series_match.start()]
+            elif year_match:
+                clean = clean[:year_match.start()]
+            # Replace dots/underscores with spaces
+            clean = re.sub(r'[\._]+', ' ', clean).strip()
+
+            if omdb_key and clean:
+                try:
+                    safe_title = urllib.parse.quote(clean)
+                    omdb_url = f"http://www.omdbapi.com/?t={safe_title}&apikey={omdb_key}"
+                    if year_match:
+                        omdb_url += f"&y={year_match.group(1)}"
+                    if series_match:
+                        omdb_url += "&type=series"
+                    req = urllib.request.Request(omdb_url, headers={"Accept": "application/json"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        data = json.loads(resp.read().decode())
+                    if data.get("Response") == "True":
+                        title = data.get("Title", clean)
+                        year = data.get("Year", "").split("–")[0]
+                        poster = data.get("Poster", "")
+                        if poster == "N/A":
+                            poster = ""
+                        media_type = data.get("Type", "movie")
+
+                        if media_type == "series" and series_match:
+                            s_num = int(series_match.group(1))
+                            e_num = int(series_match.group(2))
+                            folder_name = f"{title}/Season {s_num}"
+                            new_name = f"{title} S{s_num:02d}E{e_num:02d}{ext}"
+                        else:
+                            folder_name = f"{title} ({year})" if year else title
+                            new_name = f"{title} ({year}){ext}" if year else f"{title}{ext}"
+
+                        metadata = {
+                            "title": title, "year": year, "type": media_type,
+                            "genre": data.get("Genre", ""), "director": data.get("Director", ""),
+                            "imdbRating": data.get("imdbRating", ""), "plot": data.get("Plot", "")[:100],
+                        }
+                        poster_url = poster
+                except Exception:
+                    pass
+
+            video_items.append(_make_item(p, new_name, folder_name, "video", metadata, poster_url))
+
+        video_groups = {}
+        for item in video_items:
+            video_groups.setdefault(item["folder"], []).append(item)
+        for folder_name, items in video_groups.items():
+            folders.append({
+                "name": folder_name,
+                "icon": "\U0001f3ac",
+                "items": items,
+                "color": "#f472b6",
+            })
+
+    # ── IMAGES: EXIF date grouping (default) or LLM vision ──
+    if image_files:
+        image_items = []
+        if group_images_by == "date":
+            for p in image_files:
+                name = os.path.basename(p)
+                folder_name = "Photos"
+                try:
+                    from PIL import Image as PILImage
+                    from PIL.ExifTags import Base as ExifBase
+                    img = PILImage.open(p)
+                    exif = img.getexif()
+                    date_str = exif.get(ExifBase.DateTimeOriginal) or exif.get(ExifBase.DateTime) or ""
+                    if date_str:
+                        # Format: "2026:03:15 14:30:00" → "2026-03"
+                        parts = date_str.split(" ")[0].split(":")
+                        if len(parts) >= 2:
+                            folder_name = f"Photos - {parts[0]}-{parts[1]}"
+                except Exception:
+                    pass
+                image_items.append(_make_item(p, name, folder_name, "image"))
+        else:
+            # LLM-based naming — batch describe for efficiency
+            if api_key:
+                for p in image_files:
+                    name = os.path.basename(p)
+                    ext_str = os.path.splitext(p)[1]
+                    try:
+                        result = _call_llm(provider, api_key, model,
+                            f"Give a short 3-5 word descriptive filename for this image (no extension, use underscores): {name}",
+                            system_prompt="You are a file naming assistant. Return ONLY the filename, nothing else.")
+                        if "error" not in result:
+                            new_stem = result["text"].strip().replace(" ", "_").replace('"', '')[:50]
+                            image_items.append(_make_item(p, f"{new_stem}{ext_str}", "Photos", "image"))
+                            continue
+                    except Exception:
+                        pass
+                    image_items.append(_make_item(p, name, "Photos", "image"))
+            else:
+                for p in image_files:
+                    image_items.append(_make_item(p, os.path.basename(p), "Photos", "image"))
+
+        img_groups = {}
+        for item in image_items:
+            img_groups.setdefault(item["folder"], []).append(item)
+        for folder_name, items in img_groups.items():
+            folders.append({
+                "name": folder_name,
+                "icon": "\U0001f5bc\ufe0f",
+                "items": items,
+                "color": "#34d399",
+            })
+
+    # ── DOCUMENTS: grouping by category (LLM), type, or date ──
+    group_docs_by = args.get("group_docs_by", "category")
+    if doc_files:
+        doc_items = []
+
+        if group_docs_by == "type":
+            # Simple extension-based grouping
+            type_map = {
+                ".pdf": "PDFs", ".doc": "Word Documents", ".docx": "Word Documents",
+                ".txt": "Text Files", ".md": "Markdown", ".csv": "Spreadsheets",
+                ".xlsx": "Spreadsheets", ".xls": "Spreadsheets", ".pptx": "Presentations",
+                ".rtf": "Rich Text", ".log": "Logs",
+            }
+            for p in doc_files:
+                name = os.path.basename(p)
+                ext = os.path.splitext(name)[1].lower()
+                folder = type_map.get(ext, "Documents")
+                doc_items.append(_make_item(p, name, folder, "document"))
+
+        elif group_docs_by == "date":
+            # Group by file modification date (YYYY-MM)
+            for p in doc_files:
+                name = os.path.basename(p)
+                try:
+                    mtime = os.path.getmtime(p)
+                    import datetime
+                    dt = datetime.datetime.fromtimestamp(mtime)
+                    folder = f"Documents - {dt.strftime('%Y-%m')}"
+                except Exception:
+                    folder = "Documents"
+                doc_items.append(_make_item(p, name, folder, "document"))
+
+        else:
+            # category (default) — LLM semantic categorization
+            if api_key:
+                file_info = []
+                for p in doc_files:
+                    name = os.path.basename(p)
+                    ext = os.path.splitext(name)[1].lower()
+                    preview = ""
+                    if ext in {".txt", ".md", ".log", ".csv", ".json", ".xml"}:
+                        try:
+                            with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                                preview = f.read(300).replace("\n", " ").strip()
+                        except Exception:
+                            pass
+                    elif ext == ".pdf":
+                        try:
+                            import pdfplumber
+                            with pdfplumber.open(p) as pdf:
+                                if pdf.pages:
+                                    preview = (pdf.pages[0].extract_text() or "")[:300]
+                        except Exception:
+                            pass
+                    file_info.append({"name": name, "path": p, "ext": ext, "preview": preview[:200]})
+
+                prompt = (
+                    "Categorize these documents. For each, provide a category folder and a clean descriptive filename.\n"
+                    "Return ONLY a JSON array: [{\"name\": \"original.pdf\", \"folder\": \"Financial\", \"new_name\": \"Invoice_March_2026.pdf\"}]\n"
+                    "Categories should be: Business, Personal, Financial, Academic, Legal, Technical, or Misc.\n"
+                    "Keep file extensions. Use clean readable names.\n\nDocuments:\n"
+                )
+                for fi in file_info:
+                    prompt += f"- {fi['name']} ({fi['ext']})"
+                    if fi["preview"]:
+                        prompt += f" preview: {fi['preview'][:100]}"
+                    prompt += "\n"
+
+                try:
+                    result = _call_llm(provider, api_key, model, prompt,
+                        system_prompt=args.get("system_prompt", ""))
+                    if "error" not in result:
+                        text = result["text"].strip()
+                        if "```" in text:
+                            start = text.index("[", text.index("```"))
+                            end = text.rindex("]") + 1
+                            text = text[start:end]
+                        mapping = json.loads(text)
+                        path_lookup = {os.path.basename(p): p for p in doc_files}
+                        mapped_paths = set()
+                        for entry in mapping:
+                            old_name = entry.get("name", "")
+                            old_path = path_lookup.get(old_name)
+                            if not old_path:
+                                continue
+                            mapped_paths.add(old_path)
+                            folder = entry.get("folder", "Documents")
+                            new_name = entry.get("new_name", old_name)
+                            doc_items.append(_make_item(old_path, new_name, folder, "document"))
+                        for p in doc_files:
+                            if p not in mapped_paths:
+                                doc_items.append(_make_item(p, os.path.basename(p), "Documents", "document"))
+                except Exception:
+                    for p in doc_files:
+                        doc_items.append(_make_item(p, os.path.basename(p), "Documents", "document"))
+            else:
+                for p in doc_files:
+                    doc_items.append(_make_item(p, os.path.basename(p), "Documents", "document"))
+
+        doc_groups = {}
+        for item in doc_items:
+            doc_groups.setdefault(item["folder"], []).append(item)
+        for folder_name, items in doc_groups.items():
+            folders.append({
+                "name": folder_name,
+                "icon": "\U0001f4c4",
+                "items": items,
+                "color": "#60a5fa",
+            })
+
+    # ── OTHER FILES ──
+    if other_files:
+        other_items = [_make_item(p, os.path.basename(p), "Other", "other") for p in other_files]
+        folders.append({
+            "name": "Other",
+            "icon": "\U0001f4e6",
+            "items": other_items,
+            "color": "#94a3b8",
+        })
+
+    total_items = sum(len(f["items"]) for f in folders)
+    return {
+        "ok": True,
+        "plan": {
+            "folders": folders,
+            "base_dir": base_dir,
+            "total_items": total_items,
+        }
+    }
+
+
 ACTIONS = {
     "compress_image": compress_image,
     "strip_exif": strip_exif,
@@ -1559,6 +2124,7 @@ ACTIONS = {
     "ocr_to_pdf": ocr_to_pdf,
     "pdf_to_csv": pdf_to_csv,
     "convert_media": convert_media,
+    "smart_organize_studio": smart_organize_studio,
 }
 
 if __name__ == "__main__":

@@ -102,6 +102,7 @@ interface ZenithSettings {
   ai_prompts: AiPrompts;
   token_usage: TokenUsage;
   vt_api_key: string;
+  omdb_api_key: string;
 }
 
 interface PluginInfo {
@@ -751,6 +752,16 @@ export function Settings() {
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/8 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
               <p className="text-[10px] text-white/20 mt-1">Get a free key at <code className="text-white/40">virustotal.com/gui/my-apikey</code></p>
+            </SettingGroup>
+            <SettingGroup title="OMDB (Movies & Series)">
+              <p className="text-[11px] text-white/30 mb-2">Used by Smart Organize to identify movies and TV series, fetch posters, and create clean media folders.</p>
+              <input
+                type="password" placeholder="OMDB API Key"
+                value={settings.omdb_api_key ?? ""}
+                onChange={(e) => save({ ...settings, omdb_api_key: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/8 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
+              />
+              <p className="text-[10px] text-white/20 mt-1">Get a free key at <code className="text-white/40">omdbapi.com/apikey.aspx</code> (1,000 requests/day)</p>
             </SettingGroup>
             <div className="mt-4 p-4 rounded-xl bg-white/3 border border-white/6">
               <p className="text-[11px] text-white/30 leading-relaxed">

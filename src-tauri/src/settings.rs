@@ -126,6 +126,8 @@ pub struct ZenithSettings {
     pub token_usage: TokenUsage,
     #[serde(default)]
     pub vt_api_key: String,
+    #[serde(default)]
+    pub omdb_api_key: String,
 }
 
 fn default_scripts() -> Vec<ScriptEntry> {
@@ -248,6 +250,7 @@ impl Default for ZenithSettings {
             ai_prompts: AiPrompts::default(),
             token_usage: TokenUsage::default(),
             vt_api_key: String::new(),
+            omdb_api_key: String::new(),
         }
     }
 }

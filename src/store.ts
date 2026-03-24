@@ -107,6 +107,41 @@ export interface PreviewPane {
   error?: string;
 }
 
+/* ── Auto-Studio types ── */
+export interface StudioPlanItem {
+  id: string;
+  old_path: string;
+  old_name: string;
+  new_name: string;
+  new_path: string;
+  folder: string;
+  type: "music" | "video" | "image" | "document" | "other";
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+  poster_url?: string;
+  poster_local?: string;
+}
+
+export interface StudioFolder {
+  name: string;
+  icon: string;
+  items: StudioPlanItem[];
+  color: string;
+}
+
+export interface StudioPlan {
+  folders: StudioFolder[];
+  base_dir: string;
+  total_items: number;
+}
+
+export interface StudioProgress {
+  status: string;
+  current: number;
+  total: number;
+  message: string;
+}
+
 export interface ZenithSettings {
   general: { launch_on_startup: boolean; show_tray_icon: boolean; check_for_updates: boolean; plugins_directory: string };
   appearance: AppearanceSettings;
@@ -118,6 +153,7 @@ export interface ZenithSettings {
   ai_prompts: AiPrompts;
   token_usage: TokenUsage;
   vt_api_key: string;
+  omdb_api_key: string;
 }
 
 interface ZenithState {
@@ -133,6 +169,13 @@ interface ZenithState {
   batchRenameMode: boolean;
   renameUndoCount: number;
   renameRedoCount: number;
+
+  isStudioOpen: boolean;
+  studioPlan: StudioPlan | null;
+  studioProgress: StudioProgress | null;
+  studioExecuting: boolean;
+  studioGroupImages: "date" | "vision";
+  studioGroupDocs: "category" | "type" | "date";
 
   setExpanded: (expanded: boolean) => void;
   setDragOver: (over: boolean) => void;
@@ -167,6 +210,15 @@ interface ZenithState {
   updatePreviewContent: (id: string, content: string) => void;
   updatePreviewError: (id: string, error: string) => void;
   setPreviewLoading: (id: string, loading: boolean) => void;
+
+  setStudioOpen: (open: boolean) => void;
+  setStudioPlan: (plan: StudioPlan | null) => void;
+  setStudioProgress: (progress: StudioProgress | null) => void;
+  setStudioExecuting: (executing: boolean) => void;
+  setStudioGroupImages: (g: "date" | "vision") => void;
+  setStudioGroupDocs: (g: "category" | "type" | "date") => void;
+  toggleStudioItem: (itemId: string) => void;
+  updateStudioItemName: (itemId: string, newName: string) => void;
 }
 
 export const useZenithStore = create<ZenithState>((set, get) => ({
@@ -182,6 +234,13 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
   batchRenameMode: false,
   renameUndoCount: 0,
   renameRedoCount: 0,
+
+  isStudioOpen: false,
+  studioPlan: null,
+  studioProgress: null,
+  studioExecuting: false,
+  studioGroupImages: "date",
+  studioGroupDocs: "category",
 
   setExpanded: (expanded) => set({ isExpanded: expanded }),
   setDragOver: (over) => set({ isDragOver: over }),
@@ -303,6 +362,30 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
   setPreviewLoading: (id: string, loading: boolean) => set((s) => ({
     previewPanes: s.previewPanes.map((p) => p.id === id ? { ...p, loading } : p),
   })),
+
+  setStudioOpen: (open) => set({ isStudioOpen: open }),
+  setStudioPlan: (plan) => set({ studioPlan: plan }),
+  setStudioProgress: (progress) => set({ studioProgress: progress }),
+  setStudioExecuting: (executing) => set({ studioExecuting: executing }),
+  setStudioGroupImages: (g) => set({ studioGroupImages: g }),
+  setStudioGroupDocs: (g) => set({ studioGroupDocs: g }),
+  toggleStudioItem: (itemId) => set((s) => {
+    if (!s.studioPlan) return s;
+    const folders = s.studioPlan.folders.map((f) => ({
+      ...f,
+      items: f.items.map((it) => it.id === itemId ? { ...it, enabled: !it.enabled } : it),
+    }));
+    return { studioPlan: { ...s.studioPlan, folders } };
+  }),
+  updateStudioItemName: (itemId, newName) => set((s) => {
+    if (!s.studioPlan) return s;
+    const ext = newName.includes(".") ? "" : "." + s.studioPlan.folders.flatMap((f) => f.items).find((it) => it.id === itemId)?.old_name.split(".").pop();
+    const folders = s.studioPlan.folders.map((f) => ({
+      ...f,
+      items: f.items.map((it) => it.id === itemId ? { ...it, new_name: newName + ext } : it),
+    }));
+    return { studioPlan: { ...s.studioPlan, folders } };
+  }),
 
   trackTokenUsage: async (provider: string, model: string, inputTokens: number, outputTokens: number) => {
     const s = get().settings;

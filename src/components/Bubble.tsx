@@ -9,6 +9,7 @@ import { StagedItemCard } from "./StagedItemCard";
 import { PreviewDrawer } from "./PreviewDrawer";
 import { useMagneticHover } from "../hooks/useMagneticHover";
 import { BorderGlow, SoftAurora, MagicRings } from "./ReactBits";
+import { ReviewStudio } from "./ReviewStudio";
 
 export function Bubble() {
   const {
@@ -36,6 +37,7 @@ export function Bubble() {
     renameRedoCount,
     refreshRenameCounts,
     setBatchRenameMode,
+    isStudioOpen,
   } = useZenithStore();
 
   const [zipping, setZipping] = useState(false);
@@ -705,34 +707,53 @@ export function Bubble() {
                     {merging ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-file-pdf text-[9px]" />}
                   </button>
                 )}
-                {/* Auto-Organize */}
-                {allPaths.length >= 3 && (
+                {/* Smart Organize → Review Studio */}
+                {allPaths.length >= 2 && (
                   <button
                     disabled={organizing}
                     onClick={async () => {
                       const apiKey = getDefaultApiKey();
-                      if (!apiKey.api_key) { setFooterToast("Set an API key first"); setTimeout(() => setFooterToast(null), 2000); return; }
                       setOrganizing(true);
+                      const { setStudioOpen, setStudioPlan, setStudioProgress } = useZenithStore.getState();
+                      setStudioOpen(true);
+                      setStudioPlan(null);
+                      setStudioProgress({ status: "analyzing", current: 0, total: allPaths.length, message: "Expanding folders..." });
                       try {
-                        const argsJson = JSON.stringify({ paths: allPaths, system_prompt: settings?.ai_prompts?.auto_organize, ...apiKey });
-                        const r = JSON.parse(await invoke<string>("process_file", { action: "auto_organize", argsJson }));
+                        // Phase 1.2: walk directories to flatten folders into individual file paths
+                        const walkResult = JSON.parse(await invoke<string>("walk_directory", { pathsJson: JSON.stringify(allPaths) }));
+                        const flatPaths: string[] = (walkResult.files || []).map((f: { path: string }) => f.path);
+                        if (flatPaths.length === 0) { setStudioProgress(null); setStudioOpen(false); setFooterToast("No files found"); setTimeout(() => setFooterToast(null), 2000); setOrganizing(false); return; }
+                        setStudioProgress({ status: "analyzing", current: 0, total: flatPaths.length, message: `Analyzing ${flatPaths.length} files...` });
+                        const argsJson = JSON.stringify({
+                          paths: flatPaths,
+                          system_prompt: settings?.ai_prompts?.auto_organize,
+                          ...apiKey,
+                          omdb_key: settings?.omdb_api_key || "",
+                          group_images_by: useZenithStore.getState().studioGroupImages,
+                          group_docs_by: useZenithStore.getState().studioGroupDocs,
+                        });
+                        const r = JSON.parse(await invoke<string>("process_file", { action: "smart_organize_studio", argsJson }));
                         if (r.token_usage) trackTokenUsage(r.token_usage.provider, r.token_usage.model, r.token_usage.input_tokens, r.token_usage.output_tokens);
-                        if (r.ok && r.moves) {
-                          const moveResult = JSON.parse(await invoke<string>("move_files", { movesJson: JSON.stringify(r.moves) }));
-                          const moved = JSON.parse(moveResult).moved || 0;
-                          setUndoable(true);
-                          setFooterToast(`${moved} files organized!`);
-                          clearAll();
-                          setTimeout(() => { setFooterToast(null); }, 5000);
+                        if (r.ok && r.plan) {
+                          setStudioPlan(r.plan);
+                          setStudioProgress(null);
+                          setFooterToast(`Plan ready: ${r.plan.total_items} items in ${r.plan.folders.length} folders`);
+                          setTimeout(() => setFooterToast(null), 3000);
                         } else {
-                          setFooterToast(r.error || "Organize failed");
+                          setStudioProgress(null);
+                          setStudioOpen(false);
+                          setFooterToast(r.error || "Studio analysis failed");
                           setTimeout(() => setFooterToast(null), 3000);
                         }
-                      } catch (e) { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); }
-                      finally { setOrganizing(false); }
+                      } catch (e) {
+                        setStudioProgress(null);
+                        setStudioOpen(false);
+                        setFooterToast(String(e));
+                        setTimeout(() => setFooterToast(null), 3000);
+                      } finally { setOrganizing(false); }
                     }}
                     className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white/25 hover:text-purple-400 hover:bg-purple-500/10 transition-colors disabled:opacity-40"
-                    title="Auto-organize files with AI"
+                    title="Smart Organize → Review Studio"
                   >
                     {organizing ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-wand-magic-sparkles text-[9px]" />}
                   </button>
@@ -884,6 +905,9 @@ export function Bubble() {
             </div>
           </div>
           </BorderGlow>
+          <AnimatePresence>
+            {isStudioOpen && <ReviewStudio />}
+          </AnimatePresence>
           </motion.div>
         ) : (
           /* Collapsed pill with magnetic hover */

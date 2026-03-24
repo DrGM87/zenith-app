@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useZenithStore, type StagedItem, type RenameState } from "../store";
 import { formatFileSize, getFileIcon, getExtensionColor } from "../utils";
 import { FolderTree } from "./FolderTree";
-import { SpotlightCard, ShinyBar } from "./ReactBits";
+import { SpotlightCard, ShinyBar, ShinyText, Carousel } from "./ReactBits";
 
 function formatTimeLeft(ms: number): string {
   if (ms <= 0) return "Expired";
@@ -654,11 +654,16 @@ export function StagedItemCard({ item, index }: Props) {
                   title={a.label}
                 >
                   {processing === a.action ? (
-                    <i className="fa-solid fa-spinner fa-spin text-[9px]" />
+                    <>
+                      <i className="fa-solid fa-spinner fa-spin text-[9px]" />
+                      <ShinyText text={a.label} speed={1.5} color={`${a.color || "#94a3b8"}90`} shineColor={a.color || "#94a3b8"} className="text-[10px]" />
+                    </>
                   ) : (
-                    <i className={`${a.icon} text-[9px]`} />
+                    <>
+                      <i className={`${a.icon} text-[9px]`} />
+                      {a.label}
+                    </>
                   )}
-                  {a.label}
                 </button>
               ))}
               {actions.length > 4 && (
@@ -1121,9 +1126,24 @@ export function StagedItemCard({ item, index }: Props) {
                         <button onClick={() => setActionResult(null)} className="px-1 py-0.5 text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
                       </div>
                     </div>
-                    <div className="max-h-32 overflow-y-auto rounded-lg bg-black/20 border border-white/5 p-2">
-                      <pre className="text-[11px] text-white/70 whitespace-pre-wrap break-words font-mono leading-relaxed">{actionResult.text}</pre>
-                    </div>
+                    {actionResult.text.length > 500 ? (
+                      <Carousel
+                        baseWidth={280}
+                        items={actionResult.text.match(/[\s\S]{1,480}/g)?.map((chunk, i, arr) => ({
+                          id: i,
+                          content: (
+                            <div className="rounded-lg bg-black/20 border border-white/5 p-2 h-28 overflow-y-auto">
+                              <pre className="text-[11px] text-white/70 whitespace-pre-wrap break-words font-mono leading-relaxed">{chunk}</pre>
+                              <div className="text-[8px] text-white/20 text-right mt-1">{i + 1}/{arr.length}</div>
+                            </div>
+                          ),
+                        })) ?? []}
+                      />
+                    ) : (
+                      <div className="max-h-32 overflow-y-auto rounded-lg bg-black/20 border border-white/5 p-2">
+                        <pre className="text-[11px] text-white/70 whitespace-pre-wrap break-words font-mono leading-relaxed">{actionResult.text}</pre>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}

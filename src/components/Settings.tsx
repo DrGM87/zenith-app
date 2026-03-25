@@ -103,6 +103,9 @@ interface ZenithSettings {
   token_usage: TokenUsage;
   vt_api_key: string;
   omdb_api_key: string;
+  audiodb_api_key: string;
+  imdb_api_key: string;
+  shazam_auto_recognize: boolean;
 }
 
 interface PluginInfo {
@@ -699,7 +702,7 @@ export function Settings() {
                             const firstModel = (PROVIDER_MODELS[prov] || [])[0]?.id || "";
                             updateApiKey(idx, { provider: prov, model: firstModel });
                           }}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/8 text-[13px] text-white/80 outline-none appearance-none cursor-pointer"
+                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 outline-none appearance-none cursor-pointer"
                         >
                           {LLM_PROVIDERS.map((p) => (
                             <option key={p.value} value={p.value} className="bg-[#1a1a24] text-white">{p.label}</option>
@@ -708,7 +711,7 @@ export function Settings() {
                         <select
                           value={entry.model}
                           onChange={(e) => updateApiKey(idx, { model: e.target.value })}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/8 text-[13px] text-white/80 outline-none appearance-none cursor-pointer"
+                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 outline-none appearance-none cursor-pointer"
                         >
                           {models.length === 0 && <option value="" className="bg-[#1a1a24] text-white">Custom model</option>}
                           {models.map((m) => (
@@ -722,7 +725,7 @@ export function Settings() {
                         type="password" placeholder="API Key (sk-... or similar)"
                         value={entry.key}
                         onChange={(e) => updateApiKey(idx, { key: e.target.value })}
-                        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/8 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
+                        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
                       />
                       {pricing && (
                         <div className="flex items-center gap-3 text-[10px] text-white/30">
@@ -749,19 +752,54 @@ export function Settings() {
                 type="password" placeholder="VirusTotal API Key"
                 value={settings.vt_api_key ?? ""}
                 onChange={(e) => save({ ...settings, vt_api_key: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/8 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
               <p className="text-[10px] text-white/20 mt-1">Get a free key at <code className="text-white/40">virustotal.com/gui/my-apikey</code></p>
             </SettingGroup>
-            <SettingGroup title="OMDB (Movies & Series)">
-              <p className="text-[11px] text-white/30 mb-2">Used by Smart Organize to identify movies and TV series, fetch posters, and create clean media folders.</p>
+            <SettingGroup title="IMDb API (Movies & Series) — Primary">
+              <p className="text-[11px] text-white/30 mb-2">Primary API for movie/series identification. Free tier available, premium key optional.</p>
+              <input
+                type="password" placeholder="imdbapi.dev API Key (optional — free tier works without key)"
+                value={settings.imdb_api_key ?? ""}
+                onChange={(e) => save({ ...settings, imdb_api_key: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
+              />
+              <p className="text-[10px] text-white/20 mt-1">API: <code className="text-white/40">imdbapi.dev</code> — works without a key for basic searches</p>
+            </SettingGroup>
+            <SettingGroup title="OMDB (Movies & Series) — Fallback">
+              <p className="text-[11px] text-white/30 mb-2">Fallback API if imdbapi.dev fails. Used for detailed metadata (ratings, plot, director).</p>
               <input
                 type="password" placeholder="OMDB API Key"
                 value={settings.omdb_api_key ?? ""}
                 onChange={(e) => save({ ...settings, omdb_api_key: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/8 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
               <p className="text-[10px] text-white/20 mt-1">Get a free key at <code className="text-white/40">omdbapi.com/apikey.aspx</code> (1,000 requests/day)</p>
+            </SettingGroup>
+            <SettingGroup title="Shazam Music Recognition">
+              <p className="text-[11px] text-white/30 mb-2">Audio fingerprinting powered by SongRec. Identifies songs from audio files using Shazam's recognition API. Used as a fallback in Smart Organize when filename-based lookup fails.</p>
+              <div className="flex items-center gap-3 mt-1">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.shazam_auto_recognize !== false}
+                    onChange={(e) => save({ ...settings, shazam_auto_recognize: e.target.checked })}
+                    className="accent-amber-400"
+                  />
+                  <span className="text-[11px] text-white/60">Auto-recognize in Smart Organize</span>
+                </label>
+              </div>
+              <p className="text-[10px] text-white/20 mt-1">When enabled, unidentified audio files are fingerprinted and matched via Shazam during Smart Organize. No API key needed.</p>
+            </SettingGroup>
+            <SettingGroup title="TheAudioDB (Music)">
+              <p className="text-[11px] text-white/30 mb-2">Music metadata: album, artist, year, cover art. Free tier uses key <code className="text-white/40">523532</code>. Enter a premium key for higher rate limits.</p>
+              <input
+                type="password" placeholder="Premium API Key (leave empty for free tier)"
+                value={settings.audiodb_api_key ?? ""}
+                onChange={(e) => save({ ...settings, audiodb_api_key: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
+              />
+              <p className="text-[10px] text-white/20 mt-1">API: <code className="text-white/40">theaudiodb.com/free_music_api</code> — free key <code className="text-white/40">523532</code> used by default</p>
             </SettingGroup>
             <div className="mt-4 p-4 rounded-xl bg-white/3 border border-white/6">
               <p className="text-[11px] text-white/30 leading-relaxed">
@@ -1273,7 +1311,7 @@ function TextInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/8 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-cyan-400/40 transition-colors"
+        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-cyan-400/40 transition-colors"
       />
     </div>
   );
@@ -1299,7 +1337,7 @@ function Select({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/8 text-[13px] text-white/80 outline-none focus:border-cyan-400/40 transition-colors appearance-none cursor-pointer"
+        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 outline-none focus:border-cyan-400/40 transition-colors appearance-none cursor-pointer"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value} className="bg-[#1a1a24] text-white">
@@ -1332,7 +1370,7 @@ function TextArea({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         rows={rows}
-        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/8 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-cyan-400/40 transition-colors resize-y font-mono leading-relaxed"
+        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-cyan-400/40 transition-colors resize-y font-mono leading-relaxed"
       />
     </div>
   );

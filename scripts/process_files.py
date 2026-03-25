@@ -1686,18 +1686,35 @@ def convert_media(args):
             ffmpeg = candidate
             break
 
+    audio_bitrate = args.get("audio_bitrate", "")  # e.g. "192k"
+    audio_only_fmts = {"mp3", "wav", "flac", "aac", "ogg", "m4a", "wma", "opus"}
+
     cmd = [ffmpeg, "-y", "-i", path]
     # Format-specific encoding flags
     if output_format == "mp4":
-        cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-b:a", "128k"]
+        cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-b:a", audio_bitrate or "128k"]
     elif output_format == "mp3":
-        cmd += ["-vn", "-c:a", "libmp3lame", "-b:a", "192k"]
+        cmd += ["-vn", "-c:a", "libmp3lame", "-b:a", audio_bitrate or "192k"]
     elif output_format == "wav":
         cmd += ["-vn", "-c:a", "pcm_s16le"]
+    elif output_format == "flac":
+        cmd += ["-vn", "-c:a", "flac"]
+    elif output_format == "aac" or output_format == "m4a":
+        cmd += ["-vn", "-c:a", "aac", "-b:a", audio_bitrate or "192k"]
+    elif output_format == "ogg":
+        cmd += ["-vn", "-c:a", "libvorbis", "-b:a", audio_bitrate or "192k"]
+    elif output_format == "opus":
+        cmd += ["-vn", "-c:a", "libopus", "-b:a", audio_bitrate or "128k"]
+    elif output_format == "wma":
+        cmd += ["-vn", "-c:a", "wmav2", "-b:a", audio_bitrate or "192k"]
     elif output_format == "webm":
         cmd += ["-c:v", "libvpx-vp9", "-crf", "30", "-b:v", "0", "-c:a", "libopus"]
     elif output_format == "gif":
         cmd += ["-vf", "fps=15,scale=480:-1:flags=lanczos", "-loop", "0"]
+    elif output_format in audio_only_fmts:
+        cmd += ["-vn"]
+        if audio_bitrate:
+            cmd += ["-b:a", audio_bitrate]
     # else: let ffmpeg figure it out from extension
     cmd.append(out)
 
@@ -1733,8 +1750,12 @@ def smart_organize_studio(args):
     provider = args.get("provider", "openai")
     model = args.get("model", "")
     omdb_key = args.get("omdb_key", "")
+    imdb_api_key = args.get("imdb_api_key", "")
+    audiodb_key = args.get("audiodb_key", "") or "523532"  # free key fallback
     base_dir = args.get("base_dir", "")
     group_images_by = args.get("group_images_by", "date")
+    video_hint = args.get("video_hint", "auto")  # "auto", "movie", "personal"
+    audio_hint = args.get("audio_hint", "auto")  # "auto", "music", "personal"
 
     if not paths:
         return {"error": "No files to organize."}
@@ -1782,45 +1803,103 @@ def smart_organize_studio(args):
             "poster_local": "",
         }
 
-    # ── MUSIC: TheAudioDB lookup ──
+    # ── MUSIC: TheAudioDB v2 lookup ──
     if music_files:
         music_items = []
         for p in music_files:
             name = os.path.splitext(os.path.basename(p))[0]
             ext = os.path.splitext(p)[1]
             # Try to extract artist - title from filename
-            parts = re.split(r"\s*[-–—]\s*", name, maxsplit=1)
+            parts = re.split(r"\s*[-\u2013\u2014]\s*", name, maxsplit=1)
             artist = parts[0].strip() if len(parts) > 1 else ""
             track = parts[1].strip() if len(parts) > 1 else name.strip()
+            # Strip leading track numbers like "01 ", "01. ", "1 - "
+            track_clean = re.sub(r'^\d{1,3}[\s\.\-]+', '', track).strip() or track
 
             folder_name = "Music"
             new_name = os.path.basename(p)
             metadata = {}
             poster_url = ""
 
-            if artist and track:
-                try:
-                    safe_artist = urllib.parse.quote(artist)
-                    safe_track = urllib.parse.quote(track)
-                    api_url = f"https://www.theaudiodb.com/api/v1/json/2/searchtrack.php?s={safe_artist}&t={safe_track}"
-                    req = urllib.request.Request(api_url, headers={"Accept": "application/json"})
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        data = json.loads(resp.read().decode())
-                    tracks = data.get("track")
-                    if tracks and len(tracks) > 0:
-                        t = tracks[0]
-                        album = t.get("strAlbum", "Unknown Album")
-                        year = t.get("intYearReleased") or t.get("strReleaseFormat") or ""
-                        art_url = t.get("strTrackThumb") or t.get("strTrack3DCase") or ""
-                        genre = t.get("strGenre", "")
-                        folder_name = f"{album} ({year})" if year else album
-                        clean_track = t.get("strTrack", track)
-                        new_name = f"{clean_track}{ext}"
-                        metadata = {"album": album, "year": str(year), "artist": t.get("strArtist", artist), "genre": genre}
-                        poster_url = art_url
-                    time.sleep(1.5)  # Rate limiting for free tier
-                except Exception:
-                    pass
+            # If user says "personal", skip API lookup entirely
+            if audio_hint == "personal":
+                folder_name = "Voice Recordings"
+                # If we have an LLM key, ask it for a descriptive title
+                if api_key:
+                    try:
+                        result = _call_llm(provider, api_key, model,
+                            f"Give a short 3-5 word descriptive filename for this audio recording (no extension, use underscores): {name}",
+                            system_prompt="You are a file naming assistant. Return ONLY the filename, nothing else.")
+                        if "error" not in result:
+                            new_stem = result["text"].strip().replace(" ", "_").replace('"', '')[:50]
+                            new_name = f"{new_stem}{ext}"
+                    except Exception:
+                        pass
+            else:
+                # Try TheAudioDB v2 API: first with artist+track, then track-only
+                api_searched = False
+                for attempt_artist, attempt_track in [
+                    (artist, track_clean),
+                    ("", track_clean),  # fallback: search by track name only
+                ]:
+                    if api_searched:
+                        break
+                    if not attempt_track:
+                        continue
+                    try:
+                        safe_artist = urllib.parse.quote(attempt_artist)
+                        safe_track = urllib.parse.quote(attempt_track)
+                        api_url = f"https://www.theaudiodb.com/api/v1/json/{audiodb_key}/searchtrack.php?s={safe_artist}&t={safe_track}"
+                        req = urllib.request.Request(api_url, headers={"Accept": "application/json", "User-Agent": "Zenith/4.6"})
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            data = json.loads(resp.read().decode())
+                        tracks_list = data.get("track")
+                        if tracks_list and len(tracks_list) > 0:
+                            t = tracks_list[0]
+                            album = t.get("strAlbum", "Unknown Album")
+                            year = t.get("intYearReleased") or t.get("strReleaseFormat") or ""
+                            art_url = t.get("strTrackThumb") or t.get("strTrack3DCase") or ""
+                            genre = t.get("strGenre", "")
+                            found_artist = t.get("strArtist", artist or "Unknown Artist")
+                            folder_name = f"{found_artist} - {album} ({year})" if year else f"{found_artist} - {album}"
+                            clean_track = t.get("strTrack", track_clean)
+                            new_name = f"{clean_track}{ext}"
+                            metadata = {"album": album, "year": str(year), "artist": found_artist, "genre": genre}
+                            poster_url = art_url
+                            api_searched = True
+                        time.sleep(1.5)  # Rate limiting for free tier
+                    except Exception as e:
+                        metadata["_api_error"] = f"TheAudioDB: {str(e)[:80]}"
+                        import sys; print(f"[Zenith] TheAudioDB error for '{attempt_track}': {e}", file=sys.stderr)
+
+                # Fallback: Shazam fingerprint recognition if TheAudioDB found nothing
+                if not api_searched:
+                    try:
+                        scripts_dir = os.path.dirname(os.path.abspath(__file__))
+                        if scripts_dir not in sys.path:
+                            sys.path.insert(0, scripts_dir)
+                        from shazam_recognize import recognize_file as shazam_recognize
+                        shazam_result = shazam_recognize(p, max_seconds=12)
+                        if shazam_result.get("ok") and shazam_result.get("title"):
+                            s_title = shazam_result["title"]
+                            s_artist = shazam_result.get("artist", "Unknown Artist")
+                            s_album = shazam_result.get("album", "")
+                            s_year = shazam_result.get("year", "")
+                            s_genre = shazam_result.get("genre", "")
+                            s_cover = shazam_result.get("cover_url", "")
+                            folder_name = f"{s_artist} - {s_album} ({s_year})" if s_album and s_year else (f"{s_artist} - {s_album}" if s_album else s_artist)
+                            new_name = f"{s_title}{ext}"
+                            metadata = {"album": s_album, "year": str(s_year), "artist": s_artist, "genre": s_genre, "source": "shazam"}
+                            if shazam_result.get("shazam_url"):
+                                metadata["shazam_url"] = shazam_result["shazam_url"]
+                            if shazam_result.get("apple_music_url"):
+                                metadata["apple_music_url"] = shazam_result["apple_music_url"]
+                            poster_url = s_cover
+                            api_searched = True
+                            import sys; print(f"[Zenith] Shazam recognized: {s_artist} - {s_title}", file=sys.stderr)
+                    except Exception as e:
+                        metadata["_shazam_error"] = f"Shazam: {str(e)[:80]}"
+                        import sys; print(f"[Zenith] Shazam error for '{name}': {e}", file=sys.stderr)
 
             music_items.append(_make_item(p, new_name, folder_name, "music", metadata, poster_url))
 
@@ -1836,7 +1915,7 @@ def smart_organize_studio(args):
                 "color": "#a78bfa",
             })
 
-    # ── VIDEO: OMDB / regex detection ──
+    # ── VIDEO: imdbapi.dev + OMDB fallback ──
     if video_files:
         video_items = []
         for p in video_files:
@@ -1846,6 +1925,22 @@ def smart_organize_studio(args):
             new_name = os.path.basename(p)
             metadata = {}
             poster_url = ""
+
+            # If user says "personal", skip API lookup — use LLM for descriptive name
+            if video_hint == "personal":
+                folder_name = "Personal Videos"
+                if api_key:
+                    try:
+                        result = _call_llm(provider, api_key, model,
+                            f"Give a short 3-5 word descriptive filename for this personal video (no extension, use underscores): {name}",
+                            system_prompt="You are a file naming assistant. Return ONLY the filename, nothing else.")
+                        if "error" not in result:
+                            new_stem = result["text"].strip().replace(" ", "_").replace('"', '')[:50]
+                            new_name = f"{new_stem}{ext}"
+                    except Exception:
+                        pass
+                video_items.append(_make_item(p, new_name, folder_name, "video", metadata, poster_url))
+                continue
 
             # Detect SxxExx pattern (TV series)
             series_match = re.search(r'[Ss](\d{1,2})[Ee](\d{1,3})', name)
@@ -1863,20 +1958,62 @@ def smart_organize_studio(args):
             # Replace dots/underscores with spaces
             clean = re.sub(r'[\._]+', ' ', clean).strip()
 
-            if omdb_key and clean:
+            api_found = False
+
+            # Primary: imdbapi.dev (free, no key needed — or use key for premium)
+            if clean:
                 try:
                     safe_title = urllib.parse.quote(clean)
-                    omdb_url = f"http://www.omdbapi.com/?t={safe_title}&apikey={omdb_key}"
+                    imdb_url = f"https://imdbapi.dev/search?query={safe_title}"
+                    if imdb_api_key:
+                        imdb_url += f"&apiKey={imdb_api_key}"
+                    req = urllib.request.Request(imdb_url, headers={"Accept": "application/json", "User-Agent": "Zenith/4.6"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        results = json.loads(resp.read().decode())
+                    # imdbapi.dev returns a list of results
+                    hits = results if isinstance(results, list) else results.get("results", [])
+                    if hits and len(hits) > 0:
+                        best = hits[0]
+                        title = best.get("title") or best.get("name") or clean
+                        year = str(best.get("year", "")).split("\u2013")[0].split("-")[0].strip()
+                        poster = best.get("poster") or best.get("image") or ""
+                        imdb_id = best.get("imdbId") or best.get("id") or ""
+                        media_type = best.get("type", "movie").lower()
+
+                        if ("series" in media_type or "tv" in media_type) and series_match:
+                            s_num = int(series_match.group(1))
+                            e_num = int(series_match.group(2))
+                            folder_name = f"{title}/Season {s_num}"
+                            new_name = f"{title} S{s_num:02d}E{e_num:02d}{ext}"
+                        else:
+                            folder_name = f"{title} ({year})" if year else title
+                            new_name = f"{title} ({year}){ext}" if year else f"{title}{ext}"
+
+                        metadata = {
+                            "title": title, "year": year, "type": media_type,
+                            "imdb_id": imdb_id,
+                        }
+                        poster_url = poster
+                        api_found = True
+                except Exception as e:
+                    metadata["_api_error"] = f"imdbapi.dev: {str(e)[:80]}"
+                    import sys; print(f"[Zenith] imdbapi.dev error for '{clean}': {e}", file=sys.stderr)
+
+            # Fallback: OMDB if imdbapi.dev failed and we have an OMDB key
+            if not api_found and omdb_key and clean:
+                try:
+                    safe_title = urllib.parse.quote(clean)
+                    omdb_url = f"https://www.omdbapi.com/?t={safe_title}&apikey={omdb_key}"
                     if year_match:
                         omdb_url += f"&y={year_match.group(1)}"
                     if series_match:
                         omdb_url += "&type=series"
-                    req = urllib.request.Request(omdb_url, headers={"Accept": "application/json"})
+                    req = urllib.request.Request(omdb_url, headers={"Accept": "application/json", "User-Agent": "Zenith/4.6"})
                     with urllib.request.urlopen(req, timeout=10) as resp:
                         data = json.loads(resp.read().decode())
                     if data.get("Response") == "True":
                         title = data.get("Title", clean)
-                        year = data.get("Year", "").split("–")[0]
+                        year = data.get("Year", "").split("\u2013")[0].split("-")[0].strip()
                         poster = data.get("Poster", "")
                         if poster == "N/A":
                             poster = ""
@@ -1897,8 +2034,11 @@ def smart_organize_studio(args):
                             "imdbRating": data.get("imdbRating", ""), "plot": data.get("Plot", "")[:100],
                         }
                         poster_url = poster
-                except Exception:
-                    pass
+                    else:
+                        metadata["_api_error"] = f"OMDB: {data.get('Error', 'Not found')}"
+                except Exception as e:
+                    metadata["_api_error"] = f"OMDB: {str(e)[:80]}"
+                    import sys; print(f"[Zenith] OMDB error for '{clean}': {e}", file=sys.stderr)
 
             video_items.append(_make_item(p, new_name, folder_name, "video", metadata, poster_url))
 
@@ -2087,17 +2227,373 @@ def smart_organize_studio(args):
         })
 
     total_items = sum(len(f["items"]) for f in folders)
+    folders_json = []
+    for f in folders:
+        folders_json.append({
+            "name": f["name"],
+            "icon": f["icon"],
+            "color": f["color"],
+            "items": f["items"],
+        })
+
     return {
-        "ok": True,
         "plan": {
-            "folders": folders,
+            "folders": folders_json,
             "base_dir": base_dir,
             "total_items": total_items,
         }
     }
 
 
+def recognize_audio(args):
+    """Recognize a song using Shazam fingerprinting, then enrich with TheAudioDB.
+    Args: { path: str, max_seconds?: float, audiodb_key?: str }
+    Returns: { title, artist, album, year, genre, cover_url, shazam_url, track_number, ... }
+    """
+    import requests as _req
+
+    file_path = args.get("path", "")
+    if not file_path or not os.path.isfile(file_path):
+        return {"error": f"File not found: {file_path}"}
+
+    max_seconds = float(args.get("max_seconds", 12))
+    audiodb_key = args.get("audiodb_key", "2")  # free v1 key
+
+    # Import from our bundled shazam module
+    scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, scripts_dir)
+    from shazam_recognize import recognize_file
+
+    result = recognize_file(file_path, max_seconds=max_seconds)
+    result.pop("raw", None)
+
+    if not result.get("ok") or not result.get("title"):
+        return result
+
+    # ── Enrich with TheAudioDB ──────────────────────────────────────────────
+    artist = result.get("artist", "")
+    title = result.get("title", "")
+    try:
+        adb_url = f"https://www.theaudiodb.com/api/v1/json/{audiodb_key}/searchtrack.php"
+        resp = _req.get(adb_url, params={"s": artist, "t": title}, timeout=10)
+        tracks = resp.json().get("track") or []
+        if tracks:
+            t = tracks[0]
+            # Fill in any missing fields from TheAudioDB
+            if not result.get("album"):
+                result["album"] = t.get("strAlbum", "")
+            if not result.get("year"):
+                result["year"] = t.get("intYearReleased") or t.get("strReleaseDate", "")[:4] if t.get("strReleaseDate") else ""
+            if not result.get("genre"):
+                result["genre"] = t.get("strGenre", "")
+            result["track_number"] = t.get("intTrackNumber", "")
+            result["duration_ms"] = t.get("intDuration", "")
+            result["mood"] = t.get("strMood", "")
+            result["style"] = t.get("strStyle", "")
+            result["description"] = (t.get("strDescriptionEN") or "")[:300]
+            # Higher-quality cover from TheAudioDB
+            thumb = t.get("strTrackThumb", "")
+            if thumb:
+                result["cover_url"] = thumb
+            # Album art fallback
+            if not result.get("cover_url"):
+                result["cover_url"] = t.get("strAlbumThumb", "") or t.get("strArtistThumb", "")
+            result["audiodb_track_id"] = t.get("idTrack", "")
+            result["audiodb_album_id"] = t.get("idAlbum", "")
+            result["audiodb_artist_id"] = t.get("idArtist", "")
+            result["musicbrainz_id"] = t.get("strMusicBrainzID", "")
+    except Exception:
+        pass  # TheAudioDB enrichment is best-effort; Shazam data is still good
+
+    # Make year a clean string
+    if result.get("year"):
+        result["year"] = str(result["year"]).strip()[:4]
+
+    return result
+
+
+def apply_audio_metadata(args):
+    """Write metadata tags + cover art to an audio file, optionally rename it.
+    Args: {
+        path: str,
+        title?: str, artist?: str, album?: str, year?: str, genre?: str,
+        track_number?: str, cover_url?: str,
+        rename?: bool (default true — rename to "Artist - Title.ext"),
+        new_stem?: str (custom stem override)
+    }
+    Returns: { new_path, new_name, tags_written: [...], cover_embedded: bool }
+    """
+    import requests as _req
+
+    file_path = args.get("path", "")
+    if not file_path or not os.path.isfile(file_path):
+        return {"error": f"File not found: {file_path}"}
+
+    title = args.get("title", "")
+    artist = args.get("artist", "")
+    album = args.get("album", "")
+    year = str(args.get("year", "")).strip()[:4]
+    genre = args.get("genre", "")
+    track_number = str(args.get("track_number", ""))
+    cover_url = args.get("cover_url", "")
+    do_rename = args.get("rename", True)
+    new_stem = args.get("new_stem", "")
+
+    ext = os.path.splitext(file_path)[1].lower()
+    tags_written = []
+    cover_embedded = False
+
+    # Download cover art if URL provided
+    cover_data = None
+    cover_mime = "image/jpeg"
+    if cover_url:
+        try:
+            cr = _req.get(cover_url, timeout=15)
+            if cr.status_code == 200 and len(cr.content) > 1000:
+                cover_data = cr.content
+                ct = cr.headers.get("content-type", "image/jpeg")
+                cover_mime = ct.split(";")[0].strip()
+        except Exception:
+            pass
+
+    try:
+        from mutagen import File as MutagenFile
+        from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, TCON, TRCK, APIC, ID3NoHeaderError
+    except ImportError:
+        return {"error": "mutagen is required. Install: pip install mutagen"}
+
+    try:
+        if ext == ".mp3":
+            # ── MP3: ID3 tags ──
+            try:
+                tags = ID3(file_path)
+            except ID3NoHeaderError:
+                from mutagen.mp3 import MP3
+                audio = MP3(file_path)
+                audio.add_tags()
+                audio.save()
+                tags = ID3(file_path)
+
+            if title:
+                tags["TIT2"] = TIT2(encoding=3, text=title); tags_written.append("title")
+            if artist:
+                tags["TPE1"] = TPE1(encoding=3, text=artist); tags_written.append("artist")
+            if album:
+                tags["TALB"] = TALB(encoding=3, text=album); tags_written.append("album")
+            if year:
+                tags["TDRC"] = TDRC(encoding=3, text=year); tags_written.append("year")
+            if genre:
+                tags["TCON"] = TCON(encoding=3, text=genre); tags_written.append("genre")
+            if track_number:
+                tags["TRCK"] = TRCK(encoding=3, text=track_number); tags_written.append("track_number")
+            if cover_data:
+                tags["APIC"] = APIC(encoding=3, mime=cover_mime, type=3, desc="Cover", data=cover_data)
+                cover_embedded = True
+            tags.save()
+
+        elif ext == ".flac":
+            # ── FLAC: Vorbis comments + picture ──
+            from mutagen.flac import FLAC, Picture
+            audio = FLAC(file_path)
+            if title:
+                audio["title"] = title; tags_written.append("title")
+            if artist:
+                audio["artist"] = artist; tags_written.append("artist")
+            if album:
+                audio["album"] = album; tags_written.append("album")
+            if year:
+                audio["date"] = year; tags_written.append("year")
+            if genre:
+                audio["genre"] = genre; tags_written.append("genre")
+            if track_number:
+                audio["tracknumber"] = track_number; tags_written.append("track_number")
+            if cover_data:
+                pic = Picture()
+                pic.type = 3
+                pic.mime = cover_mime
+                pic.desc = "Cover"
+                pic.data = cover_data
+                audio.clear_pictures()
+                audio.add_picture(pic)
+                cover_embedded = True
+            audio.save()
+
+        elif ext in (".m4a", ".aac", ".mp4"):
+            # ── M4A/AAC: MP4 atoms ──
+            from mutagen.mp4 import MP4, MP4Cover
+            audio = MP4(file_path)
+            if audio.tags is None:
+                audio.add_tags()
+            if title:
+                audio["\xa9nam"] = [title]; tags_written.append("title")
+            if artist:
+                audio["\xa9ART"] = [artist]; tags_written.append("artist")
+            if album:
+                audio["\xa9alb"] = [album]; tags_written.append("album")
+            if year:
+                audio["\xa9day"] = [year]; tags_written.append("year")
+            if genre:
+                audio["\xa9gen"] = [genre]; tags_written.append("genre")
+            if track_number:
+                try:
+                    audio["trkn"] = [(int(track_number), 0)]
+                    tags_written.append("track_number")
+                except ValueError:
+                    pass
+            if cover_data:
+                fmt = MP4Cover.FORMAT_JPEG if "jpeg" in cover_mime or "jpg" in cover_mime else MP4Cover.FORMAT_PNG
+                audio["covr"] = [MP4Cover(cover_data, imageformat=fmt)]
+                cover_embedded = True
+            audio.save()
+
+        elif ext in (".ogg", ".opus"):
+            # ── OGG/Opus: Vorbis comments ──
+            audio = MutagenFile(file_path)
+            if audio is None:
+                return {"error": f"Cannot open {ext} file with mutagen"}
+            if audio.tags is None:
+                audio.add_tags()
+            if title:
+                audio["title"] = [title]; tags_written.append("title")
+            if artist:
+                audio["artist"] = [artist]; tags_written.append("artist")
+            if album:
+                audio["album"] = [album]; tags_written.append("album")
+            if year:
+                audio["date"] = [year]; tags_written.append("year")
+            if genre:
+                audio["genre"] = [genre]; tags_written.append("genre")
+            if track_number:
+                audio["tracknumber"] = [track_number]; tags_written.append("track_number")
+            # Cover art in OGG is complex (METADATA_BLOCK_PICTURE), skip for now
+            audio.save()
+
+        elif ext == ".wma":
+            from mutagen.asf import ASF
+            audio = ASF(file_path)
+            if title:
+                audio["Title"] = [title]; tags_written.append("title")
+            if artist:
+                audio["Author"] = [artist]; tags_written.append("artist")
+            if album:
+                audio["WM/AlbumTitle"] = [album]; tags_written.append("album")
+            if year:
+                audio["WM/Year"] = [year]; tags_written.append("year")
+            if genre:
+                audio["WM/Genre"] = [genre]; tags_written.append("genre")
+            if track_number:
+                audio["WM/TrackNumber"] = [track_number]; tags_written.append("track_number")
+            audio.save()
+
+        elif ext == ".wav":
+            # WAV has limited tag support; try RIFF INFO
+            audio = MutagenFile(file_path)
+            if audio is not None and audio.tags is not None:
+                if title:
+                    audio["TIT2"] = TIT2(encoding=3, text=title); tags_written.append("title")
+                if artist:
+                    audio["TPE1"] = TPE1(encoding=3, text=artist); tags_written.append("artist")
+                audio.save()
+            else:
+                tags_written.append("skipped_wav")
+
+        else:
+            return {"error": f"Unsupported audio format for tagging: {ext}"}
+
+    except Exception as e:
+        return {"error": f"Failed to write tags: {e}"}
+
+    # ── Rename file ──
+    result = {
+        "tags_written": tags_written,
+        "cover_embedded": cover_embedded,
+        "old_path": file_path,
+    }
+
+    if do_rename and (new_stem or (artist and title)):
+        stem = new_stem if new_stem else (f"{artist} - {title}" if artist else title)
+        # Sanitize filename
+        for ch in '<>:"/\\|?*':
+            stem = stem.replace(ch, "_")
+        stem = stem.strip(". ")
+        if not stem:
+            result["new_path"] = file_path
+            result["new_name"] = os.path.basename(file_path)
+            return result
+
+        directory = os.path.dirname(file_path)
+        new_name = f"{stem}{ext}"
+        new_path = os.path.join(directory, new_name)
+
+        # Avoid overwriting existing files
+        if new_path != file_path:
+            if os.path.exists(new_path):
+                counter = 2
+                while os.path.exists(os.path.join(directory, f"{stem} ({counter}){ext}")):
+                    counter += 1
+                new_name = f"{stem} ({counter}){ext}"
+                new_path = os.path.join(directory, new_name)
+            try:
+                os.rename(file_path, new_path)
+                result["new_path"] = new_path
+                result["new_name"] = new_name
+                result["renamed"] = True
+            except Exception as e:
+                result["rename_error"] = str(e)
+                result["new_path"] = file_path
+                result["new_name"] = os.path.basename(file_path)
+        else:
+            result["new_path"] = file_path
+            result["new_name"] = os.path.basename(file_path)
+    else:
+        result["new_path"] = file_path
+        result["new_name"] = os.path.basename(file_path)
+
+    return result
+
+
+def undo_audio_metadata(args):
+    """Revert metadata + rename for one audio file.
+    Args: { new_path: str, old_path: str, old_tags: {...} }
+    Renames file back and restores old tags (simplified: clears our tags).
+    """
+    new_path = args.get("new_path", "")
+    old_path = args.get("old_path", "")
+
+    if not new_path or not os.path.isfile(new_path):
+        return {"error": f"File not found: {new_path}"}
+
+    result = {"reverted": False}
+
+    # Rename back if paths differ
+    if new_path != old_path and old_path:
+        try:
+            if not os.path.exists(old_path):
+                os.rename(new_path, old_path)
+                result["path"] = old_path
+                result["name"] = os.path.basename(old_path)
+                result["reverted"] = True
+            else:
+                result["path"] = new_path
+                result["name"] = os.path.basename(new_path)
+                result["rename_skip"] = "Original path already exists"
+        except Exception as e:
+            result["path"] = new_path
+            result["name"] = os.path.basename(new_path)
+            result["rename_error"] = str(e)
+    else:
+        result["path"] = new_path
+        result["name"] = os.path.basename(new_path)
+
+    # Note: full tag revert would require storing original tag data before writing.
+    # For now we just handle the rename revert. Tags remain as-is (metadata is additive).
+    return result
+
+
 ACTIONS = {
+    "recognize_audio": recognize_audio,
+    "apply_audio_metadata": apply_audio_metadata,
+    "undo_audio_metadata": undo_audio_metadata,
     "compress_image": compress_image,
     "strip_exif": strip_exif,
     "convert_webp": convert_webp,

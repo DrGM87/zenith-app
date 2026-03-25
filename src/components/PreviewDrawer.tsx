@@ -5,6 +5,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { useZenithStore, type PreviewPane } from "../store";
 import { formatFileSize, getExtensionColor } from "../utils";
 import { SpotlightCard } from "./ReactBits";
+import { DraggablePanel } from "./DraggablePanel";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff", "svg", "ico"]);
 const VIDEO_EXTS = new Set(["mp4", "webm", "ogv", "m4v"]);
@@ -309,53 +310,54 @@ function SinglePreviewPane({ pane, onClose }: { pane: PreviewPane; onClose: () =
 }
 
 export function PreviewDrawer() {
-  const { previewPanes, closePreview, closeAllPreviews } = useZenithStore();
+  const { previewPanes, closePreview, closeAllPreviews, settings } = useZenithStore();
+  const accent = settings?.appearance?.accent_color || "#22d3ee";
+  const radius = settings?.appearance?.corner_radius ?? 18;
+  const glowEnabled = settings?.appearance?.border_glow !== false;
+  const glowSpeed = settings?.appearance?.border_glow_speed ?? 3;
 
   if (previewPanes.length === 0) return null;
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0, height: 0 }}
-        animate={{ opacity: 1, height: "auto" }}
-        exit={{ opacity: 0, height: 0 }}
-        className="overflow-hidden"
-      >
-        <div
-          className="px-3 pt-2 pb-1"
-          style={{ borderTop: "1px solid rgba(255, 255, 255, 0.05)" }}
-        >
-          {/* Drawer header */}
-          <div className="flex items-center justify-between mb-2 px-1">
-            <div className="flex items-center gap-1.5">
-              <i className="fa-solid fa-eye text-[9px] text-cyan-400/60" />
-              <span className="text-[9px] text-white/30 font-medium uppercase tracking-wider">
-                Preview ({previewPanes.length})
-              </span>
-            </div>
-            {previewPanes.length > 1 && (
-              <button
-                onClick={closeAllPreviews}
-                className="text-[9px] text-white/20 hover:text-red-400 transition-colors"
-              >
-                Close all
-              </button>
-            )}
+    <DraggablePanel
+      title="Preview"
+      icon="fa-solid fa-eye"
+      iconColor="#22d3ee"
+      accent={accent}
+      radius={radius}
+      glowEnabled={glowEnabled}
+      glowSpeed={glowSpeed}
+      width={380}
+      minWidth={300}
+      minHeight={200}
+      badge={`${previewPanes.length}`}
+      onClose={closeAllPreviews}
+      resizable
+      zIndex={110}
+    >
+      <div className="flex-1 overflow-y-auto px-3 py-2" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent" }}>
+        {previewPanes.length > 1 && (
+          <div className="flex justify-end mb-1">
+            <button
+              onClick={closeAllPreviews}
+              className="text-[9px] text-white/20 hover:text-red-400 transition-colors"
+            >
+              Close all
+            </button>
           </div>
-          {/* Preview panes */}
-          <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pb-1">
-            <AnimatePresence mode="popLayout">
-              {previewPanes.map((pane) => (
-                <SinglePreviewPane
-                  key={pane.id}
-                  pane={pane}
-                  onClose={() => closePreview(pane.id)}
-                />
-              ))}
-            </AnimatePresence>
-          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <AnimatePresence mode="popLayout">
+            {previewPanes.map((pane) => (
+              <SinglePreviewPane
+                key={pane.id}
+                pane={pane}
+                onClose={() => closePreview(pane.id)}
+              />
+            ))}
+          </AnimatePresence>
         </div>
-      </motion.div>
-    </AnimatePresence>
+      </div>
+    </DraggablePanel>
   );
 }

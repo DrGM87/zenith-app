@@ -107,6 +107,35 @@ export interface PreviewPane {
   error?: string;
 }
 
+/* ── Audio recognition types ── */
+export interface AudioRecognitionResult {
+  itemId: string;
+  path: string;
+  title: string;
+  artist: string;
+  album: string;
+  year: string;
+  genre: string;
+  track_number: string;
+  cover_url: string;
+  shazam_url: string;
+  mood?: string;
+  style?: string;
+  description?: string;
+  saved?: boolean;       // true after metadata+rename applied
+  new_path?: string;     // path after rename
+  new_name?: string;
+  error?: string;
+}
+
+export interface AudioUndoEntry {
+  itemId: string;
+  old_path: string;
+  new_path: string;
+  old_name: string;
+  new_name: string;
+}
+
 /* ── Auto-Studio types ── */
 export interface StudioPlanItem {
   id: string;
@@ -154,6 +183,9 @@ export interface ZenithSettings {
   token_usage: TokenUsage;
   vt_api_key: string;
   omdb_api_key: string;
+  audiodb_api_key: string;
+  imdb_api_key: string;
+  shazam_auto_recognize: boolean;
 }
 
 interface ZenithState {
@@ -176,6 +208,18 @@ interface ZenithState {
   studioExecuting: boolean;
   studioGroupImages: "date" | "vision";
   studioGroupDocs: "category" | "type" | "date";
+  studioVideoHint: "auto" | "movie" | "personal";
+  studioAudioHint: "auto" | "music" | "personal";
+
+  // Audio recognition batch state
+  audioResults: Record<string, AudioRecognitionResult>;
+  audioUndoStack: AudioUndoEntry[][];
+  audioRedoStack: AudioUndoEntry[][];
+  setAudioResult: (itemId: string, result: AudioRecognitionResult | null) => void;
+  clearAudioResults: () => void;
+  pushAudioUndo: (entries: AudioUndoEntry[]) => void;
+  popAudioUndo: () => AudioUndoEntry[] | null;
+  popAudioRedo: () => AudioUndoEntry[] | null;
 
   setExpanded: (expanded: boolean) => void;
   setDragOver: (over: boolean) => void;
@@ -217,6 +261,8 @@ interface ZenithState {
   setStudioExecuting: (executing: boolean) => void;
   setStudioGroupImages: (g: "date" | "vision") => void;
   setStudioGroupDocs: (g: "category" | "type" | "date") => void;
+  setStudioVideoHint: (h: "auto" | "movie" | "personal") => void;
+  setStudioAudioHint: (h: "auto" | "music" | "personal") => void;
   toggleStudioItem: (itemId: string) => void;
   updateStudioItemName: (itemId: string, newName: string) => void;
 }
@@ -241,6 +287,42 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
   studioExecuting: false,
   studioGroupImages: "date",
   studioGroupDocs: "category",
+  studioVideoHint: "auto",
+  studioAudioHint: "auto",
+
+  audioResults: {},
+  audioUndoStack: [],
+  audioRedoStack: [],
+  setAudioResult: (itemId, result) => set((s) => {
+    const next = { ...s.audioResults };
+    if (result) next[itemId] = result; else delete next[itemId];
+    return { audioResults: next };
+  }),
+  clearAudioResults: () => set({ audioResults: {} }),
+  pushAudioUndo: (entries) => set((s) => ({
+    audioUndoStack: [...s.audioUndoStack, entries],
+    audioRedoStack: [],
+  })),
+  popAudioUndo: () => {
+    const s = get();
+    if (s.audioUndoStack.length === 0) return null;
+    const entries = s.audioUndoStack[s.audioUndoStack.length - 1];
+    set({
+      audioUndoStack: s.audioUndoStack.slice(0, -1),
+      audioRedoStack: [...s.audioRedoStack, entries],
+    });
+    return entries;
+  },
+  popAudioRedo: () => {
+    const s = get();
+    if (s.audioRedoStack.length === 0) return null;
+    const entries = s.audioRedoStack[s.audioRedoStack.length - 1];
+    set({
+      audioRedoStack: s.audioRedoStack.slice(0, -1),
+      audioUndoStack: [...s.audioUndoStack, entries],
+    });
+    return entries;
+  },
 
   setExpanded: (expanded) => set({ isExpanded: expanded }),
   setDragOver: (over) => set({ isDragOver: over }),
@@ -369,6 +451,8 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
   setStudioExecuting: (executing) => set({ studioExecuting: executing }),
   setStudioGroupImages: (g) => set({ studioGroupImages: g }),
   setStudioGroupDocs: (g) => set({ studioGroupDocs: g }),
+  setStudioVideoHint: (h) => set({ studioVideoHint: h }),
+  setStudioAudioHint: (h) => set({ studioAudioHint: h }),
   toggleStudioItem: (itemId) => set((s) => {
     if (!s.studioPlan) return s;
     const folders = s.studioPlan.folders.map((f) => ({

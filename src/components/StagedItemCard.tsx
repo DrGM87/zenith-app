@@ -34,7 +34,8 @@ const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff"])
 const PDF_EXTS = new Set(["pdf"]);
 const TEXT_EXTS = new Set(["txt", "md", "log", "csv", "json", "xml", "html", "py", "js", "ts", "tsx", "rs", "css"]);
 const DATA_EXTS = new Set(["csv", "tsv"]);
-const MEDIA_EXTS = new Set(["mov", "avi", "mkv", "wmv", "flv", "webm", "m4v", "mp4", "mp3", "wav", "flac", "aac", "ogg", "wma"]);
+const AUDIO_EXTS = new Set(["mp3", "wav", "flac", "aac", "ogg", "wma", "m4a", "opus"]);
+const VIDEO_EXTS = new Set(["mov", "avi", "mkv", "wmv", "flv", "webm", "m4v", "mp4"]);
 // SCANNABLE_EXTS removed — VirusTotal scan is now universal for all files/folders
 const URL_REGEX = /^https?:\/\/[^\s]+$/i;
 
@@ -88,9 +89,15 @@ function getActionsForItem(item: StagedItem): ItemAction[] {
     actions.push({ icon: "fa-solid fa-chart-column", label: "Dashboard", action: "generate_dashboard", color: "#f59e0b" });
   }
 
-  // ── Media conversion (FFmpeg) ──
-  if (hasPath && MEDIA_EXTS.has(ext)) {
-    actions.push({ icon: "fa-solid fa-film", label: "Convert", action: "convert_media", color: "#a855f7" });
+  // ── Audio recognition + conversion (Shazam) ──
+  if (hasPath && AUDIO_EXTS.has(ext)) {
+    actions.push({ icon: "fa-solid fa-music", label: "Recognize", action: "recognize_audio", color: "#10b981" });
+    actions.push({ icon: "fa-solid fa-headphones", label: "Convert Audio", action: "convert_audio", color: "#a855f7" });
+  }
+
+  // ── Video conversion (FFmpeg) ──
+  if (hasPath && VIDEO_EXTS.has(ext)) {
+    actions.push({ icon: "fa-solid fa-film", label: "Convert Video", action: "convert_media", color: "#a855f7" });
   }
 
   // ── Security scan (ALL files and folders) ──
@@ -100,24 +107,38 @@ function getActionsForItem(item: StagedItem): ItemAction[] {
 
   // ── Universal file actions ──
   if (hasPath) {
-    actions.push({ icon: "fa-solid fa-up-right-from-square", label: "Open", action: "open_file", color: "#34d399" });
-    actions.push({ icon: "fa-solid fa-folder-open", label: "Reveal", action: "reveal_in_folder", color: "#60a5fa" });
+    // Audio files: Play + Reveal (no generic Open/Preview which are confusing)
+    if (AUDIO_EXTS.has(ext)) {
+      actions.push({ icon: "fa-solid fa-play", label: "Play", action: "open_file", color: "#34d399" });
+      actions.push({ icon: "fa-solid fa-folder-open", label: "Reveal in Explorer", action: "reveal_in_folder", color: "#60a5fa" });
+    } else {
+      actions.push({ icon: "fa-solid fa-up-right-from-square", label: "Open", action: "open_file", color: "#34d399" });
+      actions.push({ icon: "fa-solid fa-folder-open", label: "Reveal", action: "reveal_in_folder", color: "#60a5fa" });
+    }
     actions.push({ icon: "fa-solid fa-file-zipper", label: "Zip", action: "zip_file", color: "#eab308" });
     actions.push({ icon: "fa-solid fa-lock", label: "Zip + Encrypt", action: "zip_encrypt", color: "#f472b6" });
     actions.push({ icon: "fa-solid fa-scissors", label: "Split", action: "split_file", color: "#fb923c" });
     actions.push({ icon: "fa-solid fa-envelope", label: "Email", action: "email_files", color: "#a78bfa" });
-    actions.push({ icon: "fa-solid fa-wand-magic-sparkles", label: "AI Rename", action: "smart_rename", color: "#c084fc" });
+    // Audio: show "Music ID + Rename" instead of generic AI Rename
+    if (AUDIO_EXTS.has(ext)) {
+      actions.push({ icon: "fa-solid fa-wand-magic-sparkles", label: "AI Rename", action: "smart_rename_audio_ask", color: "#c084fc" });
+    } else {
+      actions.push({ icon: "fa-solid fa-wand-magic-sparkles", label: "AI Rename", action: "smart_rename", color: "#c084fc" });
+    }
   }
-  // ── Preview ──
-  actions.push({ icon: "fa-solid fa-eye", label: "Preview", action: "preview_file", color: "#38bdf8" });
+  // ── Preview (not for audio — they have Play) ──
+  if (!AUDIO_EXTS.has(ext)) {
+    actions.push({ icon: "fa-solid fa-eye", label: "Preview", action: "preview_file", color: "#38bdf8" });
+  }
   actions.push({ icon: "fa-regular fa-copy", label: hasPath ? "Copy Path" : "Copy Text", action: "copy_path", color: "#64748b" });
 
   return actions;
 }
 
 export function StagedItemCard({ item, index }: Props) {
-  const { removeItem, startDragOut, stageFile, toggleSelect, selectedIds, settings, trackTokenUsage, openPreview, setRenameState, cycleRenameSuggestion, renameStates, refreshRenameCounts } = useZenithStore();
+  const { removeItem, startDragOut, stageFile, toggleSelect, selectedIds, settings, trackTokenUsage, openPreview, setRenameState, cycleRenameSuggestion, renameStates, refreshRenameCounts, audioResults, setAudioResult, pushAudioUndo } = useZenithStore();
   const renameState = renameStates[item.id] as RenameState | undefined;
+  const audioResult = audioResults[item.id] ?? null;
   const isSelected = selectedIds.has(item.id);
   const [isHovered, setIsHovered] = useState(false);
   const [showMore, setShowMore] = useState(false);
@@ -143,6 +164,10 @@ export function StagedItemCard({ item, index }: Props) {
   const [showPaletteResult, setShowPaletteResult] = useState<null | Array<{hex: string; rgb: number[]; wcag_on_white: boolean; wcag_on_black: boolean}>>(null);
   const [showBase64Menu, setShowBase64Menu] = useState(false);
   const [showConvertMenu, setShowConvertMenu] = useState(false);
+  const [showAudioConvertMenu, setShowAudioConvertMenu] = useState(false);
+  const [audioBitrate, setAudioBitrate] = useState("192");
+  const [showAudioTypeAsk, setShowAudioTypeAsk] = useState(false);
+  const [recognitionData, setRecognitionData] = useState<Record<string, string> | null>(null);
   const [actionResult, setActionResult] = useState<{ label: string; text: string; action: string } | null>(null);
   const [scanBadge, setScanBadge] = useState<"safe" | "malicious" | "unknown" | null>(null);
   const [vtReport, setVtReport] = useState<Record<string, unknown> | null>(null);
@@ -222,6 +247,8 @@ export function StagedItemCard({ item, index }: Props) {
     if (action === "ask_data") { setShowAskPanel(true); return; }
     if (action === "file_to_base64") { setShowBase64Menu(true); return; }
     if (action === "convert_media") { setShowConvertMenu(true); return; }
+    if (action === "convert_audio") { setShowAudioConvertMenu(true); return; }
+    if (action === "smart_rename_audio_ask") { setShowAudioTypeAsk(true); return; }
 
     // ── v4: VirusTotal scan (file) ──
     if (action === "scan_virustotal_file") {
@@ -311,6 +338,7 @@ export function StagedItemCard({ item, index }: Props) {
       if (action === "ocr_to_pdf") { /* local only, no API key */ }
       if (action === "pdf_to_csv") { Object.assign(extraArgs, getDefaultApiKey()); }
       if (action === "extract_palette") { /* no API key needed */ }
+      if (action === "recognize_audio") { extraArgs.audiodb_key = settings?.audiodb_api_key || "2"; }
 
       const argsJson = JSON.stringify({ path: item.path, ...extraArgs });
       const resultStr = await invoke<string>("process_file", { action, argsJson });
@@ -348,6 +376,36 @@ export function StagedItemCard({ item, index }: Props) {
         else if (result.has_missing_fields !== undefined) showToastMsg(`CSV: ${result.rows} rows${result.has_missing_fields ? " (some N/A)" : ""}`);
         else if (result.rows) showToastMsg(`Dashboard: ${result.rows} rows`);
         else showToastMsg("Done!");
+      } else if (result.ok && result.title && action === "recognize_audio") {
+        // Store in local state for inline action result
+        setRecognitionData({
+          title: result.title || "",
+          artist: result.artist || "",
+          album: result.album || "",
+          year: result.year || "",
+          genre: result.genre || "",
+          cover_url: result.cover_url || "",
+          shazam_url: result.shazam_url || "",
+        });
+        // Also store in global store for batch Save All support
+        setAudioResult(item.id, {
+          itemId: item.id, path: item.path,
+          title: result.title || "", artist: result.artist || "",
+          album: result.album || "", year: result.year || "",
+          genre: result.genre || "", track_number: result.track_number || "",
+          cover_url: result.cover_url || "", shazam_url: result.shazam_url || "",
+          mood: result.mood || "", style: result.style || "",
+          description: result.description || "",
+        });
+        const lines = [`Title: ${result.title}`, `Artist: ${result.artist || "Unknown"}`];
+        if (result.album) lines.push(`Album: ${result.album}`);
+        if (result.year) lines.push(`Year: ${result.year}`);
+        if (result.genre) lines.push(`Genre: ${result.genre}`);
+        if (result.track_number) lines.push(`Track: #${result.track_number}`);
+        setActionResult({ label: "Song Recognized", text: lines.join("\n"), action });
+        showToastMsg(`Recognized: ${result.artist} — ${result.title}`);
+      } else if (result.ok && !result.title && action === "recognize_audio") {
+        showToastMsg("Recognition failed: no match found. Try a different audio segment.");
       } else if (result.ok && result.suggestions) {
         // Handled by smart_rename branch above
       } else if (result.ok && result.suggested_name) {
@@ -457,7 +515,7 @@ export function StagedItemCard({ item, index }: Props) {
       exit={{ opacity: 0, scale: 0.6, y: -10 }}
       transition={{ type: "spring", stiffness: 400, damping: 28, delay: index * 0.04 }}
       onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => { setIsHovered(false); setShowMore(false); setShowTimer(false); setShowPasswordPrompt(false); setShowEmailPrompt(false); setShowCompressOpts(false); setShowResizeOpts(false); setShowSplitOpts(false); setShowTranslateOpts(false); setShowAskPanel(false); setShowBase64Menu(false); setShowConvertMenu(false); }}
+      onMouseLeave={() => { setIsHovered(false); setShowMore(false); setShowTimer(false); setShowPasswordPrompt(false); setShowEmailPrompt(false); setShowCompressOpts(false); setShowResizeOpts(false); setShowSplitOpts(false); setShowTranslateOpts(false); setShowAskPanel(false); setShowBase64Menu(false); setShowConvertMenu(false); setShowAudioConvertMenu(false); setShowAudioTypeAsk(false); }}
       className="group relative flex flex-col rounded-xl transition-colors"
       style={{
         background: isHovered ? "rgba(255, 255, 255, 0.06)" : "rgba(255, 255, 255, 0.02)",
@@ -1104,13 +1162,248 @@ export function StagedItemCard({ item, index }: Props) {
               )}
             </AnimatePresence>
 
-            {/* Action Result Drawer */}
+            {/* Audio convert format menu (audio-only formats + bitrate) */}
+            <AnimatePresence>
+              {showAudioConvertMenu && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-3 pb-2 space-y-1.5">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <i className="fa-solid fa-headphones text-[9px] text-purple-400" />
+                      <span className="text-[9px] text-white/40 mr-1">Convert to:</span>
+                      {[
+                        { label: "MP3", fmt: "mp3" },
+                        { label: "WAV", fmt: "wav" },
+                        { label: "FLAC", fmt: "flac" },
+                        { label: "AAC", fmt: "aac" },
+                        { label: "OGG", fmt: "ogg" },
+                        { label: "M4A", fmt: "m4a" },
+                        { label: "WMA", fmt: "wma" },
+                        { label: "OPUS", fmt: "opus" },
+                      ].filter((o) => o.fmt !== item.extension.toLowerCase()).map((opt) => (
+                        <button
+                          key={opt.fmt}
+                          disabled={processing !== null}
+                          onClick={async () => {
+                            setShowAudioConvertMenu(false);
+                            setProcessing("convert_audio");
+                            try {
+                              const argsJson = JSON.stringify({ path: item.path, output_format: opt.fmt, audio_bitrate: `${audioBitrate}k` });
+                              const r = JSON.parse(await invoke<string>("process_file", { action: "convert_media", argsJson }));
+                              if (r.ok && r.path) {
+                                await stageFile(r.path);
+                                showToastMsg(`Converted to ${opt.label} (${audioBitrate}kbps)`);
+                              } else showToastMsg(`Conversion failed: ${r.error || "Unknown error"}`);
+                            } catch (e) { showToastMsg(`Conversion error: ${String(e)}`); }
+                            finally { setProcessing(null); }
+                          }}
+                          className="px-2 py-1 rounded-md text-[10px] font-medium text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
+                        >{opt.label}</button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-white/40">Bitrate:</span>
+                      <select value={audioBitrate} onChange={(e) => setAudioBitrate(e.target.value)}
+                        className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-white/80 outline-none cursor-pointer">
+                        {["64", "96", "128", "160", "192", "256", "320"].map((b) => (
+                          <option key={b} value={b} className="bg-[#1a1a24] text-white">{b} kbps</option>
+                        ))}
+                      </select>
+                      <span className="text-[8px] text-white/25 ml-1">Lower = smaller file, Higher = better quality</span>
+                      <button onClick={() => setShowAudioConvertMenu(false)} className="px-1 py-1 text-[10px] text-white/30 hover:text-white/60 ml-auto"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Audio type ask: Personal or Music? (for AI Rename on audio files) */}
+            <AnimatePresence>
+              {showAudioTypeAsk && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-3 pb-2">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <i className="fa-solid fa-circle-question text-[9px] text-purple-400" />
+                      <span className="text-[10px] text-white/60">What type of audio is this?</span>
+                      <button onClick={() => setShowAudioTypeAsk(false)} className="px-1 py-1 text-[10px] text-white/30 hover:text-white/60 ml-auto"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        disabled={processing !== null}
+                        onClick={async () => {
+                          setShowAudioTypeAsk(false);
+                          // Music: run Shazam recognition first, then offer rename
+                          setProcessing("recognize_audio");
+                          try {
+                            const argsJson = JSON.stringify({ path: item.path });
+                            const resultStr = await invoke<string>("process_file", { action: "recognize_audio", argsJson });
+                            const result = JSON.parse(resultStr);
+                            if (result.ok && result.title) {
+                              setRecognitionData({
+                                title: result.title || "", artist: result.artist || "",
+                                album: result.album || "", year: result.year || "",
+                                genre: result.genre || "", cover_url: result.cover_url || "",
+                                shazam_url: result.shazam_url || "",
+                              });
+                              const lines = [`Title: ${result.title}`, `Artist: ${result.artist || "Unknown"}`];
+                              if (result.album) lines.push(`Album: ${result.album}`);
+                              if (result.year) lines.push(`Year: ${result.year}`);
+                              if (result.genre) lines.push(`Genre: ${result.genre}`);
+                              setActionResult({ label: "Song Recognized — Rename?", text: lines.join("\n"), action: "recognize_audio" });
+                              showToastMsg(`Recognized: ${result.artist} — ${result.title}`);
+                            } else {
+                              showToastMsg(`Recognition failed: ${result.error || "No match found"}. Falling back to AI Rename.`);
+                              handleAction("smart_rename");
+                            }
+                          } catch (e) {
+                            showToastMsg(`Recognition error: ${String(e)}. Falling back to AI Rename.`);
+                            handleAction("smart_rename");
+                          } finally { setProcessing(null); }
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/20 transition-all disabled:opacity-40"
+                      >
+                        <i className="fa-solid fa-music text-[10px]" />
+                        Music — Identify & Rename
+                      </button>
+                      <button
+                        disabled={processing !== null}
+                        onClick={() => {
+                          setShowAudioTypeAsk(false);
+                          handleAction("smart_rename");
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-violet-500/10 border border-violet-500/20 text-[11px] font-medium text-violet-300 hover:bg-violet-500/20 transition-all disabled:opacity-40"
+                      >
+                        <i className="fa-solid fa-microphone text-[10px]" />
+                        Personal Audio — AI Rename
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Batch recognition result banner (from global store) */}
+            <AnimatePresence>
+              {audioResult && !audioResult.saved && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-3 pb-2">
+                    {audioResult.error ? (
+                      <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20">
+                        <i className="fa-solid fa-circle-xmark text-[9px] text-red-400" />
+                        <span className="text-[10px] text-red-300">{audioResult.error}</span>
+                        <button onClick={() => setAudioResult(item.id, null)} className="ml-auto text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg bg-emerald-500/8 border border-emerald-500/20 p-2 space-y-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <i className="fa-solid fa-music text-[9px] text-emerald-400" />
+                          <span className="text-[10px] font-medium text-emerald-300">
+                            {audioResult.artist} — {audioResult.title}
+                          </span>
+                          <button onClick={() => setAudioResult(item.id, null)} className="ml-auto text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-white/40">
+                          {audioResult.album && <span><span className="text-white/25">Album:</span> {audioResult.album}</span>}
+                          {audioResult.year && <span><span className="text-white/25">Year:</span> {audioResult.year}</span>}
+                          {audioResult.genre && <span><span className="text-white/25">Genre:</span> {audioResult.genre}</span>}
+                          {audioResult.track_number && <span><span className="text-white/25">Track:</span> #{audioResult.track_number}</span>}
+                        </div>
+                        <div className="flex gap-1.5 mt-1">
+                          <button
+                            disabled={processing !== null}
+                            onClick={async () => {
+                              const ar = audioResult;
+                              setProcessing("apply_audio_metadata");
+                              try {
+                                const argsJson = JSON.stringify({
+                                  path: ar.path, title: ar.title, artist: ar.artist,
+                                  album: ar.album, year: ar.year, genre: ar.genre,
+                                  track_number: ar.track_number, cover_url: ar.cover_url,
+                                  rename: true,
+                                });
+                                const r = JSON.parse(await invoke<string>("process_file", { action: "apply_audio_metadata", argsJson }));
+                                if (r.ok) {
+                                  const newPath = r.new_path || ar.path;
+                                  const newName = r.new_name || item.name;
+                                  const oldName = item.name;
+                                  pushAudioUndo([{ itemId: item.id, old_path: ar.path, new_path: newPath, old_name: oldName, new_name: newName }]);
+                                  setAudioResult(item.id, { ...ar, saved: true, new_path: newPath, new_name: newName });
+                                  useZenithStore.setState((st) => ({
+                                    items: st.items.map((it) => it.id === item.id ? { ...it, name: newName, path: newPath } : it),
+                                  }));
+                                  const tagCount = r.tags_written?.length || 0;
+                                  showToastMsg(`Saved: ${tagCount} tags${r.cover_embedded ? " + cover art" : ""}${r.renamed ? ` → ${newName}` : ""}`);
+                                } else {
+                                  showToastMsg(`Save failed: ${r.error || "Unknown error"}`);
+                                }
+                              } catch (e) { showToastMsg(`Save error: ${String(e)}`); }
+                              finally { setProcessing(null); }
+                            }}
+                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/20 transition-all disabled:opacity-40"
+                          >
+                            <i className="fa-solid fa-floppy-disk text-[8px]" />
+                            Save (Tags + Rename + Cover)
+                          </button>
+                          <button
+                            disabled={processing !== null}
+                            onClick={async () => {
+                              const ar = audioResult;
+                              const suggested = ar.artist ? `${ar.artist} - ${ar.title}` : ar.title;
+                              const userInput = prompt("Edit filename:", suggested);
+                              if (!userInput?.trim()) return;
+                              setProcessing("apply_audio_metadata");
+                              try {
+                                const argsJson = JSON.stringify({
+                                  path: ar.path, title: ar.title, artist: ar.artist,
+                                  album: ar.album, year: ar.year, genre: ar.genre,
+                                  track_number: ar.track_number, cover_url: ar.cover_url,
+                                  rename: true, new_stem: userInput.trim(),
+                                });
+                                const r = JSON.parse(await invoke<string>("process_file", { action: "apply_audio_metadata", argsJson }));
+                                if (r.ok) {
+                                  const newPath = r.new_path || ar.path;
+                                  const newName = r.new_name || item.name;
+                                  pushAudioUndo([{ itemId: item.id, old_path: ar.path, new_path: newPath, old_name: item.name, new_name: newName }]);
+                                  setAudioResult(item.id, { ...ar, saved: true, new_path: newPath, new_name: newName });
+                                  useZenithStore.setState((st) => ({
+                                    items: st.items.map((it) => it.id === item.id ? { ...it, name: newName, path: newPath } : it),
+                                  }));
+                                  showToastMsg(`Saved → ${newName}`);
+                                } else showToastMsg(`Save failed: ${r.error || "Unknown"}`);
+                              } catch (e) { showToastMsg(`Save error: ${String(e)}`); }
+                              finally { setProcessing(null); }
+                            }}
+                            className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-[10px] font-medium text-violet-300 hover:bg-violet-500/20 transition-all disabled:opacity-40"
+                            title="Edit name before saving"
+                          >
+                            <i className="fa-solid fa-pen-fancy text-[8px]" />
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+              {audioResult?.saved && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-3 pb-1">
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                      <i className="fa-solid fa-circle-check text-[9px] text-emerald-400" />
+                      <span className="text-[9px] text-emerald-300/70">Saved: {audioResult.artist} — {audioResult.title}</span>
+                      <button onClick={() => setAudioResult(item.id, null)} className="ml-auto text-[10px] text-white/20 hover:text-white/40"><i className="fa-solid fa-xmark text-[8px]" /></button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Action Result Drawer (with Rename button for recognition results) */}
             <AnimatePresence>
               {actionResult && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                   <div className="px-3 pb-2">
                     <div className="flex items-center gap-1.5 mb-1">
-                      <i className="fa-solid fa-sparkles text-[9px] text-cyan-400" />
+                      <i className={`text-[9px] ${recognitionData ? "fa-solid fa-music text-emerald-400" : "fa-solid fa-sparkles text-cyan-400"}`} />
                       <span className="text-[10px] font-medium text-white/50">{actionResult.label}</span>
                       <div className="ml-auto flex gap-1">
                         <button
@@ -1119,11 +1412,11 @@ export function StagedItemCard({ item, index }: Props) {
                           title="Copy to clipboard"
                         ><i className="fa-regular fa-copy text-[8px] mr-0.5" />Copy</button>
                         <button
-                          onClick={() => { setActionResult(null); handleAction(actionResult.action); }}
+                          onClick={() => { setActionResult(null); setRecognitionData(null); handleAction(actionResult.action); }}
                           className="px-1.5 py-0.5 rounded text-[9px] font-medium text-amber-300 hover:bg-amber-500/15 transition-colors"
                           title="Retry this action"
                         ><i className="fa-solid fa-rotate-right text-[8px] mr-0.5" />Retry</button>
-                        <button onClick={() => setActionResult(null)} className="px-1 py-0.5 text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                        <button onClick={() => { setActionResult(null); setRecognitionData(null); }} className="px-1 py-0.5 text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
                       </div>
                     </div>
                     {actionResult.text.length > 500 ? (
@@ -1142,6 +1435,65 @@ export function StagedItemCard({ item, index }: Props) {
                     ) : (
                       <div className="max-h-32 overflow-y-auto rounded-lg bg-black/20 border border-white/5 p-2">
                         <pre className="text-[11px] text-white/70 whitespace-pre-wrap break-words font-mono leading-relaxed">{actionResult.text}</pre>
+                      </div>
+                    )}
+                    {/* Recognition-specific: Rename with recognized info */}
+                    {recognitionData && recognitionData.title && (
+                      <div className="flex gap-1.5 mt-1.5">
+                        <button
+                          disabled={processing !== null}
+                          onClick={async () => {
+                            const rd = recognitionData;
+                            const newStem = rd.artist ? `${rd.artist} - ${rd.title}` : rd.title;
+                            setProcessing("apply_rename");
+                            try {
+                              const r = JSON.parse(await invoke<string>("apply_rename", { oldPath: item.path, newStem }));
+                              if (r.renamed) {
+                                showToastMsg(`Renamed → ${r.new_name}`);
+                                useZenithStore.setState((st) => ({
+                                  items: st.items.map((it) => it.id === item.id ? { ...it, name: r.new_name, path: r.new_path } : it),
+                                }));
+                                refreshRenameCounts();
+                                setActionResult(null);
+                                setRecognitionData(null);
+                              } else showToastMsg(`Rename failed: ${r.reason || "Unknown"}`);
+                            } catch (e) { showToastMsg(`Rename error: ${String(e)}`); }
+                            finally { setProcessing(null); }
+                          }}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/20 transition-all disabled:opacity-40"
+                        >
+                          <i className="fa-solid fa-pen text-[8px]" />
+                          Rename to "{recognitionData.artist ? `${recognitionData.artist} - ${recognitionData.title}` : recognitionData.title}"
+                        </button>
+                        <button
+                          disabled={processing !== null}
+                          onClick={async () => {
+                            const rd = recognitionData;
+                            // Let user edit the name before applying
+                            const suggested = rd.artist ? `${rd.artist} - ${rd.title}` : rd.title;
+                            const userInput = prompt("Edit filename (stem only, extension preserved):", suggested);
+                            if (!userInput || !userInput.trim()) return;
+                            setProcessing("apply_rename");
+                            try {
+                              const r = JSON.parse(await invoke<string>("apply_rename", { oldPath: item.path, newStem: userInput.trim() }));
+                              if (r.renamed) {
+                                showToastMsg(`Renamed → ${r.new_name}`);
+                                useZenithStore.setState((st) => ({
+                                  items: st.items.map((it) => it.id === item.id ? { ...it, name: r.new_name, path: r.new_path } : it),
+                                }));
+                                refreshRenameCounts();
+                                setActionResult(null);
+                                setRecognitionData(null);
+                              } else showToastMsg(`Rename failed: ${r.reason || "Unknown"}`);
+                            } catch (e) { showToastMsg(`Rename error: ${String(e)}`); }
+                            finally { setProcessing(null); }
+                          }}
+                          className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-[10px] font-medium text-violet-300 hover:bg-violet-500/20 transition-all disabled:opacity-40"
+                          title="Edit the name before renaming"
+                        >
+                          <i className="fa-solid fa-pen-fancy text-[8px]" />
+                          Edit & Rename
+                        </button>
                       </div>
                     )}
                   </div>

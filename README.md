@@ -16,11 +16,11 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-[![Features](https://img.shields.io/badge/Features-94+-blueviolet?style=flat-square)]()
+[![Features](https://img.shields.io/badge/Features-96+-blueviolet?style=flat-square)]()
 [![AI Providers](https://img.shields.io/badge/AI_Providers-5-orange?style=flat-square)]()
-[![File Actions](https://img.shields.io/badge/File_Actions-33+-success?style=flat-square)]()
+[![File Actions](https://img.shields.io/badge/File_Actions-34+-success?style=flat-square)]()
 
-*A glassmorphic floating workspace with 94+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
+*A glassmorphic floating workspace with 96+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
 
 ---
 
@@ -36,7 +36,7 @@ Zenith is an **invisible desktop command center** that floats at the edge of you
 
 Think of it as a **universal file swiss-army-knife** crossed with an **AI-powered media library organizer** that lives at the edge of your screen.
 
-> **94 features. 33+ file actions. 5 AI providers. Zero window switching.**
+> **96 features. 34+ file actions. 5 AI providers. Shazam music recognition. Zero window switching.**
 
 ---
 
@@ -60,6 +60,7 @@ Think of it as a **universal file swiss-army-knife** crossed with an **AI-powere
 |----------|---------|
 | **Image** | Compress, Resize, Strip EXIF, WebP Convert, Color Palette + WCAG Contrast, Base64 (Raw/HTML/CSS), OCR (Vision AI + Tesseract), OCR &#8594; Searchable PDF |
 | **PDF** | Compress, Merge (multi-PDF), PDF &#8594; CSV (LLM-powered structured extraction) |
+| **Audio** | Shazam Music Recognition (fingerprint &#8594; identify &#8594; metadata) |
 | **Media** | FFmpeg Convert (MP4, MP3, WebM, WAV, GIF) |
 | **Archive** | Zip, Zip + AES-256 Encrypt, Split File into chunks |
 | **Communication** | Email with Attachments (native mailto) |
@@ -106,7 +107,7 @@ The **Auto-Studio** is Zenith's flagship feature — a sliding auxiliary panel t
 
 | File Type | Intelligence | API |
 |-----------|-------------|-----|
-| **Music** (.mp3, .flac, .wav, .ogg, .aac, .m4a) | Album, year, artist, genre, cover art lookup | [TheAudioDB](https://www.theaudiodb.com) |
+| **Music** (.mp3, .flac, .wav, .ogg, .aac, .m4a) | Album, year, artist, genre, cover art lookup &#8594; Shazam fingerprint fallback | [TheAudioDB](https://www.theaudiodb.com) + [Shazam](https://www.shazam.com) via [SongRec](https://github.com/marin-m/SongRec) |
 | **Video** (.mp4, .mkv, .avi, .mov, .webm) | Title, year, director, rating, poster download; SxxExx series detection | [OMDB](https://www.omdbapi.com) |
 | **Images** (.jpg, .png, .gif, .webp, .heic) | EXIF date grouping **or** AI Vision semantic titles | LLM Vision |
 | **Documents** (.pdf, .docx, .txt, .csv, .xlsx) | Semantic categorization (Business/Financial/Legal/Personal) **or** type grouping **or** date grouping | LLM Analysis |
@@ -255,7 +256,8 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
       │                         │                               │
  Framer Motion 12        Native OLE drag-drop           33+ file actions
  Tailwind CSS 4          Window compositing             5 LLM providers
- Zustand 5               Clipboard interception         TheAudioDB / OMDB APIs
+ Zustand 5               Clipboard interception         TheAudioDB / OMDB / imdbapi.dev
+                                                            Shazam fingerprint recognition
  Font Awesome 7          WASM plugin engine (wasmtime)  PDF / Image / Media / OCR
                          HTTP API server (:7890)         VirusTotal v3 integration
                          Transactional file I/O          EXIF / ID3 metadata
@@ -271,8 +273,9 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
 | **Frontend** | React 19, TypeScript 5.8, Framer Motion 12 |
 | **Styling** | Tailwind CSS 4, Glassmorphism |
 | **State** | Zustand 5 |
-| **AI / Processing** | Python 3 (Pillow, pdfplumber, pikepdf, pytesseract, reportlab, qrcode, requests) |
-| **Media APIs** | [TheAudioDB](https://www.theaudiodb.com) (music), [OMDB](https://www.omdbapi.com) (movies/series) |
+| **AI / Processing** | Python 3 (Pillow, pdfplumber, pikepdf, pytesseract, reportlab, qrcode, requests, numpy, pydub) |
+| **Media APIs** | [TheAudioDB](https://www.theaudiodb.com) (music), [OMDB](https://www.omdbapi.com) (movies/series), [imdbapi.dev](https://imdbapi.dev) (primary movie lookup) |
+| **Audio Recognition** | [SongRec](https://github.com/marin-m/SongRec) algorithm (Shazam-compatible fingerprinting) |
 | **Security** | [VirusTotal API v3](https://docs.virustotal.com) |
 | **Icons** | Font Awesome 7 Pro |
 
@@ -330,11 +333,12 @@ zenith-app/
 │       ├── settings.rs            # Settings structs (Rust ↔ JSON ↔ React)
 │       └── plugins.rs             # WASM plugin engine (wasmtime)
 ├── scripts/
-│   ├── process_files.py           # 33+ Python processing actions + Auto-Studio engine
+│   ├── process_files.py           # 34+ Python processing actions + Auto-Studio engine
+│   ├── shazam_recognize.py        # Shazam audio fingerprinting & recognition (adapted from SongRec)
 │   └── requirements.txt           # Python dependencies
 ├── docs/
 │   └── API.md                     # Full REST API documentation
-├── start.bat                      # One-click dev launcher (Windows)
+├── zenith.bat                     # Unified launcher (build/launch/dev with 5s auto-select)
 ├── package.json
 └── README.md
 ```
@@ -386,7 +390,17 @@ zenith-app/
 
 ## &#128220; License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **Zenith Personal Use License** — free for personal, non-commercial use. Commercial use requires a separate license. See the [LICENSE](LICENSE) file for full terms.
+
+---
+
+## &#128588; Acknowledgments
+
+- **[SongRec](https://github.com/marin-m/SongRec)** by [marin-m](https://github.com/marin-m) — Open-source Shazam client and audio fingerprinting algorithm. Zenith's music recognition module (`scripts/shazam_recognize.py`) is adapted from SongRec's Python implementation. Licensed under [GPL-3.0](https://github.com/marin-m/SongRec/blob/main/LICENSE).
+- **[TheAudioDB](https://www.theaudiodb.com)** — Music metadata API (album, artist, year, genre, cover art).
+- **[imdbapi.dev](https://imdbapi.dev)** — Primary movie/series metadata lookup API.
+- **[OMDB API](https://www.omdbapi.com)** — Fallback movie/series metadata (ratings, plot, director).
+- **[VirusTotal](https://www.virustotal.com)** — File and URL security scanning.
 
 ---
 
@@ -394,7 +408,7 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 **Built with Rust &#9881;&#65039;, React &#9889;, Python &#128013;, and mass amounts of caffeine &#9749;**
 
-*94 features. 5 AI providers. 1 invisible tool that does everything.*
+*96 features. 5 AI providers. Shazam music ID. 1 invisible tool that does everything.*
 
 **&#11088; Star this repo if Zenith blew your mind!**
 

@@ -1082,7 +1082,12 @@ fn execute_studio_plan(moves_json: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn process_file(app: tauri::AppHandle, action: String, args_json: String) -> Result<String, String> {
+async fn process_file(
+    app: tauri::AppHandle,
+    _proc_state: tauri::State<'_, ScriptProcessState>,
+    action: String,
+    args_json: String,
+) -> Result<String, String> {
     let resource = app.path().resource_dir().unwrap_or_else(|_| PathBuf::from("."));
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let cwd_parent = cwd.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| cwd.clone());
@@ -1096,13 +1101,38 @@ async fn process_file(app: tauri::AppHandle, action: String, args_json: String) 
     .find(|p| p.exists())
     .ok_or_else(|| "process_files.py not found".to_string())?;
 
-    let output = std::process::Command::new("python")
-        .arg("-u")
+    let mut cmd = std::process::Command::new("python");
+    cmd.arg("-u")
         .arg(&full_path)
         .arg(&action)
         .arg(&args_json)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    // Suppress CMD window on Windows
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let child = cmd.spawn()
         .map_err(|e| format!("Failed to run process_files.py: {}", e))?;
+
+    // Track the process so it can be cancelled
+    let pid_key = format!("pf_{}_{}", action, chrono_id());
+    {
+        // We can't store the child directly since we need to wait on it,
+        // but we store the PID for cancellation
+    }
+    let child_id = child.id();
+    // Store a placeholder — for cancellation we just need the PID
+    let _ = app.emit("script-started", serde_json::json!({"id": &pid_key, "pid": child_id, "action": &action}));
+
+    let output = child.wait_with_output()
+        .map_err(|e| format!("Failed to run process_files.py: {}", e))?;
+
+    let _ = app.emit("script-finished", serde_json::json!({"id": &pid_key, "action": &action}));
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1112,6 +1142,19 @@ async fn process_file(app: tauri::AppHandle, action: String, args_json: String) 
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok(stdout)
+}
+
+#[tauri::command]
+fn cancel_all_scripts(
+    proc_state: tauri::State<'_, ScriptProcessState>,
+) -> Result<String, String> {
+    let mut procs = proc_state.processes.lock().map_err(|e| e.to_string())?;
+    let count = procs.len();
+    for (_id, child) in procs.iter_mut() {
+        let _ = child.kill();
+    }
+    procs.clear();
+    Ok(serde_json::json!({"cancelled": count}).to_string())
 }
 
 #[tauri::command]
@@ -1322,6 +1365,7 @@ pub fn run() {
             redo_last_rename,
             get_rename_history_counts,
             read_file_preview,
+            cancel_all_scripts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

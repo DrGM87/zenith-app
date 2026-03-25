@@ -1,8 +1,26 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useZenithStore, type StudioFolder, type StudioPlanItem } from "../store";
-import { BorderGlow } from "./ReactBits";
+import { DraggablePanel } from "./DraggablePanel";
+
+const selectStyle: React.CSSProperties = {
+  appearance: "none",
+  WebkitAppearance: "none",
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.10)",
+  borderRadius: 6,
+  padding: "3px 22px 3px 8px",
+  fontSize: 10,
+  color: "rgba(255,255,255,0.65)",
+  outline: "none",
+  cursor: "pointer",
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E")`,
+  backgroundRepeat: "no-repeat",
+  backgroundPosition: "right 6px center",
+  backgroundSize: "8px 5px",
+};
+const optionStyle: React.CSSProperties = { background: "#1a1a24", color: "#ccc" };
 
 function FolderNode({ folder, accent }: { folder: StudioFolder; accent: string }) {
   const [open, setOpen] = useState(true);
@@ -67,7 +85,7 @@ function StudioItemRow({
 
   return (
     <div className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md group hover:bg-white/5 transition-colors ${!item.enabled ? "opacity-35" : ""}`}>
-      <button onClick={() => onToggle(item.id)} className="flex-shrink-0" title={item.enabled ? "Exclude" : "Include"}>
+      <button onClick={() => onToggle(item.id)} className="shrink-0" title={item.enabled ? "Exclude" : "Include"}>
         <i className={`fa-${item.enabled ? "solid fa-square-check" : "regular fa-square"} text-[11px]`} style={{ color: item.enabled ? accent : "rgba(255,255,255,0.2)" }} />
       </button>
       <i className={`${typeIcon[item.type] || typeIcon.other} text-[9px]`} style={{ color: typeColor[item.type] || typeColor.other }} />
@@ -89,10 +107,12 @@ function StudioItemRow({
         </span>
       )}
       {item.old_name !== item.new_name && !editing && (
-        <span className="text-[8px] text-amber-400/50 flex-shrink-0">renamed</span>
+        <span className="text-[8px] text-amber-400/50 shrink-0">renamed</span>
       )}
-      {item.poster_url && (
-        <span className="text-[8px] text-emerald-400/50 flex-shrink-0">+poster</span>
+      {item.poster_url && !editing && (
+        <span className="text-[8px] text-emerald-400/50 shrink-0" title={item.poster_url}>
+          <i className="fa-solid fa-image text-[7px] mr-0.5" />poster
+        </span>
       )}
       <button
         onClick={() => { setEditVal(item.new_name.replace(/\.[^.]+$/, "")); setEditing(true); }}
@@ -110,7 +130,8 @@ export function ReviewStudio() {
     isStudioOpen, studioPlan, studioProgress, studioExecuting,
     setStudioOpen, setStudioPlan, setStudioProgress, setStudioExecuting,
     studioGroupImages, studioGroupDocs, setStudioGroupImages, setStudioGroupDocs,
-    settings, clearAll, items,
+    studioVideoHint, studioAudioHint, setStudioVideoHint, setStudioAudioHint,
+    settings, clearAll, items, trackTokenUsage,
   } = useZenithStore();
 
   const accent = settings?.appearance?.accent_color || "#6366f1";
@@ -120,14 +141,63 @@ export function ReviewStudio() {
 
   const [undoable, setUndoable] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string, duration = 3000) => {
     setToast(msg);
-    setTimeout(() => setToast(null), duration);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), duration);
   }, []);
 
   const enabledItems = studioPlan?.folders.flatMap((f) => f.items.filter((i) => i.enabled)) ?? [];
   const totalEnabled = enabledItems.length;
+
+  const getDefaultApiKey = useCallback(() => {
+    const keys = settings?.api_keys ?? [];
+    const def = keys.find((k: { is_default: boolean }) => k.is_default) || keys[0];
+    return def ? { api_key: def.key, provider: def.provider, model: def.model } : {};
+  }, [settings?.api_keys]);
+
+  const handleReanalyze = useCallback(async () => {
+    const allPaths = items.filter((i) => i.path.length > 0).map((i) => i.path);
+    if (allPaths.length === 0) return;
+    const apiKey = getDefaultApiKey();
+    setReanalyzing(true);
+    setStudioPlan(null);
+    setStudioProgress({ status: "analyzing", current: 0, total: allPaths.length, message: "Re-analyzing with new grouping..." });
+    try {
+      const walkResult = JSON.parse(await invoke<string>("walk_directory", { pathsJson: JSON.stringify(allPaths) }));
+      const flatPaths: string[] = (walkResult.files || []).map((f: { path: string }) => f.path);
+      if (flatPaths.length === 0) { setStudioProgress(null); showToast("No files found"); setReanalyzing(false); return; }
+      setStudioProgress({ status: "analyzing", current: 0, total: flatPaths.length, message: `Analyzing ${flatPaths.length} files...` });
+      const argsJson = JSON.stringify({
+        paths: flatPaths,
+        system_prompt: settings?.ai_prompts?.auto_organize,
+        ...apiKey,
+        omdb_key: settings?.omdb_api_key || "",
+        imdb_api_key: settings?.imdb_api_key || "",
+        audiodb_key: settings?.audiodb_api_key || "",
+        group_images_by: studioGroupImages,
+        group_docs_by: studioGroupDocs,
+        video_hint: studioVideoHint,
+        audio_hint: studioAudioHint,
+      });
+      const r = JSON.parse(await invoke<string>("process_file", { action: "smart_organize_studio", argsJson }));
+      if (r.token_usage) trackTokenUsage(r.token_usage.provider, r.token_usage.model, r.token_usage.input_tokens, r.token_usage.output_tokens);
+      if (r.ok && r.plan) {
+        setStudioPlan(r.plan);
+        setStudioProgress(null);
+        showToast(`Plan updated: ${r.plan.total_items} items in ${r.plan.folders.length} folders`);
+      } else {
+        setStudioProgress(null);
+        showToast(r.error || "Re-analysis failed");
+      }
+    } catch (e) {
+      setStudioProgress(null);
+      showToast(String(e));
+    } finally { setReanalyzing(false); }
+  }, [items, getDefaultApiKey, settings, studioGroupImages, studioGroupDocs, studioVideoHint, studioAudioHint, setStudioPlan, setStudioProgress, showToast, trackTokenUsage]);
 
   const handleExecute = useCallback(async () => {
     if (!studioPlan || totalEnabled === 0) return;
@@ -168,7 +238,7 @@ export function ReviewStudio() {
   const handleUndo = useCallback(async () => {
     try {
       const r = JSON.parse(await invoke<string>("undo_moves"));
-      showToast(`Reverted ${r.reverted} files.`);
+      showToast(`Reverted ${r.reverted} files${r.posters_deleted ? `, ${r.posters_deleted} posters removed` : ""}.`);
       setUndoable(false);
     } catch (e) {
       showToast(String(e));
@@ -184,52 +254,38 @@ export function ReviewStudio() {
   if (!isStudioOpen) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: 40 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 40 }}
-      transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      className="absolute right-0 top-0 bottom-0 z-50 flex"
-      style={{ width: "min(380px, 55vw)" }}
+    <DraggablePanel
+      title="Review Studio"
+      icon="fa-solid fa-wand-magic-sparkles"
+      iconColor={accent}
+      accent={accent}
+      radius={radius}
+      glowEnabled={glowEnabled}
+      glowSpeed={glowSpeed}
+      width={340}
+      minWidth={300}
+      minHeight={300}
+      badge={studioPlan ? `${totalEnabled}/${studioPlan.total_items}` : undefined}
+      onClose={handleClose}
+      resizable
     >
-      <BorderGlow color1={`${accent}55`} color2="rgba(139,92,246,0.3)" borderRadius={radius} speed={glowSpeed} enabled={glowEnabled}>
-        <div
-          className="w-full h-full flex flex-col overflow-hidden"
-          style={{
-            background: "rgb(12, 12, 18)",
-            borderRadius: `${radius}px`,
-            border: "1px solid rgba(255, 255, 255, 0.06)",
-            boxShadow: "-16px 0 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.03) inset",
-          }}
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-white/5">
-            <div className="flex items-center gap-2">
-              <i className="fa-solid fa-wand-magic-sparkles text-[12px]" style={{ color: accent }} />
-              <span className="text-[13px] font-bold text-white/90 tracking-wide">Review Studio</span>
-              {studioPlan && (
-                <span className="text-[10px] text-white/30 font-medium">
-                  {totalEnabled}/{studioPlan.total_items} items
-                </span>
-              )}
-            </div>
-            <button
-              onClick={handleClose}
-              className="p-1 rounded-md text-white/30 hover:text-white/60 hover:bg-white/5 transition-colors"
-            >
-              <i className="fa-solid fa-xmark text-[11px]" />
-            </button>
-          </div>
 
           {/* Progress bar */}
           <AnimatePresence>
             {studioProgress && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="px-4 py-2 border-b border-white/5">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="px-3 py-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-white/50 font-medium">{studioProgress.message}</span>
-                  <span className="text-[10px] text-white/30">{studioProgress.current}/{studioProgress.total}</span>
+                  <span className="text-[9px] text-white/50 font-medium truncate">{studioProgress.message}</span>
+                  <span className="text-[9px] text-white/30 shrink-0 ml-2">{studioProgress.current}/{studioProgress.total}</span>
+                  <button
+                    onClick={async () => { try { await invoke("cancel_all_scripts"); } catch {} setStudioProgress(null); showToast("Cancelled"); }}
+                    className="ml-1 px-1.5 py-0.5 rounded text-[8px] font-medium text-red-400/80 hover:text-red-300 hover:bg-red-500/10 transition-colors shrink-0"
+                    title="Cancel operation"
+                  >
+                    <i className="fa-solid fa-stop text-[7px] mr-0.5" />Stop
+                  </button>
                 </div>
-                <div className="h-1 rounded-full bg-white/5 overflow-hidden">
+                <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
                   <motion.div
                     className="h-full rounded-full"
                     style={{ background: `linear-gradient(90deg, ${accent}, #a78bfa)` }}
@@ -242,37 +298,61 @@ export function ReviewStudio() {
             )}
           </AnimatePresence>
 
-          {/* Grouping Options */}
-          {studioPlan && (
-            <div className="flex items-center gap-3 px-4 py-2 border-b border-white/5">
-              <div className="flex items-center gap-1.5">
-                <i className="fa-solid fa-image text-[9px] text-emerald-400/60" />
-                <select
-                  value={studioGroupImages}
-                  onChange={(e) => setStudioGroupImages(e.target.value as "date" | "vision")}
-                  className="bg-white/5 border border-white/8 rounded px-1.5 py-0.5 text-[10px] text-white/70 outline-none focus:border-white/20 cursor-pointer"
-                >
-                  <option value="date">By Date</option>
-                  <option value="vision">By AI Vision</option>
+          {/* Grouping Options + Re-analyze */}
+          <div className="px-3 py-2 space-y-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <i className="fa-solid fa-image text-[8px] text-emerald-400/60 shrink-0" />
+                <select value={studioGroupImages} onChange={(e) => setStudioGroupImages(e.target.value as "date" | "vision")} style={selectStyle}>
+                  <option value="date" style={optionStyle}>Images: Date</option>
+                  <option value="vision" style={optionStyle}>Images: AI Vision</option>
                 </select>
               </div>
-              <div className="flex items-center gap-1.5">
-                <i className="fa-solid fa-file-lines text-[9px] text-blue-400/60" />
-                <select
-                  value={studioGroupDocs}
-                  onChange={(e) => setStudioGroupDocs(e.target.value as "category" | "type" | "date")}
-                  className="bg-white/5 border border-white/8 rounded px-1.5 py-0.5 text-[10px] text-white/70 outline-none focus:border-white/20 cursor-pointer"
-                >
-                  <option value="category">By Category</option>
-                  <option value="type">By Type</option>
-                  <option value="date">By Date</option>
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <i className="fa-solid fa-file-lines text-[8px] text-blue-400/60 shrink-0" />
+                <select value={studioGroupDocs} onChange={(e) => setStudioGroupDocs(e.target.value as "category" | "type" | "date")} style={selectStyle}>
+                  <option value="category" style={optionStyle}>Docs: Category</option>
+                  <option value="type" style={optionStyle}>Docs: Type</option>
+                  <option value="date" style={optionStyle}>Docs: Date</option>
                 </select>
               </div>
             </div>
-          )}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <i className="fa-solid fa-film text-[8px] text-pink-400/60 shrink-0" />
+                <select value={studioVideoHint} onChange={(e) => setStudioVideoHint(e.target.value as "auto" | "movie" | "personal")} style={selectStyle}>
+                  <option value="auto" style={optionStyle}>Video: Auto-detect</option>
+                  <option value="movie" style={optionStyle}>Video: Movie/Series</option>
+                  <option value="personal" style={optionStyle}>Video: Personal</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <i className="fa-solid fa-music text-[8px] text-purple-400/60 shrink-0" />
+                <select value={studioAudioHint} onChange={(e) => setStudioAudioHint(e.target.value as "auto" | "music" | "personal")} style={selectStyle}>
+                  <option value="auto" style={optionStyle}>Audio: Auto-detect</option>
+                  <option value="music" style={optionStyle}>Audio: Music</option>
+                  <option value="personal" style={optionStyle}>Audio: Recording</option>
+                </select>
+              </div>
+            </div>
+            {studioPlan && (
+              <button
+                onClick={handleReanalyze}
+                disabled={reanalyzing || studioExecuting}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-medium transition-colors disabled:opacity-30"
+                style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.06)" }}
+              >
+                <i className={`fa-solid ${reanalyzing ? "fa-spinner fa-spin" : "fa-arrows-rotate"} text-[8px]`} />
+                {reanalyzing ? "Re-analyzing..." : "Re-analyze with new grouping"}
+              </button>
+            )}
+          </div>
 
           {/* Body: Tree View */}
-          <div className="flex-1 overflow-y-auto px-3 py-2 scrollbar-thin">
+          <div
+            className="flex-1 overflow-y-auto px-2 py-2"
+            style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent" }}
+          >
             {studioPlan ? (
               studioPlan.folders.length > 0 ? (
                 studioPlan.folders.map((folder) => (
@@ -300,7 +380,7 @@ export function ReviewStudio() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
-                className="mx-4 mb-2 px-3 py-1.5 rounded-lg text-[10px] font-medium text-center"
+                className="mx-3 mb-2 px-3 py-1.5 rounded-lg text-[10px] font-medium text-center"
                 style={{ background: `${accent}20`, color: accent }}
               >
                 {toast}
@@ -309,19 +389,20 @@ export function ReviewStudio() {
           </AnimatePresence>
 
           {/* Footer: Execute / Undo */}
-          <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-2">
+          <div className="px-3 pb-3 pt-2 space-y-2" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
             {undoable && (
               <button
                 onClick={handleUndo}
-                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors"
+                style={{ color: "#34d399", background: "rgba(16,185,129,0.08)" }}
               >
-                <i className="fa-solid fa-rotate-left text-[10px]" /> Undo Last Operation
+                <i className="fa-solid fa-rotate-left text-[9px]" /> Undo Last Operation
               </button>
             )}
             <button
               onClick={handleExecute}
               disabled={!studioPlan || totalEnabled === 0 || studioExecuting}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-bold tracking-wide transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[12px] font-bold tracking-wide transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               style={{
                 background: `linear-gradient(135deg, ${accent}, #a78bfa)`,
                 color: "#fff",
@@ -329,14 +410,12 @@ export function ReviewStudio() {
               }}
             >
               {studioExecuting ? (
-                <><i className="fa-solid fa-spinner fa-spin text-[11px]" /> Executing...</>
+                <><i className="fa-solid fa-spinner fa-spin text-[10px]" /> Executing...</>
               ) : (
-                <><i className="fa-solid fa-rocket text-[11px]" /> Execute Plan ({totalEnabled})</>
+                <><i className="fa-solid fa-rocket text-[10px]" /> Execute Plan ({totalEnabled})</>
               )}
             </button>
           </div>
-        </div>
-      </BorderGlow>
-    </motion.div>
+    </DraggablePanel>
   );
 }

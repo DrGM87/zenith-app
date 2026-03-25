@@ -4,12 +4,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import { useZenithStore } from "../store";
+import { useZenithStore, type AudioRecognitionResult } from "../store";
 import { StagedItemCard } from "./StagedItemCard";
-import { PreviewDrawer } from "./PreviewDrawer";
+// PreviewDrawer now rendered independently in App.tsx
 import { useMagneticHover } from "../hooks/useMagneticHover";
 import { BorderGlow, SoftAurora, MagicRings } from "./ReactBits";
-import { ReviewStudio } from "./ReviewStudio";
+// ReviewStudio now rendered independently in App.tsx
 
 export function Bubble() {
   const {
@@ -38,6 +38,14 @@ export function Bubble() {
     refreshRenameCounts,
     setBatchRenameMode,
     isStudioOpen,
+    audioResults,
+    audioUndoStack,
+    audioRedoStack,
+    setAudioResult,
+    clearAudioResults,
+    pushAudioUndo,
+    popAudioUndo,
+    popAudioRedo,
   } = useZenithStore();
 
   const [zipping, setZipping] = useState(false);
@@ -49,9 +57,17 @@ export function Bubble() {
   const [pinned, setPinned] = useState(false);
   const [showQrInput, setShowQrInput] = useState(false);
   const [qrText, setQrText] = useState("");
+  const [showBatchAudioConvert, setShowBatchAudioConvert] = useState(false);
+  const [batchAudioBitrate, setBatchAudioBitrate] = useState("192");
 
   const selectedItems = items.filter((i) => selectedIds.has(i.id));
   const selectedPaths = selectedItems.filter((i) => i.path.length > 0).map((i) => i.path);
+  const AUDIO_EXTS_SET = new Set(["mp3","wav","flac","aac","ogg","wma","m4a","opus"]);
+  const selectedAudioItems = selectedItems.filter((i) => i.path.length > 0 && AUDIO_EXTS_SET.has(i.extension.toLowerCase()));
+  const audioResultValues = Object.values(audioResults);
+  const audioResultCount = audioResultValues.length;
+  const audioSavedCount = audioResultValues.filter((r) => r.saved).length;
+  const audioErrorCount = audioResultValues.filter((r) => r.error).length;
 
   const getDefaultApiKey = () => {
     const keys = settings?.api_keys ?? [];
@@ -255,9 +271,10 @@ export function Bubble() {
             transition={spring}
             onMouseEnter={expand}
             onMouseLeave={scheduleCollapse}
-            className="w-full flex flex-col"
-            style={{ maxHeight: "calc(100vh - 24px)" }}
+            className="flex gap-2 items-end"
+            style={{ maxHeight: "calc(100vh - 24px)", width: isStudioOpen ? "calc(100% + 340px)" : "100%" }}
           >
+          <div className="flex-1 min-w-0 flex flex-col" style={{ maxHeight: "calc(100vh - 24px)" }}>
           <BorderGlow color1={`${accent}66`} color2="rgba(139,92,246,0.4)" borderRadius={radius} speed={glowSpeed} enabled={glowEnabled}>
           <div
             className="w-full flex flex-col overflow-hidden relative"
@@ -558,14 +575,245 @@ export function Bubble() {
                           Merge
                         </button>
                       )}
+                      {/* ── Batch Audio: Recognize All ── */}
+                      {selectedAudioItems.length >= 1 && (
+                        <button
+                          disabled={batchProcessing !== null}
+                          onClick={async () => {
+                            setBatchProcessing("batch_recognize");
+                            const audiodbKey = settings?.audiodb_api_key || "2";
+                            let recognized = 0, failed = 0;
+                            for (const it of selectedAudioItems) {
+                              try {
+                                const argsJson = JSON.stringify({ path: it.path, audiodb_key: audiodbKey });
+                                const resultStr = await invoke<string>("process_file", { action: "recognize_audio", argsJson });
+                                const r = JSON.parse(resultStr);
+                                if (r.ok && r.title) {
+                                  setAudioResult(it.id, {
+                                    itemId: it.id, path: it.path,
+                                    title: r.title || "", artist: r.artist || "", album: r.album || "",
+                                    year: r.year || "", genre: r.genre || "", track_number: r.track_number || "",
+                                    cover_url: r.cover_url || "", shazam_url: r.shazam_url || "",
+                                    mood: r.mood || "", style: r.style || "", description: r.description || "",
+                                  });
+                                  recognized++;
+                                } else {
+                                  setAudioResult(it.id, {
+                                    itemId: it.id, path: it.path,
+                                    title: "", artist: "", album: "", year: "", genre: "",
+                                    track_number: "", cover_url: "", shazam_url: "",
+                                    error: r.error || "No match found",
+                                  });
+                                  failed++;
+                                }
+                              } catch (e) {
+                                setAudioResult(it.id, {
+                                  itemId: it.id, path: it.path,
+                                  title: "", artist: "", album: "", year: "", genre: "",
+                                  track_number: "", cover_url: "", shazam_url: "",
+                                  error: String(e),
+                                });
+                                failed++;
+                              }
+                              setFooterToast(`Recognizing: ${recognized + failed}/${selectedAudioItems.length}...`);
+                            }
+                            setBatchProcessing(null);
+                            setFooterToast(`Recognized ${recognized}/${selectedAudioItems.length} tracks${failed > 0 ? ` (${failed} failed)` : ""}. Review cards then Save All.`);
+                            setTimeout(() => setFooterToast(null), 5000);
+                          }}
+                          className="px-2 py-0.5 rounded text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/15 transition-colors disabled:opacity-40"
+                          title="Recognize all selected audio files (Shazam + TheAudioDB)"
+                        >
+                          {batchProcessing === "batch_recognize" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-music text-[9px] mr-1" />}
+                          Recognize
+                        </button>
+                      )}
+                      {/* ── Batch Audio: Convert ── */}
+                      {selectedAudioItems.length >= 1 && (
+                        <button
+                          disabled={batchProcessing !== null}
+                          onClick={() => setShowBatchAudioConvert(!showBatchAudioConvert)}
+                          className="px-2 py-0.5 rounded text-[10px] font-medium text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
+                          title="Convert all selected audio files"
+                        >
+                          <i className="fa-solid fa-headphones text-[9px] mr-1" />Convert
+                        </button>
+                      )}
                     </div>
                   </div>
+                  {/* ── Audio Recognition: Save All / Cancel All / Undo / Redo ── */}
+                  {audioResultCount > 0 && (
+                    <div className="flex items-center justify-between px-3 py-1.5 mt-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                      <span className="text-[10px] text-emerald-300 font-medium">
+                        <i className="fa-solid fa-music text-[8px] mr-1" />
+                        {audioSavedCount}/{audioResultCount} saved
+                        {audioErrorCount > 0 && <span className="text-red-300 ml-1">({audioErrorCount} failed)</span>}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          disabled={batchProcessing !== null || audioSavedCount === audioResultCount - audioErrorCount}
+                          onClick={async () => {
+                            setBatchProcessing("batch_save_audio");
+                            const undoEntries: { itemId: string; old_path: string; new_path: string; old_name: string; new_name: string }[] = [];
+                            const results = (Object.values(audioResults) as AudioRecognitionResult[]).filter((r) => r.title && !r.saved && !r.error);
+                            let saved = 0;
+                            for (const ar of results) {
+                              try {
+                                const argsJson = JSON.stringify({
+                                  path: ar.path, title: ar.title, artist: ar.artist,
+                                  album: ar.album, year: ar.year, genre: ar.genre,
+                                  track_number: ar.track_number, cover_url: ar.cover_url,
+                                  rename: true,
+                                });
+                                const r = JSON.parse(await invoke<string>("process_file", { action: "apply_audio_metadata", argsJson }));
+                                if (r.ok) {
+                                  const newPath = r.new_path || ar.path;
+                                  const newName = r.new_name || ar.path.split(/[\\/]/).pop() || "";
+                                  const oldName = ar.path.split(/[\\/]/).pop() || "";
+                                  undoEntries.push({ itemId: ar.itemId, old_path: ar.path, new_path: newPath, old_name: oldName, new_name: newName });
+                                  setAudioResult(ar.itemId, { ...ar, saved: true, new_path: newPath, new_name: newName });
+                                  // Update staged item path/name
+                                  useZenithStore.setState((st) => ({
+                                    items: st.items.map((it) => it.id === ar.itemId ? { ...it, name: newName, path: newPath } : it),
+                                  }));
+                                  saved++;
+                                  setFooterToast(`Saving: ${saved}/${results.length}...`);
+                                } else {
+                                  setAudioResult(ar.itemId, { ...ar, error: r.error || "Save failed" });
+                                }
+                              } catch (e) {
+                                setAudioResult(ar.itemId, { ...ar, error: String(e) });
+                              }
+                            }
+                            if (undoEntries.length > 0) pushAudioUndo(undoEntries);
+                            setBatchProcessing(null);
+                            setFooterToast(`Saved ${saved} tracks (tags + rename + cover art)`);
+                            setTimeout(() => setFooterToast(null), 4000);
+                          }}
+                          className="px-2 py-0.5 rounded text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/15 transition-colors disabled:opacity-40"
+                          title="Save all recognized metadata + rename"
+                        >
+                          {batchProcessing === "batch_save_audio" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-floppy-disk text-[9px] mr-1" />}
+                          Save All
+                        </button>
+                        <button
+                          onClick={() => { clearAudioResults(); setFooterToast("Recognition results discarded"); setTimeout(() => setFooterToast(null), 2000); }}
+                          className="px-2 py-0.5 rounded text-[10px] font-medium text-white/40 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                          title="Discard all recognition results"
+                        >
+                          <i className="fa-solid fa-xmark text-[9px] mr-0.5" />Cancel
+                        </button>
+                        <button
+                          disabled={audioUndoStack.length === 0 || batchProcessing !== null}
+                          onClick={async () => {
+                            const entries = popAudioUndo();
+                            if (!entries) return;
+                            setBatchProcessing("undo_audio");
+                            for (const ue of entries) {
+                              try {
+                                const argsJson = JSON.stringify({ new_path: ue.new_path, old_path: ue.old_path });
+                                const r = JSON.parse(await invoke<string>("process_file", { action: "undo_audio_metadata", argsJson }));
+                                if (r.reverted) {
+                                  useZenithStore.setState((st) => ({
+                                    items: st.items.map((it) => it.id === ue.itemId ? { ...it, name: ue.old_name, path: ue.old_path } : it),
+                                  }));
+                                  setAudioResult(ue.itemId, null);
+                                }
+                              } catch { /* best effort */ }
+                            }
+                            setBatchProcessing(null);
+                            setFooterToast(`Undone ${entries.length} audio changes`);
+                            setTimeout(() => setFooterToast(null), 3000);
+                          }}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-300 hover:bg-amber-500/15 transition-colors disabled:opacity-30"
+                          title="Undo last save batch"
+                        >
+                          <i className="fa-solid fa-rotate-left text-[9px]" />
+                        </button>
+                        <button
+                          disabled={audioRedoStack.length === 0 || batchProcessing !== null}
+                          onClick={async () => {
+                            const entries = popAudioRedo();
+                            if (!entries) return;
+                            setBatchProcessing("redo_audio");
+                            for (const ue of entries) {
+                              try {
+                                // Re-apply: rename from old_path to new_path
+                                if (ue.old_path !== ue.new_path && (await invoke<string>("process_file", { action: "undo_audio_metadata", argsJson: JSON.stringify({ new_path: ue.old_path, old_path: ue.new_path }) }))) {
+                                  useZenithStore.setState((st) => ({
+                                    items: st.items.map((it) => it.id === ue.itemId ? { ...it, name: ue.new_name, path: ue.new_path } : it),
+                                  }));
+                                }
+                              } catch { /* best effort */ }
+                            }
+                            setBatchProcessing(null);
+                            setFooterToast(`Redone ${entries.length} audio changes`);
+                            setTimeout(() => setFooterToast(null), 3000);
+                          }}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-300 hover:bg-amber-500/15 transition-colors disabled:opacity-30"
+                          title="Redo last undo"
+                        >
+                          <i className="fa-solid fa-rotate-right text-[9px]" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {/* ── Batch Audio Convert panel ── */}
+                  <AnimatePresence>
+                    {showBatchAudioConvert && selectedAudioItems.length >= 1 && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mt-1">
+                        <div className="px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <i className="fa-solid fa-headphones text-[9px] text-purple-400" />
+                            <span className="text-[10px] text-white/50">Convert {selectedAudioItems.length} audio files to:</span>
+                            <button onClick={() => setShowBatchAudioConvert(false)} className="ml-auto text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                          </div>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {["mp3","wav","flac","aac","ogg","m4a","opus","wma"].map((fmt) => (
+                              <button
+                                key={fmt}
+                                disabled={batchProcessing !== null}
+                                onClick={async () => {
+                                  setShowBatchAudioConvert(false);
+                                  setBatchProcessing("batch_convert_audio");
+                                  let ok = 0, fail = 0;
+                                  for (const it of selectedAudioItems) {
+                                    if (it.extension.toLowerCase() === fmt) { ok++; continue; }
+                                    try {
+                                      const argsJson = JSON.stringify({ path: it.path, output_format: fmt, audio_bitrate: `${batchAudioBitrate}k` });
+                                      const r = JSON.parse(await invoke<string>("process_file", { action: "convert_media", argsJson }));
+                                      if (r.ok && r.path) { await stageFile(r.path); ok++; }
+                                      else fail++;
+                                    } catch { fail++; }
+                                    setFooterToast(`Converting: ${ok + fail}/${selectedAudioItems.length}...`);
+                                  }
+                                  setBatchProcessing(null);
+                                  setFooterToast(`Converted ${ok} to ${fmt.toUpperCase()}${fail > 0 ? ` (${fail} failed)` : ""}`);
+                                  setTimeout(() => setFooterToast(null), 4000);
+                                }}
+                                className="px-2 py-1 rounded-md text-[10px] font-medium text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
+                              >{fmt.toUpperCase()}</button>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] text-white/40">Bitrate:</span>
+                            <select value={batchAudioBitrate} onChange={(e) => setBatchAudioBitrate(e.target.value)}
+                              className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-white/80 outline-none cursor-pointer">
+                              {["64","96","128","160","192","256","320"].map((b) => (
+                                <option key={b} value={b} className="bg-[#1a1a24] text-white">{b} kbps</option>
+                              ))}
+                            </select>
+                            <span className="text-[8px] text-white/25 ml-1">Applied to all files</span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </motion.div>
               )}
             </AnimatePresence>
 
-            {/* Preview Drawer */}
-            <PreviewDrawer />
+            {/* Preview Drawer — now rendered independently in App.tsx */}
 
             {/* Clipboard stack banner */}
             <AnimatePresence>
@@ -729,8 +977,12 @@ export function Bubble() {
                           system_prompt: settings?.ai_prompts?.auto_organize,
                           ...apiKey,
                           omdb_key: settings?.omdb_api_key || "",
+                          imdb_api_key: settings?.imdb_api_key || "",
+                          audiodb_key: settings?.audiodb_api_key || "",
                           group_images_by: useZenithStore.getState().studioGroupImages,
                           group_docs_by: useZenithStore.getState().studioGroupDocs,
+                          video_hint: useZenithStore.getState().studioVideoHint || "auto",
+                          audio_hint: useZenithStore.getState().studioAudioHint || "auto",
                         });
                         const r = JSON.parse(await invoke<string>("process_file", { action: "smart_organize_studio", argsJson }));
                         if (r.token_usage) trackTokenUsage(r.token_usage.provider, r.token_usage.model, r.token_usage.input_tokens, r.token_usage.output_tokens);
@@ -835,6 +1087,27 @@ export function Bubble() {
                     </button>
                   );
                 })()}
+                {/* Save All — copy all staged files to a folder */}
+                {allPaths.length >= 1 && (
+                  <button
+                    disabled={batchProcessing !== null}
+                    onClick={async () => {
+                      const dest = window.prompt("Enter destination folder path:", "");
+                      if (!dest || !dest.trim()) return;
+                      setBatchProcessing("save_all");
+                      try {
+                        const moves = allPaths.map((p) => ({ old_path: p, new_path: `${dest.trim().replace(/[\\/]$/, "")}\\${p.split(/[\\/]/).pop()}` }));
+                        const r = JSON.parse(await invoke<string>("move_files", { movesJson: JSON.stringify(moves) }));
+                        setFooterToast(`Saved ${r.moved ?? moves.length} files to folder`);
+                      } catch (e) { setFooterToast(String(e)); }
+                      finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
+                    }}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white/25 hover:text-teal-400 hover:bg-teal-500/10 transition-colors disabled:opacity-40"
+                    title="Save all files to a folder"
+                  >
+                    {batchProcessing === "save_all" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-floppy-disk text-[9px]" />}
+                  </button>
+                )}
                 {/* QR from text (file-less) */}
                 <button
                   onClick={() => setShowQrInput(!showQrInput)}
@@ -905,9 +1178,8 @@ export function Bubble() {
             </div>
           </div>
           </BorderGlow>
-          <AnimatePresence>
-            {isStudioOpen && <ReviewStudio />}
-          </AnimatePresence>
+          </div>
+          {/* ReviewStudio now rendered independently in App.tsx */}
           </motion.div>
         ) : (
           /* Collapsed pill with magnetic hover */

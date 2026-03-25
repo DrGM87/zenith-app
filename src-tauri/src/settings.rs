@@ -69,7 +69,7 @@ pub struct AiPrompts {
 fn default_smart_rename() -> String { "Suggest a clear, descriptive filename for this file. Return ONLY the filename without extension. No explanation.".to_string() }
 fn default_smart_sort() -> String { "Categorize these files into logical groups. Return JSON array of objects with 'file' and 'category' keys.".to_string() }
 fn default_ocr() -> String { "Extract all text from this image. Return only the extracted text, preserving layout where possible.".to_string() }
-fn default_auto_organize() -> String { "You are a file organizer. Given the following files, suggest a clean organization.\nReturn ONLY a JSON array: [{\"old_path\": \"...\", \"new_name\": \"...\", \"folder\": \"...\"}]\n- 'folder' is a category subfolder (e.g. 'Receipts', 'Photos')\n- 'new_name' is a descriptive filename (keep extension)".to_string() }
+fn default_auto_organize() -> String { "You are an intelligent file organizer with media expertise. Classify each file and suggest a clean organization.\nFor documents: Analyze content and categorize (Business, Financial, Personal, Legal, Medical, Misc). Suggest a descriptive rename.\nFor images: Group by EXIF date or describe the scene for a semantic title.\nFor music/audio: Use artist, album, track info. For movies/video: Use title, year, season/episode if applicable.\nReturn ONLY a JSON array: [{\"old_path\": \"...\", \"new_name\": \"...\", \"folder\": \"...\", \"type\": \"music|video|image|document|other\"}]\n- 'folder' is the target subfolder (e.g. 'Artist - Album (Year)', 'Movie Title (Year)', 'Financial', 'Photos 2026-03')\n- 'new_name' is a clean, descriptive filename (keep extension)\n- 'type' is the file category".to_string() }
 fn default_translate() -> String { "Translate the following text accurately. Return ONLY the translated text, preserving formatting.".to_string() }
 fn default_ask_data() -> String { "Answer the question based ONLY on the provided document chunks. Cite which chunk(s) support your answer.".to_string() }
 fn default_summarize() -> String { "Provide a summary of the following document. Start with a single TL;DR sentence, then provide a detailed summary with key points.".to_string() }
@@ -128,6 +128,12 @@ pub struct ZenithSettings {
     pub vt_api_key: String,
     #[serde(default)]
     pub omdb_api_key: String,
+    #[serde(default)]
+    pub audiodb_api_key: String,
+    #[serde(default)]
+    pub imdb_api_key: String,
+    #[serde(default = "default_true")]
+    pub shazam_auto_recognize: bool,
 }
 
 fn default_scripts() -> Vec<ScriptEntry> {
@@ -251,6 +257,9 @@ impl Default for ZenithSettings {
             token_usage: TokenUsage::default(),
             vt_api_key: String::new(),
             omdb_api_key: String::new(),
+            audiodb_api_key: String::new(),
+            imdb_api_key: String::new(),
+            shazam_auto_recognize: true,
         }
     }
 }

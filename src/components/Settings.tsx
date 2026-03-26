@@ -136,6 +136,14 @@ const LLM_PROVIDERS = [
   { value: "groq", label: "Groq" },
 ];
 
+// Note: image generation models use a flat per-image cost stored in `input`.
+// `output` is 0 for image gen models.  The UI shows "per image" for these.
+const IMAGE_GEN_MODEL_IDS = new Set([
+  "gemini-3.1-flash-image-preview",
+  "gemini-3-pro-image-preview",
+  "gpt-image-1.5",
+]);
+
 const PROVIDER_MODELS: Record<string, { id: string; label: string; input: number; output: number }[]> = {
   openai: [
     { id: "gpt-4.1-nano", label: "GPT-4.1 Nano", input: 0.10, output: 0.40 },
@@ -145,6 +153,8 @@ const PROVIDER_MODELS: Record<string, { id: string; label: string; input: number
     { id: "o4-mini", label: "o4 Mini", input: 1.10, output: 4.40 },
     { id: "gpt-4.1", label: "GPT-4.1", input: 2.00, output: 8.00 },
     { id: "gpt-4o", label: "GPT-4o", input: 2.50, output: 10.00 },
+    // ── Image Generation ──────────────────────────────────────────────────
+    { id: "gpt-image-1.5", label: "GPT-Image 1.5 ✦ (Image Gen)", input: 0.133, output: 0 },
   ],
   anthropic: [
     { id: "claude-haiku-4-5-20250514", label: "Claude Haiku 4.5", input: 1.00, output: 5.00 },
@@ -156,6 +166,9 @@ const PROVIDER_MODELS: Record<string, { id: string; label: string; input: number
     { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", input: 0.50, output: 3.00 },
     { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", input: 1.25, output: 10.00 },
     { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", input: 2.00, output: 12.00 },
+    // ── Image Generation ──────────────────────────────────────────────────
+    { id: "gemini-3.1-flash-image-preview", label: "Nano Banana 2 ✦ (Image Gen)", input: 0.067, output: 0 },
+    { id: "gemini-3-pro-image-preview", label: "Nano Banana Pro ✦ (Image Gen)", input: 0.134, output: 0 },
   ],
   deepseek: [
     { id: "deepseek-chat", label: "DeepSeek V3 (Chat)", input: 0.27, output: 1.10 },
@@ -716,7 +729,9 @@ export function Settings() {
                           {models.length === 0 && <option value="" className="bg-[#1a1a24] text-white">Custom model</option>}
                           {models.map((m) => (
                             <option key={m.id} value={m.id} className="bg-[#1a1a24] text-white">
-                              {m.label} — ${m.input}/${m.output} per 1M
+                              {IMAGE_GEN_MODEL_IDS.has(m.id)
+                                ? `${m.label} — $${m.input.toFixed(3)}/image`
+                                : `${m.label} — $${m.input}/$${m.output} per 1M`}
                             </option>
                           ))}
                         </select>
@@ -728,10 +743,18 @@ export function Settings() {
                         className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
                       />
                       {pricing && (
-                        <div className="flex items-center gap-3 text-[10px] text-white/30">
-                          <span><i className="fa-solid fa-arrow-down text-[8px] text-cyan-400/60 mr-1" />Input: <span className="text-white/50 font-mono">${pricing.input.toFixed(2)}</span>/1M</span>
-                          <span><i className="fa-solid fa-arrow-up text-[8px] text-pink-400/60 mr-1" />Output: <span className="text-white/50 font-mono">${pricing.output.toFixed(2)}</span>/1M</span>
-                        </div>
+                        IMAGE_GEN_MODEL_IDS.has(entry.model) ? (
+                          <div className="flex items-center gap-2 text-[10px] text-white/30">
+                            <i className="fa-solid fa-image text-[8px] text-violet-400/60" />
+                            <span>Image generation: <span className="text-white/50 font-mono">${pricing.input.toFixed(3)}</span> per image</span>
+                            <span className="text-violet-400/50 ml-1">· Used by Zenith Editor</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3 text-[10px] text-white/30">
+                            <span><i className="fa-solid fa-arrow-down text-[8px] text-cyan-400/60 mr-1" />Input: <span className="text-white/50 font-mono">${pricing.input.toFixed(2)}</span>/1M</span>
+                            <span><i className="fa-solid fa-arrow-up text-[8px] text-pink-400/60 mr-1" />Output: <span className="text-white/50 font-mono">${pricing.output.toFixed(2)}</span>/1M</span>
+                          </div>
+                        )
                       )}
                     </div>
                     );

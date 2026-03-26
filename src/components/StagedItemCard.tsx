@@ -59,16 +59,12 @@ function getActionsForItem(item: StagedItem): ItemAction[] {
 
   // ── Image-specific ──
   if (IMAGE_EXTS.has(ext)) {
-    actions.push({ icon: "fa-solid fa-compress", label: "Compress", action: "compress_image", color: "#22d3ee" });
-    actions.push({ icon: "fa-solid fa-expand", label: "Resize", action: "resize_image", color: "#06b6d4" });
+    actions.push({ icon: "fa-solid fa-arrow-right-arrow-left", label: "Convert", action: "convert_image", color: "#8b5cf6" });
+    actions.push({ icon: "fa-solid fa-tags", label: "EXIF", action: "exif_panel", color: "#f59e0b" });
     actions.push({ icon: "fa-solid fa-palette", label: "Palette", action: "extract_palette", color: "#ec4899" });
-    actions.push({ icon: "fa-solid fa-eye-slash", label: "Strip EXIF", action: "strip_exif", color: "#f59e0b" });
-    if (ext !== "webp") {
-      actions.push({ icon: "fa-solid fa-arrow-right-arrow-left", label: "WebP", action: "convert_webp", color: "#8b5cf6" });
-    }
+    actions.push({ icon: "fa-solid fa-expand", label: "Resize", action: "resize_image", color: "#06b6d4" });
     actions.push({ icon: "fa-solid fa-code", label: "Base64", action: "file_to_base64", color: "#6366f1" });
-    actions.push({ icon: "fa-solid fa-font", label: "OCR", action: "ocr", color: "#14b8a6" });
-    actions.push({ icon: "fa-solid fa-file-pdf", label: "OCR → PDF", action: "ocr_to_pdf", color: "#0ea5e9" });
+    actions.push({ icon: "fa-solid fa-font", label: "OCR", action: "ocr_save_text", color: "#14b8a6" });
   }
 
   // ── PDF-specific ──
@@ -107,27 +103,30 @@ function getActionsForItem(item: StagedItem): ItemAction[] {
 
   // ── Universal file actions ──
   if (hasPath) {
-    // Audio files: Play + Reveal (no generic Open/Preview which are confusing)
     if (AUDIO_EXTS.has(ext)) {
+      // Audio: Play + Reveal
       actions.push({ icon: "fa-solid fa-play", label: "Play", action: "open_file", color: "#34d399" });
-      actions.push({ icon: "fa-solid fa-folder-open", label: "Reveal in Explorer", action: "reveal_in_folder", color: "#60a5fa" });
+      actions.push({ icon: "fa-solid fa-folder-open", label: "Reveal", action: "reveal_in_folder", color: "#60a5fa" });
+    } else if (IMAGE_EXTS.has(ext)) {
+      // Images: Reveal + Open in Editor (2 buttons per spec)
+      actions.push({ icon: "fa-solid fa-folder-open", label: "Reveal", action: "reveal_in_folder", color: "#60a5fa" });
+      actions.push({ icon: "fa-solid fa-paintbrush", label: "Editor", action: "open_editor", color: "#f472b6" });
     } else {
       actions.push({ icon: "fa-solid fa-up-right-from-square", label: "Open", action: "open_file", color: "#34d399" });
       actions.push({ icon: "fa-solid fa-folder-open", label: "Reveal", action: "reveal_in_folder", color: "#60a5fa" });
     }
-    actions.push({ icon: "fa-solid fa-file-zipper", label: "Zip", action: "zip_file", color: "#eab308" });
-    actions.push({ icon: "fa-solid fa-lock", label: "Zip + Encrypt", action: "zip_encrypt", color: "#f472b6" });
-    actions.push({ icon: "fa-solid fa-scissors", label: "Split", action: "split_file", color: "#fb923c" });
+    // Unified Archive button (zip format + encrypt + level + split all in one panel)
+    actions.push({ icon: "fa-solid fa-file-zipper", label: "Archive", action: "archive_file", color: "#eab308" });
     actions.push({ icon: "fa-solid fa-envelope", label: "Email", action: "email_files", color: "#a78bfa" });
-    // Audio: show "Music ID + Rename" instead of generic AI Rename
+    // AI Rename
     if (AUDIO_EXTS.has(ext)) {
       actions.push({ icon: "fa-solid fa-wand-magic-sparkles", label: "AI Rename", action: "smart_rename_audio_ask", color: "#c084fc" });
     } else {
       actions.push({ icon: "fa-solid fa-wand-magic-sparkles", label: "AI Rename", action: "smart_rename", color: "#c084fc" });
     }
   }
-  // ── Preview (not for audio — they have Play) ──
-  if (!AUDIO_EXTS.has(ext)) {
+  // ── Preview (not for audio or images — images use Editor) ──
+  if (!AUDIO_EXTS.has(ext) && !IMAGE_EXTS.has(ext)) {
     actions.push({ icon: "fa-solid fa-eye", label: "Preview", action: "preview_file", color: "#38bdf8" });
   }
   actions.push({ icon: "fa-regular fa-copy", label: hasPath ? "Copy Path" : "Copy Text", action: "copy_path", color: "#64748b" });
@@ -164,6 +163,22 @@ export function StagedItemCard({ item, index }: Props) {
   const [showPaletteResult, setShowPaletteResult] = useState<null | Array<{hex: string; rgb: number[]; wcag_on_white: boolean; wcag_on_black: boolean}>>(null);
   const [showBase64Menu, setShowBase64Menu] = useState(false);
   const [showConvertMenu, setShowConvertMenu] = useState(false);
+  const [showImageConvertMenu, setShowImageConvertMenu] = useState(false);
+  const [imageConvertQuality, setImageConvertQuality] = useState(85);
+  const [showExifData, setShowExifData] = useState<Record<string, unknown> | null>(null);
+  const [showExifPanel, setShowExifPanel] = useState(false);
+  const [showArchivePanel, setShowArchivePanel] = useState(false);
+  const [archiveFormat, setArchiveFormat] = useState("zip");
+  const [archivePassword, setArchivePassword] = useState("");
+  const [archiveSplitMb, setArchiveSplitMb] = useState("");
+  const [archiveLevel, setArchiveLevel] = useState(6);
+  const [paletteMode, setPaletteMode] = useState<"swatches" | "dropper">("swatches");
+  const [paletteSelected, setPaletteSelected] = useState<Set<number>>(new Set());
+  const [dropperColor, setDropperColor] = useState<string | null>(null);
+  const [dropperCanvasRef] = useState(() => ({ current: null as HTMLCanvasElement | null }));
+  const [resizeFillColor, setResizeFillColor] = useState("#ffffff");
+  const [emailBody, setEmailBody] = useState("");
+  const [emailDraftLoading, setEmailDraftLoading] = useState(false);
   const [showAudioConvertMenu, setShowAudioConvertMenu] = useState(false);
   const [audioBitrate, setAudioBitrate] = useState("192");
   const [showAudioTypeAsk, setShowAudioTypeAsk] = useState(false);
@@ -239,7 +254,25 @@ export function StagedItemCard({ item, index }: Props) {
     }
     // ── Actions that open inline panels ──
     if (action === "zip_encrypt") { setShowPasswordPrompt(true); return; }
-    if (action === "email_files") { setEmailSubject(`Sending: ${item.name}`); setShowEmailPrompt(true); return; }
+    if (action === "exif_panel") { setShowExifPanel(true); return; }
+    if (action === "email_files") {
+      // Auto-draft subject/body via LLM, then show panel
+      setShowEmailPrompt(true);
+      setEmailSubject(`Sending: ${item.name}`);
+      setEmailBody(`Hi,\n\nPlease find attached: ${item.name}\n\nBest regards`);
+      const apiCreds = getDefaultApiKey();
+      if (apiCreds.api_key) {
+        setEmailDraftLoading(true);
+        invoke<string>("process_file", {
+          action: "email_draft",
+          argsJson: JSON.stringify({ path: item.path, ...apiCreds }),
+        }).then((r) => {
+          const res = JSON.parse(r);
+          if (res.ok && res.subject) { setEmailSubject(res.subject); setEmailBody(res.body || emailBody); }
+        }).catch(() => {}).finally(() => setEmailDraftLoading(false));
+      }
+      return;
+    }
     if (action === "compress_image") { setShowCompressOpts(true); return; }
     if (action === "resize_image") { setShowResizeOpts(true); return; }
     if (action === "split_file") { setShowSplitOpts(true); return; }
@@ -249,6 +282,28 @@ export function StagedItemCard({ item, index }: Props) {
     if (action === "convert_media") { setShowConvertMenu(true); return; }
     if (action === "convert_audio") { setShowAudioConvertMenu(true); return; }
     if (action === "smart_rename_audio_ask") { setShowAudioTypeAsk(true); return; }
+    if (action === "convert_image") { setShowImageConvertMenu(true); return; }
+    if (action === "archive_file") { setShowArchivePanel(true); return; }
+    // Open in Zenith Editor — emit event to open editor window with this image
+    if (action === "open_editor") {
+      invoke("open_editor_window", { imagePath: item.path }).catch((e: unknown) => showToastMsg(String(e)));
+      return;
+    }
+    // Show EXIF data inline
+    if (action === "show_exif") {
+      setProcessing(action);
+      try {
+        const argsJson = JSON.stringify({ path: item.path });
+        const r = JSON.parse(await invoke<string>("process_file", { action: "show_exif", argsJson }));
+        if (r.ok) {
+          setShowExifData(r);
+          if (r.has_exif) showToastMsg(`EXIF: ${Object.keys(r.exif || {}).length} tags`);
+          else showToastMsg("No EXIF data found");
+        } else showToastMsg(r.error || "Failed");
+      } catch (e) { showToastMsg(String(e)); }
+      finally { setProcessing(null); }
+      return;
+    }
 
     // ── v4: VirusTotal scan (file) ──
     if (action === "scan_virustotal_file") {
@@ -339,6 +394,7 @@ export function StagedItemCard({ item, index }: Props) {
       if (action === "pdf_to_csv") { Object.assign(extraArgs, getDefaultApiKey()); }
       if (action === "extract_palette") { /* no API key needed */ }
       if (action === "recognize_audio") { extraArgs.audiodb_key = settings?.audiodb_api_key || "2"; }
+      if (action === "ocr_save_text") { Object.assign(extraArgs, getDefaultApiKey()); extraArgs.system_prompt = settings?.ai_prompts?.ocr; }
 
       const argsJson = JSON.stringify({ path: item.path, ...extraArgs });
       const resultStr = await invoke<string>("process_file", { action, argsJson });
@@ -449,15 +505,14 @@ export function StagedItemCard({ item, index }: Props) {
         paths: [item.path],
         to: emailTo,
         subject: emailSubject,
-        body: `Attached: ${item.name}`,
+        body: emailBody || `Attached: ${item.name}`,
       });
       showToastMsg("Email client opened!");
     } catch (e) {
       showToastMsg(String(e));
     }
-    setEmailTo("");
-    setEmailSubject("");
-  }, [item.path, item.name, emailTo, emailSubject, showToastMsg]);
+    setEmailTo(""); setEmailSubject(""); setEmailBody("");
+  }, [item.path, item.name, emailTo, emailSubject, emailBody, showToastMsg]);
 
   const handleCompressSubmit = useCallback(async () => {
     setShowCompressOpts(false);
@@ -482,15 +537,20 @@ export function StagedItemCard({ item, index }: Props) {
       if (resizeWidth) args.width = parseInt(resizeWidth);
       if (resizeHeight) args.height = parseInt(resizeHeight);
       if (!resizeWidth && !resizeHeight && resizePct) args.percentage = parseInt(resizePct);
+      // Include fill_color when both W and H are specified (ratio change possible)
+      if (resizeWidth && resizeHeight) {
+        args.maintain_aspect = false;
+        args.fill_color = resizeFillColor;
+      }
       const resultStr = await invoke<string>("process_file", { action: "resize_image", argsJson: JSON.stringify(args) });
       const result = JSON.parse(resultStr);
       if (result.ok && result.path) {
         await stageFile(result.path);
-        showToastMsg(`Resized to ${result.width}x${result.height}`);
+        showToastMsg(`Resized to ${result.width}x${result.height}${result.fill_used ? " (padded)" : ""}`);
       } else { showToastMsg(result.error || "Failed"); }
     } catch (e) { showToastMsg(String(e)); }
     finally { setProcessing(null); }
-  }, [item.path, resizeWidth, resizeHeight, resizePct, stageFile, showToastMsg]);
+  }, [item.path, resizeWidth, resizeHeight, resizePct, resizeFillColor, stageFile, showToastMsg]);
 
   const handleSplitSubmit = useCallback(async () => {
     setShowSplitOpts(false);
@@ -515,7 +575,7 @@ export function StagedItemCard({ item, index }: Props) {
       exit={{ opacity: 0, scale: 0.6, y: -10 }}
       transition={{ type: "spring", stiffness: 400, damping: 28, delay: index * 0.04 }}
       onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => { setIsHovered(false); setShowMore(false); setShowTimer(false); setShowPasswordPrompt(false); setShowEmailPrompt(false); setShowCompressOpts(false); setShowResizeOpts(false); setShowSplitOpts(false); setShowTranslateOpts(false); setShowAskPanel(false); setShowBase64Menu(false); setShowConvertMenu(false); setShowAudioConvertMenu(false); setShowAudioTypeAsk(false); }}
+      onMouseLeave={() => { setIsHovered(false); setShowMore(false); setShowTimer(false); setShowPasswordPrompt(false); setShowEmailPrompt(false); setShowCompressOpts(false); setShowResizeOpts(false); setShowSplitOpts(false); setShowTranslateOpts(false); setShowAskPanel(false); setShowBase64Menu(false); setShowConvertMenu(false); setShowAudioConvertMenu(false); setShowAudioTypeAsk(false); setShowImageConvertMenu(false); setShowArchivePanel(false); setShowExifPanel(false); }}
       className="group relative flex flex-col rounded-xl transition-colors"
       style={{
         background: isHovered ? "rgba(255, 255, 255, 0.06)" : "rgba(255, 255, 255, 0.02)",
@@ -856,8 +916,15 @@ export function StagedItemCard({ item, index }: Props) {
                   className="overflow-hidden"
                 >
                   <div className="px-3 pb-2 space-y-1.5">
+                    {/* File size warning */}
+                    {item.size && item.size > 25 * 1024 * 1024 && (
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20">
+                        <i className="fa-solid fa-triangle-exclamation text-[9px] text-amber-400" />
+                        <span className="text-[9px] text-amber-300">File is {(item.size / 1024 / 1024).toFixed(1)}MB — may exceed email limits. Consider compressing first.</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-1.5">
-                      <i className="fa-solid fa-envelope text-[9px] text-violet-400" />
+                      <i className={`fa-solid ${emailDraftLoading ? "fa-spinner fa-spin" : "fa-envelope"} text-[9px] text-violet-400`} />
                       <input
                         type="email"
                         placeholder="To: email@example.com"
@@ -873,17 +940,27 @@ export function StagedItemCard({ item, index }: Props) {
                         placeholder="Subject"
                         value={emailSubject}
                         onChange={(e) => setEmailSubject(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleEmailSend()}
                         className="flex-1 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[11px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-400/40 ml-[17px]"
                       />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <textarea
+                        placeholder="Body (AI-drafted)"
+                        value={emailBody}
+                        onChange={(e) => setEmailBody(e.target.value)}
+                        rows={2}
+                        className="flex-1 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[11px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-400/40 ml-[17px] resize-none"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-1 mt-0.5">
                       <button
                         onClick={handleEmailSend}
-                        className="px-2 py-1 rounded-md text-[10px] font-medium text-violet-300 hover:bg-violet-500/15 transition-colors"
+                        className="px-2.5 py-1 rounded-md text-[10px] font-medium text-violet-300 hover:bg-violet-500/15 transition-colors"
                       >
-                        Send
+                        <i className="fa-solid fa-paper-plane mr-1 text-[9px]" />Send
                       </button>
                       <button
-                        onClick={() => { setShowEmailPrompt(false); setEmailTo(""); setEmailSubject(""); }}
+                        onClick={() => { setShowEmailPrompt(false); setEmailTo(""); setEmailSubject(""); setEmailBody(""); }}
                         className="px-1.5 py-1 rounded-md text-[10px] text-white/30 hover:text-white/60 hover:bg-white/10 transition-colors"
                       >
                         <i className="fa-solid fa-xmark text-[9px]" />
@@ -917,8 +994,8 @@ export function StagedItemCard({ item, index }: Props) {
             <AnimatePresence>
               {showResizeOpts && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                  <div className="px-3 pb-2 space-y-1">
-                    <div className="flex items-center gap-1.5">
+                  <div className="px-3 pb-2 space-y-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <i className="fa-solid fa-expand text-[9px] text-cyan-400" />
                       <input type="number" placeholder="W" value={resizeWidth} onChange={(e) => setResizeWidth(e.target.value)}
                         className="w-14 px-1.5 py-1 rounded-md bg-white/5 border border-white/10 text-[11px] text-white/80 placeholder:text-white/20 outline-none text-center" />
@@ -932,6 +1009,18 @@ export function StagedItemCard({ item, index }: Props) {
                       <button onClick={handleResizeSubmit} className="px-2 py-1 rounded-md text-[10px] font-medium text-cyan-300 hover:bg-cyan-500/15 transition-colors">Go</button>
                       <button onClick={() => setShowResizeOpts(false)} className="px-1 py-1 text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
                     </div>
+                    {/* Fill color — shown when both W and H are set (ratio may change) */}
+                    {resizeWidth && resizeHeight && (
+                      <div className="flex items-center gap-1.5 ml-[17px]">
+                        <i className="fa-solid fa-fill-drip text-[9px] text-white/30" />
+                        <span className="text-[9px] text-white/40">Fill color:</span>
+                        <input type="color" value={resizeFillColor} onChange={(e) => setResizeFillColor(e.target.value)}
+                          className="w-6 h-5 rounded cursor-pointer border-0 bg-transparent p-0" title="Background fill color if aspect ratio changes" />
+                        <input type="text" value={resizeFillColor} onChange={(e) => setResizeFillColor(e.target.value)}
+                          className="w-16 px-1.5 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-white/60 outline-none font-mono" />
+                        <span className="text-[9px] text-white/25">used if ratio changes</span>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -1049,14 +1138,24 @@ export function StagedItemCard({ item, index }: Props) {
               )}
             </AnimatePresence>
 
-            {/* Palette result */}
+            {/* Palette result — enhanced with selective copy + ink dropper */}
             <AnimatePresence>
               {showPaletteResult && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                   <div className="px-3 pb-2">
+                    {/* Header */}
                     <div className="flex items-center gap-1.5 mb-1.5">
                       <i className="fa-solid fa-palette text-[9px] text-pink-400" />
-                      <span className="text-[10px] text-white/50">Extracted colors</span>
+                      <span className="text-[10px] text-white/50">Palette</span>
+                      {/* Mode toggle */}
+                      <div className="flex rounded-md overflow-hidden border border-white/10 ml-1">
+                        {(["swatches", "dropper"] as const).map((m) => (
+                          <button key={m} onClick={() => { setPaletteMode(m); setPaletteSelected(new Set()); setDropperColor(null); }}
+                            className={`px-2 py-0.5 text-[9px] font-medium transition-colors ${paletteMode === m ? "bg-pink-500/25 text-pink-300" : "text-white/30 hover:text-white/60"}`}>
+                            {m === "swatches" ? "Swatches" : "Dropper"}
+                          </button>
+                        ))}
+                      </div>
                       <div className="ml-auto flex gap-1">
                         <button
                           onClick={async () => {
@@ -1065,23 +1164,105 @@ export function StagedItemCard({ item, index }: Props) {
                             showToastMsg("Tailwind config copied!");
                           }}
                           className="px-1.5 py-0.5 rounded text-[9px] font-medium text-pink-300 hover:bg-pink-500/15 transition-colors"
-                          title="Copy as Tailwind config"
                         >Export</button>
-                        <button onClick={() => setShowPaletteResult(null)} className="px-1 py-0.5 text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                        <button
+                          disabled={processing !== null}
+                          onClick={async () => {
+                            setProcessing("save_palette_image");
+                            try {
+                              const argsJson = JSON.stringify({ colors: showPaletteResult, name: item.name.replace(/\.[^.]+$/, "") });
+                              const r = JSON.parse(await invoke<string>("process_file", { action: "save_palette_image", argsJson }));
+                              if (r.ok && r.path) { await stageFile(r.path); showToastMsg("Palette image saved!"); }
+                              else showToastMsg(r.error || "Failed");
+                            } catch (e) { showToastMsg(String(e)); }
+                            finally { setProcessing(null); }
+                          }}
+                          className="px-1.5 py-0.5 rounded text-[9px] font-medium text-white/40 hover:bg-white/5 hover:text-white/70 transition-colors disabled:opacity-30"
+                          title="Save palette as image"
+                        ><i className="fa-solid fa-image text-[8px]" /></button>
+                        <button onClick={() => { setShowPaletteResult(null); setPaletteSelected(new Set()); setDropperColor(null); }} className="px-1 py-0.5 text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
                       </div>
                     </div>
-                    <div className="flex gap-1.5">
-                      {showPaletteResult.map((c, i) => (
-                        <button key={i} onClick={async () => { await navigator.clipboard.writeText(c.hex); showToastMsg(`Copied ${c.hex}`); }}
-                          className="relative group/color flex flex-col items-center gap-0.5 cursor-pointer" title={`${c.hex} — Click to copy`}>
-                          <div className="w-8 h-8 rounded-lg border border-white/10 shadow-sm" style={{ background: c.hex }} />
-                          {!c.wcag_on_white && !c.wcag_on_black && (
-                            <span className="absolute -top-1 -right-1 text-[7px] text-amber-400">⚠</span>
-                          )}
-                          <span className="text-[8px] text-white/40 font-mono">{c.hex}</span>
-                        </button>
-                      ))}
-                    </div>
+
+                    {paletteMode === "swatches" ? (
+                      <>
+                        {/* Swatches with checkboxes */}
+                        <div className="flex gap-1.5 flex-wrap">
+                          {showPaletteResult.map((c, i) => (
+                            <div key={i} className="relative flex flex-col items-center gap-0.5 cursor-pointer" title={`${c.hex}`}>
+                              <div className="relative" onClick={async () => { await navigator.clipboard.writeText(c.hex); showToastMsg(`Copied ${c.hex}`); }}>
+                                <div className="w-8 h-8 rounded-lg border border-white/10 shadow-sm" style={{ background: c.hex }} />
+                                {!c.wcag_on_white && !c.wcag_on_black && (
+                                  <span className="absolute -top-1 -right-1 text-[7px] text-amber-400">⚠</span>
+                                )}
+                              </div>
+                              <input type="checkbox" checked={paletteSelected.has(i)}
+                                onChange={() => setPaletteSelected((s) => { const ns = new Set(s); ns.has(i) ? ns.delete(i) : ns.add(i); return ns; })}
+                                className="w-2.5 h-2.5 accent-pink-500 cursor-pointer" />
+                              <span className="text-[8px] text-white/40 font-mono">{c.hex}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Selective copy */}
+                        {paletteSelected.size > 0 && (
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <span className="text-[9px] text-white/40">{paletteSelected.size} selected:</span>
+                            <button
+                              onClick={async () => {
+                                const selected = showPaletteResult.filter((_, i) => paletteSelected.has(i)).map(c => c.hex);
+                                await navigator.clipboard.writeText(selected.join(", "));
+                                showToastMsg(`Copied ${selected.length} colors`);
+                              }}
+                              className="px-2 py-0.5 rounded text-[9px] font-medium text-pink-300 hover:bg-pink-500/15 transition-colors"
+                            ><i className="fa-regular fa-copy mr-1 text-[8px]" />Copy Hex</button>
+                            <button
+                              onClick={async () => {
+                                const selected = showPaletteResult.filter((_, i) => paletteSelected.has(i));
+                                const css = selected.map((c, idx) => `--color-${idx + 1}: ${c.hex};`).join(" ");
+                                await navigator.clipboard.writeText(`:root { ${css} }`);
+                                showToastMsg("CSS vars copied!");
+                              }}
+                              className="px-2 py-0.5 rounded text-[9px] font-medium text-indigo-300 hover:bg-indigo-500/15 transition-colors"
+                            >CSS vars</button>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      /* Ink Dropper mode — image canvas for pixel sampling */
+                      <div className="space-y-1.5">
+                        <span className="text-[9px] text-white/30">Click anywhere on the image to sample a color</span>
+                        <canvas
+                          ref={(el) => { dropperCanvasRef.current = el; if (el && item.thumbnail) { const img = new Image(); img.onload = () => { el.width = img.naturalWidth; el.height = img.naturalHeight; el.getContext("2d")?.drawImage(img, 0, 0); }; img.src = item.thumbnail; } }}
+                          onClick={(e) => {
+                            const canvas = dropperCanvasRef.current;
+                            if (!canvas) return;
+                            const rect = canvas.getBoundingClientRect();
+                            const scaleX = canvas.width / rect.width;
+                            const scaleY = canvas.height / rect.height;
+                            const x = Math.round((e.clientX - rect.left) * scaleX);
+                            const y = Math.round((e.clientY - rect.top) * scaleY);
+                            const ctx = canvas.getContext("2d");
+                            if (!ctx) return;
+                            const [r, g, b] = ctx.getImageData(x, y, 1, 1).data;
+                            const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+                            setDropperColor(hex);
+                          }}
+                          className="w-full rounded-lg cursor-crosshair border border-white/10 max-h-32 object-contain"
+                          style={{ imageRendering: "pixelated" }}
+                          title="Click to sample color"
+                        />
+                        {dropperColor && (
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded border border-white/20" style={{ background: dropperColor }} />
+                            <span className="text-[10px] font-mono text-white/70">{dropperColor}</span>
+                            <button onClick={async () => { await navigator.clipboard.writeText(dropperColor); showToastMsg(`Copied ${dropperColor}`); }}
+                              className="px-2 py-0.5 rounded text-[9px] font-medium text-pink-300 hover:bg-pink-500/15 transition-colors">
+                              <i className="fa-regular fa-copy mr-1 text-[8px]" />Copy
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -1091,12 +1272,12 @@ export function StagedItemCard({ item, index }: Props) {
             <AnimatePresence>
               {showBase64Menu && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                  <div className="px-3 pb-2 flex items-center gap-1">
+                  <div className="px-3 pb-2 flex items-center gap-1 flex-wrap">
                     <i className="fa-solid fa-code text-[9px] text-indigo-400" />
                     {[
-                      { label: "Raw", fmt: "raw" },
-                      { label: "HTML <img>", fmt: "html_img" },
-                      { label: "CSS url()", fmt: "css_url" },
+                      { label: "Raw", fmt: "raw", clipboard: true },
+                      { label: "HTML <img>", fmt: "html_img", clipboard: true },
+                      { label: "CSS url()", fmt: "css_url", clipboard: true },
                     ].map((opt) => (
                       <button
                         key={opt.fmt}
@@ -1117,7 +1298,227 @@ export function StagedItemCard({ item, index }: Props) {
                         className="px-2 py-1 rounded-md text-[10px] font-medium text-indigo-300 hover:bg-indigo-500/15 transition-colors disabled:opacity-40"
                       >{opt.label}</button>
                     ))}
+                    {/* Save as .txt file */}
+                    <button
+                      disabled={processing !== null}
+                      onClick={async () => {
+                        setShowBase64Menu(false);
+                        setProcessing("file_to_base64");
+                        try {
+                          const argsJson = JSON.stringify({ path: item.path, format: "raw", save_as_txt: true });
+                          const r = JSON.parse(await invoke<string>("process_file", { action: "file_to_base64", argsJson }));
+                          if (r.ok && r.txt_path) { await stageFile(r.txt_path); showToastMsg("Saved as .b64.txt!"); }
+                          else showToastMsg(r.error || "Failed");
+                        } catch (e) { showToastMsg(String(e)); }
+                        finally { setProcessing(null); }
+                      }}
+                      className="px-2 py-1 rounded-md text-[10px] font-medium text-white/50 hover:bg-white/5 hover:text-white/80 transition-colors disabled:opacity-40"
+                      title="Save base64 as .txt file"
+                    ><i className="fa-solid fa-floppy-disk mr-1 text-[9px]" />.txt</button>
                     <button onClick={() => setShowBase64Menu(false)} className="px-1 py-1 text-[10px] text-white/30 hover:text-white/60 ml-auto"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Image convert format menu */}
+            <AnimatePresence>
+              {showImageConvertMenu && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-3 pb-2 space-y-1.5">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <i className="fa-solid fa-arrow-right-arrow-left text-[9px] text-violet-400" />
+                      <span className="text-[9px] text-white/40 mr-1">Convert to:</span>
+                      {[
+                        { label: "PNG", fmt: "png" },
+                        { label: "JPG", fmt: "jpg" },
+                        { label: "WebP", fmt: "webp" },
+                        { label: "BMP", fmt: "bmp" },
+                        { label: "TIFF", fmt: "tiff" },
+                        { label: "GIF", fmt: "gif" },
+                        { label: "ICO", fmt: "ico" },
+                      ].filter((o) => o.fmt !== item.extension.toLowerCase()).map((opt) => (
+                        <button
+                          key={opt.fmt}
+                          disabled={processing !== null}
+                          onClick={async () => {
+                            setShowImageConvertMenu(false);
+                            setProcessing("convert_image");
+                            try {
+                              const argsJson = JSON.stringify({ path: item.path, format: opt.fmt, quality: imageConvertQuality });
+                              const r = JSON.parse(await invoke<string>("process_file", { action: "convert_image", argsJson }));
+                              if (r.ok && r.path) {
+                                await stageFile(r.path);
+                                showToastMsg(`Converted to ${opt.label}${r.savings_pct ? ` (${r.savings_pct}% size change)` : ""}`);
+                              } else showToastMsg(r.error || "Conversion failed");
+                            } catch (e) { showToastMsg(String(e)); }
+                            finally { setProcessing(null); }
+                          }}
+                          className="px-2 py-1 rounded-md text-[10px] font-medium text-violet-300 hover:bg-violet-500/15 transition-colors disabled:opacity-40"
+                        >{opt.label}</button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-white/40">Quality:</span>
+                      <input type="range" min={10} max={100} step={5} value={imageConvertQuality} onChange={(e) => setImageConvertQuality(Number(e.target.value))}
+                        className="flex-1 h-1 rounded-full appearance-none cursor-pointer" style={{ background: `linear-gradient(to right, rgba(139,92,246,0.5) ${imageConvertQuality}%, rgba(255,255,255,0.08) ${imageConvertQuality}%)` }} />
+                      <span className="text-[10px] text-violet-300 font-mono w-8 text-right">{imageConvertQuality}%</span>
+                      <button onClick={() => setShowImageConvertMenu(false)} className="px-1 py-1 text-[10px] text-white/30 hover:text-white/60 ml-auto"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* EXIF action panel — Strip or Preview */}
+            <AnimatePresence>
+              {showExifPanel && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-3 pb-2 space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <i className="fa-solid fa-tags text-[9px] text-amber-400" />
+                      <span className="text-[10px] text-white/50">EXIF Metadata</span>
+                      <div className="flex gap-1 ml-auto">
+                        <button
+                          disabled={processing !== null}
+                          onClick={async () => {
+                            setShowExifPanel(false);
+                            setProcessing("strip_exif");
+                            try {
+                              const r = JSON.parse(await invoke<string>("process_file", { action: "strip_exif", argsJson: JSON.stringify({ path: item.path }) }));
+                              if (r.ok && r.path) { await stageFile(r.path); showToastMsg("EXIF stripped"); }
+                              else showToastMsg(r.error || "Failed");
+                            } catch (e) { showToastMsg(String(e)); }
+                            finally { setProcessing(null); }
+                          }}
+                          className="px-2 py-1 rounded-md text-[10px] font-medium text-red-300 hover:bg-red-500/15 transition-colors disabled:opacity-40"
+                          title="Remove all EXIF data from this image"
+                        ><i className="fa-solid fa-trash-can mr-1 text-[9px]" />Strip</button>
+                        <button
+                          disabled={processing !== null}
+                          onClick={async () => {
+                            setShowExifPanel(false);
+                            setProcessing("show_exif");
+                            try {
+                              const r = JSON.parse(await invoke<string>("process_file", { action: "show_exif", argsJson: JSON.stringify({ path: item.path }) }));
+                              if (r.ok) { setShowExifData(r); showToastMsg(r.has_exif ? `${Object.keys(r.exif || {}).length} EXIF tags` : "No EXIF data"); }
+                              else showToastMsg(r.error || "Failed");
+                            } catch (e) { showToastMsg(String(e)); }
+                            finally { setProcessing(null); }
+                          }}
+                          className="px-2 py-1 rounded-md text-[10px] font-medium text-amber-300 hover:bg-amber-500/15 transition-colors disabled:opacity-40"
+                          title="Preview EXIF metadata"
+                        ><i className="fa-solid fa-eye mr-1 text-[9px]" />Preview</button>
+                        <button onClick={() => setShowExifPanel(false)} className="px-1 py-1 text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* EXIF data display */}
+            <AnimatePresence>
+              {showExifData && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-3 pb-2">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <i className="fa-solid fa-circle-info text-[9px] text-amber-400" />
+                      <span className="text-[10px] font-medium text-white/50">Image Metadata</span>
+                      <div className="ml-auto flex gap-1">
+                        <button onClick={async () => {
+                          const exif = showExifData.exif as Record<string, unknown> | undefined;
+                          const lines = [`Format: ${showExifData.format}`, `Size: ${(showExifData.size as number[])?.[0]}x${(showExifData.size as number[])?.[1]}`, `Mode: ${showExifData.mode}`];
+                          if (exif) Object.entries(exif).forEach(([k, v]) => lines.push(`${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`));
+                          await navigator.clipboard.writeText(lines.join("\n"));
+                          showToastMsg("EXIF copied!");
+                        }} className="px-1.5 py-0.5 rounded text-[9px] font-medium text-amber-300 hover:bg-amber-500/15 transition-colors"><i className="fa-regular fa-copy text-[8px] mr-0.5" />Copy</button>
+                        <button onClick={() => setShowExifData(null)} className="px-1 py-0.5 text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-black/20 border border-white/5 p-2 max-h-40 overflow-y-auto space-y-0.5">
+                      <div className="text-[9px] text-white/50"><span className="text-white/30">Format:</span> {String(showExifData.format)} &bull; <span className="text-white/30">Size:</span> {(showExifData.size as number[])?.[0]}x{(showExifData.size as number[])?.[1]} &bull; <span className="text-white/30">Mode:</span> {String(showExifData.mode)}</div>
+                      {showExifData.has_exif ? (
+                        Object.entries(showExifData.exif as Record<string, unknown>).map(([k, v]) => (
+                          <div key={k} className="text-[9px] text-white/40 flex gap-1">
+                            <span className="text-white/55 font-medium shrink-0">{k}:</span>
+                            <span className="truncate">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-[9px] text-white/30 italic">No EXIF data found in this image</div>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Unified Archive panel (zip/7z + encrypt + level + split) */}
+            <AnimatePresence>
+              {showArchivePanel && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-3 pb-2 space-y-1.5">
+                    {/* Row 1: Format + Password */}
+                    <div className="flex items-center gap-1.5">
+                      <i className="fa-solid fa-file-zipper text-[9px] text-yellow-400" />
+                      <span className="text-[10px] text-white/50">Format:</span>
+                      <select value={archiveFormat} onChange={(e) => setArchiveFormat(e.target.value)}
+                        className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-white/80 outline-none cursor-pointer">
+                        {["zip", "7z"].map((f) => <option key={f} value={f} className="bg-[#1a1a24] text-white">{f.toUpperCase()}</option>)}
+                      </select>
+                      <span className="text-[10px] text-white/50 ml-1">Password:</span>
+                      <input type="password" placeholder="optional" value={archivePassword} onChange={(e) => setArchivePassword(e.target.value)}
+                        className="w-20 px-1.5 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-white/80 placeholder:text-white/20 outline-none" />
+                    </div>
+                    {/* Row 2: Compression level */}
+                    <div className="flex items-center gap-2 ml-[17px]">
+                      <span className="text-[10px] text-white/50 shrink-0">Level:</span>
+                      <input type="range" min={1} max={9} step={1} value={archiveLevel} onChange={(e) => setArchiveLevel(Number(e.target.value))}
+                        className="flex-1 h-1 rounded-full appearance-none cursor-pointer" style={{ background: `linear-gradient(to right, rgba(234,179,8,0.5) ${(archiveLevel - 1) / 8 * 100}%, rgba(255,255,255,0.08) ${(archiveLevel - 1) / 8 * 100}%)` }} />
+                      <span className="text-[10px] text-yellow-300 font-mono w-4 text-right">{archiveLevel}</span>
+                      <span className="text-[8px] text-white/25">{archiveLevel <= 3 ? "Fast" : archiveLevel <= 6 ? "Balanced" : "Best"}</span>
+                    </div>
+                    {/* Row 3: Split + Action buttons */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-white/50 ml-[17px]">Split:</span>
+                      <input type="number" placeholder="MB" value={archiveSplitMb} onChange={(e) => setArchiveSplitMb(e.target.value)}
+                        className="w-14 px-1.5 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-white/80 placeholder:text-white/20 outline-none text-center" />
+                      <span className="text-[8px] text-white/25">MB</span>
+                      <div className="ml-auto flex gap-1">
+                        <button
+                          disabled={processing !== null}
+                          onClick={async () => {
+                            setShowArchivePanel(false);
+                            setProcessing("archive_file");
+                            try {
+                              const baseName = item.name.replace(/\.[^.]+$/, "");
+                              if (archivePassword.trim()) {
+                                const argsJson = JSON.stringify({ path: item.path, password: archivePassword.trim(), name: baseName });
+                                const r = JSON.parse(await invoke<string>("process_file", { action: "zip_encrypt", argsJson }));
+                                if (r.ok && r.path) { await stageFile(r.path); showToastMsg("Encrypted archive created!"); }
+                                else showToastMsg(r.error || "Failed");
+                              } else if (archiveSplitMb.trim()) {
+                                const splitArgs = JSON.stringify({ path: item.path, chunk_size_mb: parseInt(archiveSplitMb) || 25 });
+                                const r = JSON.parse(await invoke<string>("process_file", { action: "split_file", argsJson: splitArgs }));
+                                if (r.ok && r.paths) { for (const p of r.paths) await stageFile(p); showToastMsg(`Split into ${r.part_count} parts`); }
+                                else showToastMsg(r.error || "Split failed");
+                              } else {
+                                const argsJson = JSON.stringify({ path: item.path, format: archiveFormat, compression_level: archiveLevel, name: baseName });
+                                const r = JSON.parse(await invoke<string>("process_file", { action: "zip_file", argsJson }));
+                                if (r.ok && r.path) { await stageFile(r.path); showToastMsg(`${archiveFormat.toUpperCase()} created! Saved ${r.savings_pct ?? 0}%`); }
+                                else showToastMsg(r.error || "Failed");
+                              }
+                            } catch (e) { showToastMsg(String(e)); }
+                            finally { setProcessing(null); setArchivePassword(""); setArchiveSplitMb(""); }
+                          }}
+                          className="px-2.5 py-1 rounded-md text-[10px] font-medium text-yellow-300 hover:bg-yellow-500/15 transition-colors disabled:opacity-40"
+                        >
+                          {processing === "archive_file" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : "Compress"}
+                        </button>
+                        <button onClick={() => { setShowArchivePanel(false); setArchivePassword(""); setArchiveSplitMb(""); }} className="px-1 py-1 text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                      </div>
+                    </div>
                   </div>
                 </motion.div>
               )}

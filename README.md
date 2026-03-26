@@ -16,11 +16,11 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-[![Features](https://img.shields.io/badge/Features-96+-blueviolet?style=flat-square)]()
+[![Features](https://img.shields.io/badge/Features-123+-blueviolet?style=flat-square)]()
 [![AI Providers](https://img.shields.io/badge/AI_Providers-5-orange?style=flat-square)]()
-[![File Actions](https://img.shields.io/badge/File_Actions-34+-success?style=flat-square)]()
+[![File Actions](https://img.shields.io/badge/File_Actions-40+-success?style=flat-square)]()
 
-*A glassmorphic floating workspace with 96+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
+*A glassmorphic floating workspace with 123+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
 
 ---
 
@@ -36,7 +36,7 @@ Zenith is an **invisible desktop command center** that floats at the edge of you
 
 Think of it as a **universal file swiss-army-knife** crossed with an **AI-powered media library organizer** that lives at the edge of your screen.
 
-> **96 features. 34+ file actions. 5 AI providers. Shazam music recognition. Zero window switching.**
+> **123+ features. 40+ file actions. 5 AI providers. Generative AI image editor. Shazam music recognition. Zero window switching.**
 
 ---
 
@@ -54,23 +54,25 @@ Think of it as a **universal file swiss-army-knife** crossed with an **AI-powere
 - **Pin mode** — Pin the panel open while you work; unpin to auto-collapse
 - **Dynamic preview drawer** — Preview images, video, audio, code, CSV, JSON, and PDFs inline without leaving the panel
 
-### 33+ Built-in Actions
+### 40+ Built-in Actions
 
 | Category | Actions |
 |----------|---------|
-| **Image** | Compress, Resize, Strip EXIF, WebP Convert, Color Palette + WCAG Contrast, Base64 (Raw/HTML/CSS), OCR (Vision AI + Tesseract), OCR &#8594; Searchable PDF |
+| **Image** | Convert Format, Resize (+ fill color for ratio changes), EXIF Strip/Preview, Color Palette + WCAG + Ink Dropper, Base64 (Raw/HTML/CSS/TXT), OCR (Vision AI + Tesseract), Open in Generative Editor |
+| **AI Image Gen** | Zenith Generative Editor — text-to-image, image-to-image, conversational multi-turn editing, 3 models (Nano Banana 2/Pro, GPT-Image 1.5), history timeline, prompt library, cost tracking |
 | **PDF** | Compress, Merge (multi-PDF), PDF &#8594; CSV (LLM-powered structured extraction) |
 | **Audio** | Shazam Music Recognition (fingerprint &#8594; identify &#8594; metadata) |
 | **Media** | FFmpeg Convert (MP4, MP3, WebM, WAV, GIF) |
-| **Archive** | Zip, Zip + AES-256 Encrypt, Split File into chunks |
-| **Communication** | Email with Attachments (native mailto) |
-| **AI-Powered** | Smart Rename (3-suggestion shimmer flow), Smart Sort, Auto-Studio Organize + Undo, Translate (15+ languages), Ask Data (RAG Q&A), Summarize, Super Summary (multi-doc with citations), Generate Dashboard (CSV &#8594; interactive Chart.js HTML) |
+| **Archive** | Zip / 7z with compression level (1–9), AES-256 Encrypt, Split File into chunks |
+| **Communication** | Email with Attachments (native mailto) + LLM auto-draft Subject/Body |
+| **AI-Powered** | Smart Rename (3-suggestion shimmer flow), Smart Sort, Auto-Studio Organize + Undo, Translate (15+ languages), Ask Data (RAG Q&A), Summarize, Super Summary (multi-doc with citations), Generate Dashboard (CSV &#8594; interactive Chart.js HTML), Prompt Enhancement |
 | **Security** | VirusTotal deep scan (file hash &#8594; upload &#8594; poll), VirusTotal URL scan, batch scan |
 | **Utility** | QR Code generator, File Preview, Copy Path, Reveal in Explorer |
 
 ### Clipboard Superpowers
 - **Stack Mode** — Toggle on, hit `Ctrl+C` multiple times, then merge all clipboard entries with one click
 - **Text & URL staging** — Paste any text or URL directly into Zenith as a card
+- **Image paste** — Hit PrintScreen then `Ctrl+V` inside Zenith to stage a screenshot as a PNG card instantly
 - **Global shortcut** — `Ctrl+Shift+V` stages clipboard content instantly from anywhere
 
 ### Self-Destruct & Ephemeral Files
@@ -124,6 +126,40 @@ Dropdowns in the Review Studio let you choose how files are organized:
 - Every execution saves a **Transaction JSON** (`tx_UUID.json`) with full move history + poster paths
 - **1-click Undo** reverts all file moves, deletes downloaded posters, and removes empty folders
 - Recursive empty folder cleanup (deepest-first traversal)
+
+---
+
+## &#127775; Zenith Generative Editor
+
+> *Drop an image, click Editor. Type a prompt. Watch the AI repaint it. Chain 10 edits. Compare. Save. Stage.*
+
+The **Zenith Generative Editor** is a full-window AI image creation and editing studio that opens alongside your main workspace.
+
+### Two Ways to Open
+
+- **From a staged image card** → click the **Editor** action button to open the image pre-loaded
+- **From the panel header** → click **✨ Canvas** to open in blank text-to-image mode
+
+### Supported Models
+
+| Model | API String | Provider | Best For |
+|-------|-----------|----------|----------|
+| **Nano Banana 2** | `gemini-3.1-flash-image-preview` | Google | Fast iterations, daily use |
+| **Nano Banana Pro** | `gemini-3-pro-image-preview` | Google | High-quality, deep thinking |
+| **GPT-Image 1.5** | `gpt-image-1.5` | OpenAI | Photorealism, high-adherence edits |
+
+### Key Features
+
+- **Conversational editing** — each generation uses the current output as the next input; chain unlimited edits
+- **History timeline** — left panel stores every generation with thumbnail, prompt title, and cost; click any item to restore
+- **Before/After toggle** — hold the comparison pill to flip between original and current AI version
+- **Prompt enhancement (✨)** — rough idea → LLM rewrites to a detailed professional prompt automatically
+- **Auto-titles** — background LLM call names each history item (e.g. "Cyberpunk Skyline") for easy navigation
+- **Prompt library** — save and reload favorite prompts; persisted in `localStorage`
+- **Session cost tracker** — live cumulative USD cost in the Command Deck; per-item cost in timeline
+- **Model controls** — aspect ratio (1:1/16:9/9:16), style presets, thinking level (Pro), resolution and adherence (GPT)
+- **Send to Stage** — save current canvas to temp and stage it back into the main panel with one click
+- **Reset** — clears history, canvas, cost tracker, and all temp files in one click
 
 ---
 
@@ -254,14 +290,14 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
 ```
  React 19 (UI)  ────  Rust / Tauri v2 (OS layer)  ────  Python sidecar (AI + processing)
       │                         │                               │
- Framer Motion 12        Native OLE drag-drop           33+ file actions
- Tailwind CSS 4          Window compositing             5 LLM providers
+ Framer Motion 12        Native OLE drag-drop           40+ file actions
+ Tailwind CSS 4          Multi-window architecture      5 LLM providers + image gen models
  Zustand 5               Clipboard interception         TheAudioDB / OMDB / imdbapi.dev
-                                                            Shazam fingerprint recognition
+                         Clipboard image paste          Shazam fingerprint recognition
  Font Awesome 7          WASM plugin engine (wasmtime)  PDF / Image / Media / OCR
                          HTTP API server (:7890)         VirusTotal v3 integration
                          Transactional file I/O          EXIF / ID3 metadata
-                         walkdir recursive traversal     FFmpeg / QR / Tesseract
+                         walkdir recursive traversal     FFmpeg / QR / Tesseract / Pillow
 ```
 
 ### Tech Stack
@@ -316,8 +352,9 @@ Extend Zenith with WebAssembly plugins:
 zenith-app/
 ├── src/                           # React frontend
 │   ├── components/
-│   │   ├── Bubble.tsx             # Floating pill/panel + batch actions + pin mode
-│   │   ├── StagedItemCard.tsx     # File card with 33+ per-item actions
+│   │   ├── Bubble.tsx             # Floating pill/panel + batch actions + pin mode + ✨ Canvas button
+│   │   ├── StagedItemCard.tsx     # File card with 40+ per-item actions
+│   │   ├── ZenithEditor.tsx       # Generative AI image editor (full window, /editor route)
 │   │   ├── ReviewStudio.tsx       # Auto-Studio auxiliary panel (tree view + execute)
 │   │   ├── PreviewDrawer.tsx      # Dynamic multi-format preview panel
 │   │   ├── Settings.tsx           # Full settings modal (9 tabs)
@@ -328,12 +365,12 @@ zenith-app/
 │   └── App.tsx                    # Root component
 ├── src-tauri/
 │   └── src/
-│       ├── lib.rs                 # 35+ Tauri commands (file ops, studio, walk, rename)
+│       ├── lib.rs                 # 38+ Tauri commands (file ops, studio, walk, rename, editor, clipboard)
 │       ├── api_server.rs          # HTTP REST API server (:7890)
 │       ├── settings.rs            # Settings structs (Rust ↔ JSON ↔ React)
 │       └── plugins.rs             # WASM plugin engine (wasmtime)
 ├── scripts/
-│   ├── process_files.py           # 34+ Python processing actions + Auto-Studio engine
+│   ├── process_files.py           # 40+ Python processing actions + Auto-Studio engine + image gen
 │   ├── shazam_recognize.py        # Shazam audio fingerprinting & recognition (adapted from SongRec)
 │   └── requirements.txt           # Python dependencies
 ├── docs/
@@ -355,6 +392,9 @@ zenith-app/
 | Temp / output files | `%TEMP%/Zenith/` |
 | Undo history | `%TEMP%/Zenith/mapping_history.json` |
 | Studio transactions | `%TEMP%/Zenith/tx_*.json` |
+| Editor generated images | `%TEMP%/Zenith/Zenith_Editor/` |
+| Clipboard pastes | `%TEMP%/Zenith/clipboard_paste_*.png` |
+| Editor prompt library | `localStorage` key `zenith_editor_prompts` |
 
 ---
 
@@ -363,10 +403,12 @@ zenith-app/
 | Capability | Single File | Folder | Multi-Select | Global | URL | Text |
 |:-----------|:----------:|:------:|:------------:|:------:|:---:|:----:|
 | AI Smart Rename | &#9989; | &#9989; | &#9989; | &#9989; | — | — |
-| Compress / Resize / Convert | &#9989; | — | — | — | — | — |
-| Zip / Encrypt / Split | &#9989; | &#9989; | &#9989; | &#9989; | — | — |
+| Convert / Resize / EXIF / Palette | &#9989; (Image) | — | — | — | — | — |
+| Generative Editor (Image-to-image) | &#9989; (Image) | — | — | — | — | — |
+| Generative Editor (Text-to-image) | — | — | — | &#9989; (Canvas btn) | — | — |
+| Zip / Encrypt / Split / Archive | &#9989; | &#9989; | &#9989; | &#9989; | — | — |
 | VirusTotal Scan | &#9989; | &#9989; | &#9989; | — | &#9989; | — |
-| OCR / OCR &#8594; PDF | &#9989; | — | — | — | — | — |
+| OCR | &#9989; | — | — | — | — | — |
 | Ask Data / Summarize / Translate | &#9989; | — | — | — | — | — |
 | Generate Dashboard | &#9989; | — | — | — | — | — |
 | Merge PDFs | — | — | &#9989; | &#9989; | — | — |
@@ -375,6 +417,7 @@ zenith-app/
 | QR Code | — | — | — | &#9989; | &#9989; | — |
 | Preview | &#9989; | &#9989; | — | — | &#9989; | &#9989; |
 | Self-Destruct Timer | &#9989; | &#9989; | — | — | — | — |
+| Clipboard Image Paste | — | — | — | &#9989; (Ctrl+V) | — | — |
 
 ---
 
@@ -408,7 +451,7 @@ This project is licensed under the **Zenith Personal Use License** — free for 
 
 **Built with Rust &#9881;&#65039;, React &#9889;, Python &#128013;, and mass amounts of caffeine &#9749;**
 
-*96 features. 5 AI providers. Shazam music ID. 1 invisible tool that does everything.*
+*123+ features. 5 AI providers. Generative image editor. Shazam music ID. 1 invisible tool that does everything.*
 
 **&#11088; Star this repo if Zenith blew your mind!**
 

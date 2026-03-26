@@ -5,10 +5,11 @@ Actions: compress_image, strip_exif, zip_files, zip_file, convert_webp,
          merge_pdf, compress_pdf, zip_encrypt, resize_image, split_file,
          smart_rename, smart_sort, ocr, auto_organize, translate_file,
          extract_palette, file_to_base64, ask_data, summarize_file,
-         super_summary, generate_dashboard
+         super_summary, generate_dashboard, generate_image, enhance_prompt,
+         auto_title_prompt, save_editor_image, reset_editor
 Outputs JSON result to stdout.
 """
-import sys, os, json, tempfile, zipfile, hashlib, shutil, subprocess, math
+import sys, os, json, tempfile, zipfile, shutil, subprocess, math
 
 TEMP_DIR = os.path.join(tempfile.gettempdir(), "Zenith")
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -57,6 +58,169 @@ def strip_exif(args):
     out = os.path.join(TEMP_DIR, f"{name}_noexif{ext}")
     clean.save(out)
     return {"path": out}
+
+
+def show_exif(args):
+    """Read and return EXIF/metadata from an image without removing it."""
+    from PIL import Image
+    from PIL.ExifTags import TAGS, GPSTAGS
+    path = args["path"]
+    img = Image.open(path)
+    info = {"format": img.format, "mode": img.mode, "size": list(img.size)}
+    exif_data = {}
+    raw_exif = img.getexif()
+    if raw_exif:
+        for tag_id, value in raw_exif.items():
+            tag_name = TAGS.get(tag_id, str(tag_id))
+            try:
+                if isinstance(value, bytes):
+                    value = value.hex()[:64] + "..." if len(value) > 32 else value.hex()
+                elif hasattr(value, "numerator"):
+                    value = f"{value.numerator}/{value.denominator}"
+                else:
+                    value = str(value)
+                exif_data[tag_name] = value
+            except Exception:
+                exif_data[tag_name] = str(value)[:200]
+        # GPS sub-IFD
+        gps_ifd = raw_exif.get_ifd(0x8825)
+        if gps_ifd:
+            gps = {}
+            for k, v in gps_ifd.items():
+                gps[GPSTAGS.get(k, str(k))] = str(v)
+            if gps:
+                exif_data["GPS"] = gps
+    info["exif"] = exif_data
+    info["has_exif"] = len(exif_data) > 0
+    return info
+
+
+def convert_image(args):
+    """Convert image between formats (PNG, JPG, WebP, BMP, TIFF, GIF) with quality control."""
+    from PIL import Image
+    path = args["path"]
+    target_format = args.get("format", "png").lower()
+    quality = args.get("quality", 85)
+
+    FORMAT_MAP = {
+        "png": ("PNG", ".png"),
+        "jpg": ("JPEG", ".jpg"),
+        "jpeg": ("JPEG", ".jpg"),
+        "webp": ("WEBP", ".webp"),
+        "bmp": ("BMP", ".bmp"),
+        "tiff": ("TIFF", ".tiff"),
+        "gif": ("GIF", ".gif"),
+        "ico": ("ICO", ".ico"),
+    }
+    if target_format not in FORMAT_MAP:
+        return {"error": f"Unsupported format: {target_format}. Supported: {list(FORMAT_MAP.keys())}"}
+
+    pil_format, ext = FORMAT_MAP[target_format]
+    img = Image.open(path)
+
+    # Handle transparency
+    if target_format in ("jpg", "jpeg", "bmp") and img.mode in ("RGBA", "LA", "PA"):
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode == "RGBA":
+            bg.paste(img, mask=img.split()[3])
+        else:
+            bg.paste(img)
+        img = bg
+    elif target_format in ("png", "webp", "gif", "tiff") and img.mode == "P":
+        img = img.convert("RGBA")
+    elif img.mode not in ("RGB", "RGBA", "L"):
+        img = img.convert("RGB")
+
+    name = os.path.splitext(os.path.basename(path))[0]
+    out = os.path.join(TEMP_DIR, f"{name}_converted{ext}")
+
+    save_kwargs = {}
+    if pil_format in ("JPEG", "WEBP"):
+        save_kwargs["quality"] = quality
+    if pil_format == "WEBP":
+        save_kwargs["method"] = 4
+    if pil_format == "PNG":
+        save_kwargs["optimize"] = True
+
+    img.save(out, pil_format, **save_kwargs)
+    orig_size = os.path.getsize(path)
+    new_size = os.path.getsize(out)
+    return {
+        "path": out, "format": target_format, "width": img.size[0], "height": img.size[1],
+        "original_size": orig_size, "new_size": new_size,
+        "savings_pct": round((1 - new_size / orig_size) * 100, 1) if orig_size > 0 else 0,
+    }
+
+
+def save_palette_image(args):
+    """Save extracted color palette as a swatch image."""
+    from PIL import Image, ImageDraw, ImageFont
+    colors = args.get("colors", [])
+    if not colors:
+        return {"error": "No colors provided"}
+
+    swatch_w, swatch_h = 80, 100
+    padding = 10
+    width = padding + len(colors) * (swatch_w + padding)
+    height = swatch_h + padding * 3 + 20
+    img = Image.new("RGB", (width, height), (30, 30, 30))
+    draw = ImageDraw.Draw(img)
+
+    for i, c in enumerate(colors):
+        hex_color = c if isinstance(c, str) else c.get("hex", "#000000")
+        r_val = int(hex_color[1:3], 16)
+        g_val = int(hex_color[3:5], 16)
+        b_val = int(hex_color[5:7], 16)
+        x = padding + i * (swatch_w + padding)
+        y = padding
+        draw.rounded_rectangle([x, y, x + swatch_w, y + swatch_h], radius=8, fill=(r_val, g_val, b_val))
+        # Hex label below
+        draw.text((x + swatch_w // 2, y + swatch_h + 8), hex_color, fill=(200, 200, 200), anchor="mt")
+
+    name = args.get("name", "palette")
+    out = os.path.join(TEMP_DIR, f"{name}_palette.png")
+    img.save(out, "PNG")
+    return {"path": out, "color_count": len(colors)}
+
+
+def ocr_save_text(args):
+    """Run OCR (LLM vision or Tesseract) and save result as .txt file."""
+    # Reuse the existing ocr function
+    result = ocr(args)
+    if "error" in result:
+        return result
+    text = result.get("text", "")
+    if not text:
+        return {"error": "OCR produced no text"}
+
+    name = os.path.splitext(os.path.basename(args["path"]))[0]
+    out = os.path.join(TEMP_DIR, f"{name}_ocr.txt")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(text)
+    return {"path": out, "text": text, "words": len(text.split())}
+
+
+def email_draft(args):
+    """Use LLM to draft email subject and body for file attachment."""
+    path = args.get("path", "")
+    filename = os.path.basename(path) if path else args.get("filename", "file")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "")
+    model = args.get("model", "")
+    if not api_key:
+        return {"subject": f"Sending: {filename}", "body": f"Hi,\n\nPlease find attached: {filename}\n\nBest regards"}
+
+    prompt = f"Draft a short professional email for sending a file attachment named '{filename}'. Return JSON with 'subject' and 'body' keys only. Keep it brief and professional."
+    try:
+        resp = _call_llm(api_key, provider, model, prompt, "You are a professional email assistant. Return only valid JSON.")
+        import re
+        json_match = re.search(r'\{[^}]+\}', resp, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group())
+            return {"subject": data.get("subject", f"Sending: {filename}"), "body": data.get("body", f"Attached: {filename}")}
+    except Exception:
+        pass
+    return {"subject": f"Sending: {filename}", "body": f"Hi,\n\nPlease find attached: {filename}\n\nBest regards"}
 
 
 def convert_webp(args):
@@ -209,11 +373,34 @@ def compress_pdf(args):
 
 
 def zip_file(args):
-    """Zip a single file or folder (no encryption)."""
+    """Zip a single file or folder. Supports compression_level (1=fast, 9=best)."""
     path = args["path"]
     name = args.get("name", os.path.splitext(os.path.basename(path))[0])
+    compression_level = int(args.get("compression_level", 6))  # 1-9
+    fmt = args.get("format", "zip").lower()
+    password = args.get("password", "")
+
+    # Route to 7z if format is 7z or password requested
+    if fmt == "7z" or (password and fmt in ("7z",)):
+        seven_z = shutil.which("7z") or shutil.which("7za")
+        if seven_z:
+            out = os.path.join(TEMP_DIR, f"{name}.7z")
+            cmd = [seven_z, "a", f"-mx={compression_level}", out, path]
+            if password:
+                cmd += [f"-p{password}", "-mhe=on"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                return {"error": f"7z failed: {result.stderr[:200]}"}
+            orig_size = os.path.getsize(path) if os.path.isfile(path) else sum(
+                os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(path) for f in fs)
+            new_size = os.path.getsize(out)
+            return {"path": out, "original_size": orig_size, "new_size": new_size, "format": "7z",
+                    "savings_pct": round((1 - new_size / orig_size) * 100, 1) if orig_size > 0 else 0}
+
+    # Default: zip
     out = os.path.join(TEMP_DIR, f"{name}.zip")
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+    compress = zipfile.ZIP_DEFLATED
+    with zipfile.ZipFile(out, "w", compress, compresslevel=compression_level) as zf:
         if os.path.isfile(path):
             zf.write(path, os.path.basename(path))
         elif os.path.isdir(path):
@@ -226,18 +413,19 @@ def zip_file(args):
         os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(path) for f in fs
     )
     new_size = os.path.getsize(out)
-    return {"path": out, "original_size": orig_size, "new_size": new_size,
+    return {"path": out, "original_size": orig_size, "new_size": new_size, "format": "zip",
             "savings_pct": round((1 - new_size / orig_size) * 100, 1) if orig_size > 0 else 0}
 
 
 def resize_image(args):
-    """Resize image to exact width/height or by percentage."""
+    """Resize image to exact width/height or by percentage. Supports fill_color for canvas padding."""
     from PIL import Image
     path = args["path"]
     width = args.get("width")
     height = args.get("height")
     percentage = args.get("percentage")
     maintain_aspect = args.get("maintain_aspect", True)
+    fill_color = args.get("fill_color", None)  # hex string e.g. "#ffffff"
 
     img = Image.open(path)
     orig_w, orig_h = img.size
@@ -258,7 +446,51 @@ def resize_image(args):
     else:
         return {"error": "Specify width, height, or percentage"}
 
-    resized = img.resize((new_w, new_h), Image.LANCZOS)
+    # If both W and H specified with a fill color and aspect ratio changes, pad the canvas
+    if fill_color and width and height and not maintain_aspect:
+        target_w, target_h = int(width), int(height)
+        orig_ratio = orig_w / orig_h
+        target_ratio = target_w / target_h
+
+        if abs(orig_ratio - target_ratio) > 0.01:
+            # Scale image to fit within target bounds
+            if orig_ratio > target_ratio:
+                scale_w = target_w
+                scale_h = int(target_w / orig_ratio)
+            else:
+                scale_h = target_h
+                scale_w = int(target_h * orig_ratio)
+
+            resized = img.resize((scale_w, scale_h), Image.LANCZOS)
+
+            # Parse hex fill color
+            try:
+                hex_c = fill_color.lstrip("#")
+                fill_rgb = tuple(int(hex_c[i:i+2], 16) for i in (0, 2, 4))
+            except Exception:
+                fill_rgb = (255, 255, 255)
+
+            canvas_mode = "RGBA" if img.mode == "RGBA" else "RGB"
+            if canvas_mode == "RGBA":
+                canvas = Image.new("RGBA", (target_w, target_h), (*fill_rgb, 255))
+            else:
+                canvas = Image.new("RGB", (target_w, target_h), fill_rgb)
+
+            offset_x = (target_w - scale_w) // 2
+            offset_y = (target_h - scale_h) // 2
+            if canvas_mode == "RGBA":
+                canvas.paste(resized, (offset_x, offset_y), resized if resized.mode == "RGBA" else None)
+            else:
+                canvas.paste(resized, (offset_x, offset_y))
+
+            new_w, new_h = target_w, target_h
+            resized = canvas
+        else:
+            resized = img.resize((target_w, target_h), Image.LANCZOS)
+            new_w, new_h = target_w, target_h
+    else:
+        resized = img.resize((new_w, new_h), Image.LANCZOS)
+
     ext = os.path.splitext(path)[1].lower()
     name = os.path.splitext(os.path.basename(path))[0]
     out = os.path.join(TEMP_DIR, f"{name}_{new_w}x{new_h}{ext}")
@@ -266,7 +498,8 @@ def resize_image(args):
         resized = resized.convert("RGB")
     resized.save(out)
     return {"path": out, "width": new_w, "height": new_h,
-            "original_width": orig_w, "original_height": orig_h}
+            "original_width": orig_w, "original_height": orig_h,
+            "fill_used": fill_color is not None}
 
 
 def split_file(args):
@@ -821,10 +1054,11 @@ def extract_palette(args):
 
 
 def file_to_base64(args):
-    """Convert file to base64 string in various formats."""
+    """Convert file to base64 string in various formats. Optionally save as .txt file."""
     import base64
     path = args["path"]
     fmt = args.get("format", "raw")  # raw, html_img, css_url
+    save_as_txt = args.get("save_as_txt", False)
 
     with open(path, "rb") as f:
         data = f.read()
@@ -852,7 +1086,15 @@ def file_to_base64(args):
     else:
         result = b64
 
-    return {"base64": result, "format": fmt, "size": len(data), "encoded_size": len(b64)}
+    txt_path = None
+    if save_as_txt:
+        name = os.path.splitext(os.path.basename(path))[0]
+        txt_path = os.path.join(TEMP_DIR, f"{name}.b64.txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(result)
+
+    return {"base64": result, "format": fmt, "size": len(data), "encoded_size": len(b64),
+            "txt_path": txt_path}
 
 
 def ask_data(args):
@@ -2590,13 +2832,274 @@ def undo_audio_metadata(args):
     return result
 
 
+def generate_image(args):
+    """Generate or edit an image via Gemini or OpenAI image APIs.
+    Text-to-image: { model, prompt, api_key, provider, aspect_ratio, quality, style }
+    Image-to-image: add { image_b64 } to edit the provided image.
+    Returns: { image_b64, cost, model, width, height }
+    """
+    import base64, urllib.request, urllib.error, io
+
+    model = args.get("model", "gemini-3.1-flash-image-preview")
+    prompt = args.get("prompt", "")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "google")
+    image_b64 = args.get("image_b64", None)      # None = text-to-image
+    aspect_ratio = args.get("aspect_ratio", "1:1")  # "1:1", "16:9", "9:16"
+    quality = args.get("quality", "standard")     # "standard" | "hd" (OpenAI)
+    style = args.get("style", "photorealistic")   # for Gemini style hint
+
+    if not api_key:
+        return {"error": "API key required. Set it in Settings > API Keys."}
+    if not prompt:
+        return {"error": "Prompt is required."}
+
+    # Cost per image (USD) lookup
+    COST_MAP = {
+        "gemini-3.1-flash-image-preview": 0.067,
+        "gemini-3-pro-image-preview": 0.134,
+        "gpt-image-1.5": 0.133,
+    }
+    cost = COST_MAP.get(model, 0.10)
+
+    # ── Google Gemini ──
+    if provider == "google":
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        parts = []
+
+        # Style hint injected into prompt
+        style_hint = {"photorealistic": "photorealistic, ultra-detailed",
+                      "digital_art": "digital art, vibrant illustration",
+                      "vector": "clean vector art, flat design"}.get(style, "")
+        full_prompt = f"{prompt}. {style_hint}" if style_hint else prompt
+
+        if image_b64:
+            # Image-to-image: include reference image
+            parts.append({"inline_data": {"mime_type": "image/png", "data": image_b64}})
+
+        parts.append({"text": full_prompt})
+
+        payload = json.dumps({
+            "contents": [{"parts": parts}],
+            "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}
+        }).encode()
+
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            body = e.read().decode() if e.fp else ""
+            return {"error": f"Gemini image API error {e.code}: {body[:300]}"}
+        except Exception as e:
+            return {"error": str(e)}
+
+        # Extract image from response parts
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return {"error": "No image returned by Gemini. Check your API key and quota."}
+
+        result_b64 = None
+        for part in candidates[0].get("content", {}).get("parts", []):
+            if "inlineData" in part:
+                result_b64 = part["inlineData"]["data"]
+                break
+
+        if not result_b64:
+            return {"error": "Gemini returned no image data."}
+
+        # Save to temp file
+        import uuid
+        tmp_name = f"gen_{uuid.uuid4().hex[:8]}.png"
+        tmp_path = os.path.join(TEMP_DIR, "Zenith_Editor")
+        os.makedirs(tmp_path, exist_ok=True)
+        out_path = os.path.join(tmp_path, tmp_name)
+        with open(out_path, "wb") as f:
+            f.write(base64.b64decode(result_b64))
+
+        return {"image_b64": result_b64, "path": out_path, "cost": cost,
+                "model": model, "format": "png"}
+
+    # ── OpenAI GPT-Image ──
+    elif provider == "openai":
+        ASPECT_SIZE = {"1:1": "1024x1024", "16:9": "1792x1024", "9:16": "1024x1792"}
+        size = ASPECT_SIZE.get(aspect_ratio, "1024x1024")
+        qual = "high" if quality == "hd" else "standard"
+
+        import uuid
+        tmp_path = os.path.join(TEMP_DIR, "Zenith_Editor")
+        os.makedirs(tmp_path, exist_ok=True)
+
+        if image_b64:
+            # Image edit via multipart/form-data
+            boundary = f"ZenithBoundary{uuid.uuid4().hex}"
+            img_bytes = base64.b64decode(image_b64)
+
+            body_parts = []
+            def _field(name, value):
+                return (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n").encode()
+            def _file(name, filename, data, content_type):
+                header = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; "
+                          f"filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n").encode()
+                return header + data + b"\r\n"
+
+            body_parts.append(_field("model", model))
+            body_parts.append(_field("prompt", prompt))
+            body_parts.append(_field("n", "1"))
+            body_parts.append(_field("size", size))
+            body_parts.append(_field("response_format", "b64_json"))
+            body_parts.append(_file("image", "image.png", img_bytes, "image/png"))
+            body_parts.append(f"--{boundary}--\r\n".encode())
+
+            body = b"".join(body_parts)
+            req = urllib.request.Request(
+                "https://api.openai.com/v1/images/edits",
+                data=body,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": f"multipart/form-data; boundary={boundary}"
+                }
+            )
+        else:
+            # Text-to-image
+            payload = json.dumps({
+                "model": model, "prompt": prompt, "n": 1,
+                "size": size, "quality": qual, "response_format": "b64_json"
+            }).encode()
+            req = urllib.request.Request(
+                "https://api.openai.com/v1/images/generations",
+                data=payload,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            )
+
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            body = e.read().decode() if e.fp else ""
+            return {"error": f"OpenAI image API error {e.code}: {body[:300]}"}
+        except Exception as e:
+            return {"error": str(e)}
+
+        result_b64 = data["data"][0].get("b64_json", "")
+        if not result_b64:
+            return {"error": "OpenAI returned no image data."}
+
+        tmp_name = f"gen_{uuid.uuid4().hex[:8]}.png"
+        out_path = os.path.join(tmp_path, tmp_name)
+        with open(out_path, "wb") as f:
+            f.write(base64.b64decode(result_b64))
+
+        return {"image_b64": result_b64, "path": out_path, "cost": cost,
+                "model": model, "format": "png"}
+
+    return {"error": f"Unsupported provider for image generation: {provider}"}
+
+
+def enhance_prompt(args):
+    """Rewrite a rough prompt into a detailed, professional image generation prompt using LLM."""
+    prompt = args.get("prompt", "")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "google")
+    model = args.get("model", "")
+
+    if not api_key:
+        return {"error": "API key required to enhance prompts."}
+    if not prompt.strip():
+        return {"error": "No prompt provided."}
+
+    system = ("You are an expert image prompt engineer. Rewrite the user's rough image description "
+              "into a highly detailed, professional prompt for an AI image generator. "
+              "Include: lighting, composition, style, mood, camera angle, and quality keywords. "
+              "Return ONLY the enhanced prompt text, nothing else.")
+
+    result = _call_llm(provider, api_key, model, prompt, system_prompt=system)
+    if "error" in result:
+        return result
+    return {"enhanced_prompt": result["text"].strip()}
+
+
+def auto_title_prompt(args):
+    """Summarize an image generation prompt into a 2-4 word title for history display."""
+    prompt = args.get("prompt", "")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "google")
+    model = args.get("model", "")
+
+    if not api_key or not prompt.strip():
+        # Fallback: take first 3 words
+        words = prompt.strip().split()[:3]
+        return {"title": " ".join(words).title() or "Untitled"}
+
+    system = "You are a concise title generator. Return ONLY a 2-4 word title for the described image. No punctuation, no quotes."
+    result = _call_llm(provider, api_key, model, prompt, system_prompt=system)
+    if "error" in result:
+        words = prompt.strip().split()[:3]
+        return {"title": " ".join(words).title() or "Untitled"}
+
+    title = result["text"].strip().strip('"').strip("'")[:40]
+    return {"title": title}
+
+
+def save_editor_image(args):
+    """Save a base64 image to a file with chosen format and quality."""
+    import base64
+    from PIL import Image
+    image_b64 = args.get("image_b64", "")
+    fmt = args.get("format", "png").lower()
+    quality = int(args.get("quality", 90))
+    filename = args.get("filename", "zenith_generated")
+
+    if not image_b64:
+        return {"error": "No image data provided."}
+
+    FORMAT_MAP = {"png": ("PNG", ".png"), "jpg": ("JPEG", ".jpg"),
+                  "jpeg": ("JPEG", ".jpg"), "webp": ("WEBP", ".webp")}
+    pil_fmt, ext = FORMAT_MAP.get(fmt, ("PNG", ".png"))
+
+    img_bytes = base64.b64decode(image_b64)
+    img = Image.open(__import__("io").BytesIO(img_bytes))
+
+    if pil_fmt == "JPEG" and img.mode in ("RGBA", "LA"):
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=img.split()[3] if img.mode == "RGBA" else None)
+        img = bg
+
+    out = os.path.join(TEMP_DIR, f"{filename}{ext}")
+    save_kwargs = {}
+    if pil_fmt in ("JPEG", "WEBP"):
+        save_kwargs["quality"] = quality
+    img.save(out, pil_fmt, **save_kwargs)
+    return {"path": out, "size": os.path.getsize(out), "format": fmt}
+
+
+def reset_editor(_args):
+    """Clear the Zenith Editor temp folder."""
+    editor_dir = os.path.join(TEMP_DIR, "Zenith_Editor")
+    removed = 0
+    if os.path.isdir(editor_dir):
+        for f in os.listdir(editor_dir):
+            fp = os.path.join(editor_dir, f)
+            try:
+                os.remove(fp)
+                removed += 1
+            except Exception:
+                pass
+    return {"removed": removed, "dir": editor_dir}
+
+
 ACTIONS = {
     "recognize_audio": recognize_audio,
     "apply_audio_metadata": apply_audio_metadata,
     "undo_audio_metadata": undo_audio_metadata,
     "compress_image": compress_image,
     "strip_exif": strip_exif,
+    "show_exif": show_exif,
+    "convert_image": convert_image,
     "convert_webp": convert_webp,
+    "save_palette_image": save_palette_image,
+    "ocr_save_text": ocr_save_text,
+    "email_draft": email_draft,
     "zip_files": zip_files,
     "zip_file": zip_file,
     "zip_encrypt": zip_encrypt,
@@ -2621,16 +3124,25 @@ ACTIONS = {
     "pdf_to_csv": pdf_to_csv,
     "convert_media": convert_media,
     "smart_organize_studio": smart_organize_studio,
+    "generate_image": generate_image,
+    "enhance_prompt": enhance_prompt,
+    "auto_title_prompt": auto_title_prompt,
+    "save_editor_image": save_editor_image,
+    "reset_editor": reset_editor,
 }
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print(json.dumps({"error": "Usage: process_files.py <action> <json_args>"}))
+    if len(sys.argv) < 2:
+        print(json.dumps({"error": "Usage: process_files.py <action>  (args JSON via stdin)"}))
         sys.exit(1)
 
     action = sys.argv[1]
     try:
-        args = json.loads(sys.argv[2])
+        # Args are sent via stdin to avoid Windows 32K command-line length limit
+        # (base64 image payloads easily exceed that).
+        # Fallback: if a second CLI arg is provided, use it (backward compat).
+        raw = sys.argv[2] if len(sys.argv) > 2 else sys.stdin.read()
+        args = json.loads(raw) if raw.strip() else {}
     except json.JSONDecodeError as e:
         print(json.dumps({"error": f"Invalid JSON: {e}"}))
         sys.exit(1)

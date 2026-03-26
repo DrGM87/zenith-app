@@ -57,6 +57,13 @@ pub struct ScriptProcessState {
     pub processes: Mutex<HashMap<String, std::process::Child>>,
 }
 
+/// Stores the image path that the editor window should load on startup.
+/// The editor reads this on mount via `take_pending_editor_image`, which
+/// atomically returns and clears the value.
+pub struct EditorImageState {
+    pub pending: Mutex<Option<String>>,
+}
+
 #[tauri::command]
 fn get_settings(state: tauri::State<'_, SettingsState>) -> Result<ZenithSettings, String> {
     let s = state.settings.lock().map_err(|e| e.to_string())?;
@@ -573,6 +580,108 @@ fn reveal_in_folder(path: String) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn open_editor_window(
+    app: tauri::AppHandle,
+    image_path: String,
+    editor_state: tauri::State<'_, EditorImageState>,
+) -> Result<(), String> {
+    use tauri::Manager;
+    // If editor window already exists, just focus it and emit event directly
+    if let Some(win) = app.get_webview_window("zenith_editor") {
+        win.set_focus().map_err(|e| e.to_string())?;
+        win.emit("editor-load-image", &image_path).map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    // Store path so editor can retrieve it reliably on mount
+    {
+        let mut pending = editor_state.pending.lock().unwrap();
+        *pending = Some(image_path.clone());
+    }
+    // Open editor window using the same query-param routing as settings/script windows
+    let _editor = tauri::WebviewWindowBuilder::new(
+        &app,
+        "zenith_editor",
+        tauri::WebviewUrl::App("/?window=editor".into()),
+    )
+    .title("Zenith Editor")
+    .inner_size(1200.0, 800.0)
+    .min_inner_size(800.0, 600.0)
+    .center()
+    .decorations(true)
+    .transparent(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_editor_window_blank(
+    app: tauri::AppHandle,
+    editor_state: tauri::State<'_, EditorImageState>,
+) -> Result<(), String> {
+    use tauri::Manager;
+    // If editor window already exists, focus it and emit blank-canvas event
+    if let Some(win) = app.get_webview_window("zenith_editor") {
+        win.set_focus().map_err(|e| e.to_string())?;
+        win.emit("editor-load-image", "").map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    // Clear any pending path — this is a blank canvas session
+    {
+        let mut pending = editor_state.pending.lock().unwrap();
+        *pending = None;
+    }
+    let _editor = tauri::WebviewWindowBuilder::new(
+        &app,
+        "zenith_editor",
+        tauri::WebviewUrl::App("/?window=editor".into()),
+    )
+    .title("Zenith Editor")
+    .inner_size(1200.0, 800.0)
+    .min_inner_size(800.0, 600.0)
+    .center()
+    .decorations(true)
+    .transparent(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Called by the editor frontend on mount to retrieve (and clear) the image
+/// path that was stored before the window was created.  Returns "" if none.
+#[tauri::command]
+fn take_pending_editor_image(editor_state: tauri::State<'_, EditorImageState>) -> String {
+    let mut pending = editor_state.pending.lock().unwrap();
+    pending.take().unwrap_or_default()
+}
+
+#[tauri::command]
+fn read_file_base64(path: String) -> Result<String, String> {
+    use std::io::Read;
+    let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&buf))
+}
+
+#[tauri::command]
+async fn save_clipboard_image(data_b64: String, ext: String) -> Result<String, String> {
+    use std::io::Write;
+    let temp_dir = std::env::temp_dir().join("Zenith");
+    fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    let uuid = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let safe_ext = if ext.starts_with('.') { ext } else { format!(".{}", ext) };
+    let filename = format!("clipboard_paste_{}{}", &uuid[..8], safe_ext);
+    let out_path = temp_dir.join(&filename);
+    let img_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&data_b64)
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+    let mut file = fs::File::create(&out_path).map_err(|e| e.to_string())?;
+    file.write_all(&img_bytes).map_err(|e| e.to_string())?;
+    Ok(out_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -1105,7 +1214,7 @@ async fn process_file(
     cmd.arg("-u")
         .arg(&full_path)
         .arg(&action)
-        .arg(&args_json)
+        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
@@ -1116,8 +1225,19 @@ async fn process_file(
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
 
-    let child = cmd.spawn()
+    let mut child = cmd.spawn()
         .map_err(|e| format!("Failed to run process_files.py: {}", e))?;
+
+    // Write args JSON to stdin (avoids Windows 32K command-line length limit)
+    {
+        use std::io::Write;
+        let stdin_pipe = child.stdin.take()
+            .ok_or_else(|| "Failed to open stdin pipe".to_string())?;
+        let mut writer = std::io::BufWriter::new(stdin_pipe);
+        writer.write_all(args_json.as_bytes())
+            .map_err(|e| format!("Failed to write args to stdin: {}", e))?;
+        // writer + stdin_pipe dropped here → closes pipe → Python sees EOF
+    }
 
     // Track the process so it can be cancelled
     let pid_key = format!("pf_{}_{}", action, chrono_id());
@@ -1230,6 +1350,9 @@ pub fn run() {
         })
         .manage(ScriptProcessState {
             processes: Mutex::new(HashMap::new()),
+        })
+        .manage(EditorImageState {
+            pending: Mutex::new(None),
         })
         .setup(|app| {
             let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
@@ -1366,6 +1489,11 @@ pub fn run() {
             get_rename_history_counts,
             read_file_preview,
             cancel_all_scripts,
+            open_editor_window,
+            open_editor_window_blank,
+            take_pending_editor_image,
+            save_clipboard_image,
+            read_file_base64,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

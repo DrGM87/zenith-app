@@ -187,7 +187,7 @@ export function Bubble() {
     };
   }, [expand, loadItems, loadSettings, scheduleCollapse, setDragOver, stageFile, stageText, sc?.stage_clipboard, bh?.auto_collapse_on_blur]);
 
-  // ── Ctrl+V paste handler when panel is open (v4 Task 2.1) ──
+  // ── Ctrl+V paste handler when panel is open (v4 Task 2.1 + clipboard image support) ──
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
       if (!isExpanded) return;
@@ -195,6 +195,38 @@ export function Bubble() {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (tag === "input" || tag === "textarea" || tag === "select") return;
       e.preventDefault();
+
+      // ── Image from clipboard (PrintScreen paste) ──
+      const items = e.clipboardData?.items;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.type.startsWith("image/")) {
+            const blob = item.getAsFile();
+            if (!blob) continue;
+            const ext = item.type === "image/png" ? "png" : item.type === "image/jpeg" ? "jpg" : "png";
+            const reader = new FileReader();
+            reader.onload = async () => {
+              try {
+                const dataUrl = reader.result as string;
+                const b64 = dataUrl.split(",")[1];
+                const savedPath = await invoke<string>("save_clipboard_image", { dataB64: b64, ext });
+                stageFile(savedPath);
+                expand();
+                setFooterToast("Image pasted from clipboard");
+                setTimeout(() => setFooterToast(null), 2500);
+              } catch (err) {
+                setFooterToast(`Paste failed: ${String(err)}`);
+                setTimeout(() => setFooterToast(null), 3000);
+              }
+            };
+            reader.readAsDataURL(blob);
+            return; // handled as image
+          }
+        }
+      }
+
+      // ── Text / URL from clipboard ──
       const text = e.clipboardData?.getData("text/plain")?.trim();
       if (text && text.length > 0) {
         const store = useZenithStore.getState();
@@ -207,7 +239,7 @@ export function Bubble() {
     };
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [isExpanded, stageText]);
+  }, [isExpanded, stageText, stageFile, expand]);
 
   const magnetic = useMagneticHover({ strength: 0.25, radius: 120 });
 
@@ -353,6 +385,18 @@ export function Bubble() {
                   title={`Redo rename (${renameRedoCount})`}
                 >
                   <i className="fa-solid fa-rotate-right text-[11px]" />
+                </motion.button>
+                {/* Generative Canvas button */}
+                <motion.button
+                  whileHover={{ scale: 1.08 }}
+                  whileTap={{ scale: 0.92 }}
+                  onClick={() => invoke("open_editor_window_blank").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors"
+                  style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.25), rgba(236,72,153,0.18))", color: "#c084fc", border: "1px solid rgba(139,92,246,0.3)" }}
+                  title="Open Generative Canvas (text-to-image)"
+                >
+                  <i className="fa-solid fa-wand-magic-sparkles text-[10px]" />
+                  Canvas
                 </motion.button>
                 <motion.button
                   whileHover={{ scale: 1.1 }}

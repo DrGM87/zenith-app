@@ -3,6 +3,7 @@ import { Settings } from "./components/Settings";
 import { ScriptWindow } from "./components/ScriptWindow";
 import { PreviewDrawer } from "./components/PreviewDrawer";
 import { ReviewStudio } from "./components/ReviewStudio";
+import { ZenithEditor } from "./components/ZenithEditor";
 
 function App() {
   const params = new URLSearchParams(window.location.search);
@@ -14,6 +15,10 @@ function App() {
 
   if (windowType === "script") {
     return <ScriptWindow />;
+  }
+
+  if (windowType === "editor") {
+    return <ZenithEditor />;
   }
 
   return (

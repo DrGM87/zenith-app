@@ -2834,27 +2834,38 @@ def undo_audio_metadata(args):
 
 def generate_image(args):
     """Generate or edit an image via Gemini or OpenAI image APIs.
-    Text-to-image: { model, prompt, api_key, provider, aspect_ratio, quality, style }
+
+    Gemini params (via generationConfig.imageConfig):
+      aspectRatio  – "1:1","1:4","1:8","2:3","3:2","3:4","4:1","4:3",
+                     "4:5","5:4","8:1","9:16","16:9","21:9"
+      imageSize    – "512","1K","2K","4K"
+    Gemini thinkingConfig (Pro model):
+      thinkingLevel – "minimal" | "High"
+
+    Text-to-image: { model, prompt, api_key, provider, aspect_ratio, image_size,
+                     style, thinking_level }
     Image-to-image: add { image_b64 } to edit the provided image.
-    Returns: { image_b64, cost, model, width, height }
+    Returns: { image_b64, cost, model, path, format }
     """
-    import base64, urllib.request, urllib.error, io
+    import base64, urllib.request, urllib.error
 
     model = args.get("model", "gemini-3.1-flash-image-preview")
     prompt = args.get("prompt", "")
     api_key = args.get("api_key", "")
     provider = args.get("provider", "google")
-    image_b64 = args.get("image_b64", None)      # None = text-to-image
-    aspect_ratio = args.get("aspect_ratio", "1:1")  # "1:1", "16:9", "9:16"
-    quality = args.get("quality", "standard")     # "standard" | "hd" (OpenAI)
-    style = args.get("style", "photorealistic")   # for Gemini style hint
+    image_b64 = args.get("image_b64", None)
+    aspect_ratio = args.get("aspect_ratio", "1:1")
+    image_size = args.get("image_size", "1K")
+    quality = args.get("quality", "standard")       # OpenAI "standard" | "hd"
+    style = args.get("style", "")                   # style hint text for Gemini
+    thinking_level = args.get("thinking_level", "")  # "minimal"|"High" (Pro only)
+    temperature = args.get("temperature", None)
 
     if not api_key:
         return {"error": "API key required. Set it in Settings > API Keys."}
     if not prompt:
         return {"error": "Prompt is required."}
 
-    # Cost per image (USD) lookup
     COST_MAP = {
         "gemini-3.1-flash-image-preview": 0.067,
         "gemini-3-pro-image-preview": 0.134,
@@ -2862,53 +2873,100 @@ def generate_image(args):
     }
     cost = COST_MAP.get(model, 0.10)
 
-    # ── Google Gemini ──
+    # ── Google Gemini ──────────────────────────────────────────────────────
     if provider == "google":
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{model}:generateContent?key={api_key}")
+
         parts = []
 
-        # Style hint injected into prompt
-        style_hint = {"photorealistic": "photorealistic, ultra-detailed",
-                      "digital_art": "digital art, vibrant illustration",
-                      "vector": "clean vector art, flat design"}.get(style, "")
-        full_prompt = f"{prompt}. {style_hint}" if style_hint else prompt
-
+        # If editing, put the reference image FIRST, then the text prompt
         if image_b64:
-            # Image-to-image: include reference image
-            parts.append({"inline_data": {"mime_type": "image/png", "data": image_b64}})
+            parts.append({"inline_data": {"mime_type": "image/png",
+                                          "data": image_b64}})
+
+        # Inject optional style hint into prompt text
+        if style:
+            STYLE_MAP = {
+                "photorealistic": "photorealistic, ultra-detailed photograph",
+                "digital_art": "digital art, vibrant illustration",
+                "vector": "clean vector art, flat design, minimal shading",
+                "anime": "anime / manga art style, cel-shaded",
+                "watercolor": "watercolor painting, soft blending, paper texture",
+                "oil_painting": "oil painting, rich impasto texture, gallery quality",
+                "3d_render": "3D render, octane, studio lighting, high detail",
+                "pixel_art": "pixel art, retro 8-bit style",
+                "sketch": "pencil sketch, hand-drawn, crosshatch shading",
+            }
+            hint = STYLE_MAP.get(style, style)
+            full_prompt = f"{prompt}. Style: {hint}"
+        else:
+            full_prompt = prompt
 
         parts.append({"text": full_prompt})
 
-        payload = json.dumps({
-            "contents": [{"parts": parts}],
-            "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}
-        }).encode()
+        # Build generationConfig with imageConfig
+        generation_config = {
+            "responseModalities": ["IMAGE", "TEXT"],
+            "imageConfig": {
+                "aspectRatio": aspect_ratio,
+            },
+        }
+        # Only add imageSize when model supports it (flash models)
+        if image_size and "flash" in model:
+            generation_config["imageConfig"]["imageSize"] = image_size
 
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        if temperature is not None:
+            generation_config["temperature"] = float(temperature)
+
+        body = {
+            "contents": [{"parts": parts}],
+            "generationConfig": generation_config,
+        }
+
+        # Thinking config for Pro model
+        if thinking_level and "pro" in model:
+            body["generationConfig"]["thinkingConfig"] = {
+                "thinkingLevel": thinking_level,
+            }
+
+        payload = json.dumps(body).encode()
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={"Content-Type": "application/json"})
+
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 data = json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
-            body = e.read().decode() if e.fp else ""
-            return {"error": f"Gemini image API error {e.code}: {body[:300]}"}
+            body_text = e.read().decode() if e.fp else ""
+            return {"error": f"Gemini image API error {e.code}: {body_text[:500]}"}
         except Exception as e:
             return {"error": str(e)}
 
-        # Extract image from response parts
+        # Extract image from response
         candidates = data.get("candidates", [])
         if not candidates:
+            # Check for promptFeedback block reason
+            feedback = data.get("promptFeedback", {})
+            block = feedback.get("blockReason", "")
+            if block:
+                return {"error": f"Blocked by Gemini safety filter: {block}"}
             return {"error": "No image returned by Gemini. Check your API key and quota."}
 
         result_b64 = None
+        response_text = ""
         for part in candidates[0].get("content", {}).get("parts", []):
             if "inlineData" in part:
                 result_b64 = part["inlineData"]["data"]
-                break
+            elif "text" in part:
+                response_text = part["text"]
 
         if not result_b64:
-            return {"error": "Gemini returned no image data."}
+            # Sometimes Gemini returns only text (e.g. safety refusal)
+            err_hint = response_text[:300] if response_text else "No image in response."
+            return {"error": f"Gemini returned no image. {err_hint}"}
 
-        # Save to temp file
         import uuid
         tmp_name = f"gen_{uuid.uuid4().hex[:8]}.png"
         tmp_path = os.path.join(TEMP_DIR, "Zenith_Editor")
@@ -2920,7 +2978,7 @@ def generate_image(args):
         return {"image_b64": result_b64, "path": out_path, "cost": cost,
                 "model": model, "format": "png"}
 
-    # ── OpenAI GPT-Image ──
+    # ── OpenAI GPT-Image ──────────────────────────────────────────────────
     elif provider == "openai":
         ASPECT_SIZE = {"1:1": "1024x1024", "16:9": "1792x1024", "9:16": "1024x1792"}
         size = ASPECT_SIZE.get(aspect_ratio, "1024x1024")
@@ -2931,17 +2989,18 @@ def generate_image(args):
         os.makedirs(tmp_path, exist_ok=True)
 
         if image_b64:
-            # Image edit via multipart/form-data
             boundary = f"ZenithBoundary{uuid.uuid4().hex}"
             img_bytes = base64.b64decode(image_b64)
 
             body_parts = []
             def _field(name, value):
-                return (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n").encode()
-            def _file(name, filename, data, content_type):
-                header = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; "
-                          f"filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n").encode()
-                return header + data + b"\r\n"
+                return (f"--{boundary}\r\nContent-Disposition: form-data; "
+                        f"name=\"{name}\"\r\n\r\n{value}\r\n").encode()
+            def _file(name, filename, fdata, content_type):
+                header = (f"--{boundary}\r\nContent-Disposition: form-data; "
+                          f"name=\"{name}\"; filename=\"{filename}\"\r\n"
+                          f"Content-Type: {content_type}\r\n\r\n").encode()
+                return header + fdata + b"\r\n"
 
             body_parts.append(_field("model", model))
             body_parts.append(_field("prompt", prompt))
@@ -2951,33 +3010,33 @@ def generate_image(args):
             body_parts.append(_file("image", "image.png", img_bytes, "image/png"))
             body_parts.append(f"--{boundary}--\r\n".encode())
 
-            body = b"".join(body_parts)
+            req_body = b"".join(body_parts)
             req = urllib.request.Request(
                 "https://api.openai.com/v1/images/edits",
-                data=body,
+                data=req_body,
                 headers={
                     "Authorization": f"Bearer {api_key}",
-                    "Content-Type": f"multipart/form-data; boundary={boundary}"
-                }
+                    "Content-Type": f"multipart/form-data; boundary={boundary}",
+                },
             )
         else:
-            # Text-to-image
             payload = json.dumps({
                 "model": model, "prompt": prompt, "n": 1,
-                "size": size, "quality": qual, "response_format": "b64_json"
+                "size": size, "quality": qual, "response_format": "b64_json",
             }).encode()
             req = urllib.request.Request(
                 "https://api.openai.com/v1/images/generations",
                 data=payload,
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                headers={"Authorization": f"Bearer {api_key}",
+                         "Content-Type": "application/json"},
             )
 
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 data = json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
-            body = e.read().decode() if e.fp else ""
-            return {"error": f"OpenAI image API error {e.code}: {body[:300]}"}
+            body_text = e.read().decode() if e.fp else ""
+            return {"error": f"OpenAI image API error {e.code}: {body_text[:500]}"}
         except Exception as e:
             return {"error": str(e)}
 

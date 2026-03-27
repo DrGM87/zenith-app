@@ -16,11 +16,11 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-[![Features](https://img.shields.io/badge/Features-123+-blueviolet?style=flat-square)]()
+[![Features](https://img.shields.io/badge/Features-128+-blueviolet?style=flat-square)]()
 [![AI Providers](https://img.shields.io/badge/AI_Providers-5-orange?style=flat-square)]()
 [![File Actions](https://img.shields.io/badge/File_Actions-40+-success?style=flat-square)]()
 
-*A glassmorphic floating workspace with 123+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
+*A glassmorphic floating workspace with 128+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
 
 ---
 
@@ -36,7 +36,7 @@ Zenith is an **invisible desktop command center** that floats at the edge of you
 
 Think of it as a **universal file swiss-army-knife** crossed with an **AI-powered media library organizer** that lives at the edge of your screen.
 
-> **123+ features. 40+ file actions. 5 AI providers. Generative AI image editor. Shazam music recognition. Zero window switching.**
+> **128+ features. 40+ file actions. 5 AI providers. Generative AI image editor. Shazam music recognition. Zero window switching.**
 
 ---
 
@@ -59,7 +59,7 @@ Think of it as a **universal file swiss-army-knife** crossed with an **AI-powere
 | Category | Actions |
 |----------|---------|
 | **Image** | Convert Format, Resize (+ fill color for ratio changes), EXIF Strip/Preview, Color Palette + WCAG + Ink Dropper, Base64 (Raw/HTML/CSS/TXT), OCR (Vision AI + Tesseract), Open in Generative Editor |
-| **AI Image Gen** | Zenith Generative Editor — text-to-image, image-to-image, conversational multi-turn editing, 3 models (Nano Banana 2/Pro, GPT-Image 1.5), history timeline, prompt library, cost tracking |
+| **AI Image Gen** | Zenith Generative Editor — text-to-image, image-to-image, conversational multi-turn editing, 3 models (Nano Banana 2/Pro, GPT-Image 1.5), thread/session management, 10 aspect ratios, 9 style presets, image size control, prompt library, cost tracking |
 | **PDF** | Compress, Merge (multi-PDF), PDF &#8594; CSV (LLM-powered structured extraction) |
 | **Audio** | Shazam Music Recognition (fingerprint &#8594; identify &#8594; metadata) |
 | **Media** | FFmpeg Convert (MP4, MP3, WebM, WAV, GIF) |
@@ -150,16 +150,18 @@ The **Zenith Generative Editor** is a full-window AI image creation and editing 
 
 ### Key Features
 
-- **Conversational editing** — each generation uses the current output as the next input; chain unlimited edits
-- **History timeline** — left panel stores every generation with thumbnail, prompt title, and cost; click any item to restore
+- **Thread / session management** — left panel has two tabs: **Threads** (all sessions with title, date, cost, delete) and **Images** (current thread's generations with thumbnails); create, switch, and delete threads freely
+- **Conversational editing** — each generation uses the current output as the next input; chain unlimited edits within a thread
+- **Thread auto-naming** — first generation's LLM auto-title becomes the thread name (e.g. "Cyberpunk Skyline")
+- **Persistent threads** — metadata survives window close (localStorage); images saved to disk; max 30 threads × 50 images
 - **Before/After toggle** — hold the comparison pill to flip between original and current AI version
 - **Prompt enhancement (✨)** — rough idea → LLM rewrites to a detailed professional prompt automatically
-- **Auto-titles** — background LLM call names each history item (e.g. "Cyberpunk Skyline") for easy navigation
-- **Prompt library** — save and reload favorite prompts; persisted in `localStorage`
-- **Session cost tracker** — live cumulative USD cost in the Command Deck; per-item cost in timeline
-- **Model controls** — aspect ratio (1:1/16:9/9:16), style presets, thinking level (Pro), resolution and adherence (GPT)
-- **Send to Stage** — save current canvas to temp and stage it back into the main panel with one click
-- **Reset** — clears history, canvas, cost tracker, and all temp files in one click
+- **Prompt library** — save, load, rename, delete, and upload prompts; full management UI
+- **Session cost tracker** — live cumulative USD cost in the Command Deck; per-thread totals in Threads tab
+- **Model controls** — aspect ratio (10 options for Google, 3 for OpenAI), image size (512/1K/2K/4K), 9 style presets, thinking level (Pro), resolution and adherence (GPT)
+- **Send to Stage** — save current canvas to temp and stage it back into the main panel with one click; instant sync via Tauri event
+- **New Canvas** — creates a new thread and switches to blank canvas; current thread auto-saved
+- **Reset** — clears all threads, canvas, cost tracker, and all temp files
 
 ---
 
@@ -395,6 +397,7 @@ zenith-app/
 | Editor generated images | `%TEMP%/Zenith/Zenith_Editor/` |
 | Clipboard pastes | `%TEMP%/Zenith/clipboard_paste_*.png` |
 | Editor prompt library | `localStorage` key `zenith_editor_prompts` |
+| Editor threads | `localStorage` keys `zenith_editor_threads`, `zenith_editor_active_thread`, `zenith_editor_items_{id}` |
 
 ---
 
@@ -451,7 +454,7 @@ This project is licensed under the **Zenith Personal Use License** — free for 
 
 **Built with Rust &#9881;&#65039;, React &#9889;, Python &#128013;, and mass amounts of caffeine &#9749;**
 
-*123+ features. 5 AI providers. Generative image editor. Shazam music ID. 1 invisible tool that does everything.*
+*128+ features. 5 AI providers. Generative image editor. Shazam music ID. 1 invisible tool that does everything.*
 
 **&#11088; Star this repo if Zenith blew your mind!**
 

@@ -398,6 +398,18 @@ export function Bubble() {
                   <i className="fa-solid fa-wand-magic-sparkles text-[10px]" />
                   Canvas
                 </motion.button>
+                {/* Research Window button */}
+                <motion.button
+                  whileHover={{ scale: 1.08 }}
+                  whileTap={{ scale: 0.92 }}
+                  onClick={() => invoke("open_research_window").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors"
+                  style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.20), rgba(56,189,248,0.15))", color: "#67e8f9", border: "1px solid rgba(34,211,238,0.3)" }}
+                  title="Open Research Window"
+                >
+                  <i className="fa-solid fa-microscope text-[10px]" />
+                  Research
+                </motion.button>
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}

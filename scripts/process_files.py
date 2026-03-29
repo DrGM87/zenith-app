@@ -3290,6 +3290,12 @@ def reset_editor(_args):
     return {"removed": removed, "dir": editor_dir}
 
 
+from research_engine import (
+    research_chat, search_papers, web_search_action,
+    extract_pdf_text, check_novelty, verify_citations,
+    run_experiment_action, export_chat, generate_section,
+)
+
 ACTIONS = {
     "recognize_audio": recognize_audio,
     "apply_audio_metadata": apply_audio_metadata,
@@ -3332,6 +3338,15 @@ ACTIONS = {
     "save_editor_image": save_editor_image,
     "remove_background": remove_background,
     "reset_editor": reset_editor,
+    "research_chat": research_chat,
+    "search_papers": search_papers,
+    "web_search": web_search_action,
+    "extract_pdf_text": extract_pdf_text,
+    "check_novelty": check_novelty,
+    "verify_citations": verify_citations,
+    "run_experiment": run_experiment_action,
+    "export_chat": export_chat,
+    "generate_section": generate_section,
 }
 
 if __name__ == "__main__":

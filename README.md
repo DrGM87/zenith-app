@@ -16,15 +16,15 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-[![Features](https://img.shields.io/badge/Features-128+-blueviolet?style=flat-square)]()
+[![Features](https://img.shields.io/badge/Features-144+-blueviolet?style=flat-square)]()
 [![AI Providers](https://img.shields.io/badge/AI_Providers-5-orange?style=flat-square)]()
 [![File Actions](https://img.shields.io/badge/File_Actions-40+-success?style=flat-square)]()
 
-*A glassmorphic floating workspace with 128+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
+*A glassmorphic floating workspace with 144+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
 
 ---
 
-**[Features](#-core-features)** &bull; **[Auto-Studio](#-auto-studio--the-review-panel)** &bull; **[Smart Rename](#-smart-rename-engine)** &bull; **[AI Integrations](#-ai--llm-integrations)** &bull; **[Quick Start](#-quick-start)** &bull; **[Architecture](#%EF%B8%8F-architecture)** &bull; **[API](#-rest-api)** &bull; **[Plugins](#-plugin-system-wasm)**
+**[Features](#-core-features)** &bull; **[Auto-Studio](#-auto-studio--the-review-panel)** &bull; **[Research](#-zenith-research-window)** &bull; **[Smart Rename](#-smart-rename-engine)** &bull; **[AI Integrations](#-ai--llm-integrations)** &bull; **[Quick Start](#-quick-start)** &bull; **[Architecture](#%EF%B8%8F-architecture)** &bull; **[API](#-rest-api)** &bull; **[Plugins](#-plugin-system-wasm)**
 
 </div>
 
@@ -36,7 +36,7 @@ Zenith is an **invisible desktop command center** that floats at the edge of you
 
 Think of it as a **universal file swiss-army-knife** crossed with an **AI-powered media library organizer** that lives at the edge of your screen.
 
-> **128+ features. 40+ file actions. 5 AI providers. Generative AI image editor. Shazam music recognition. Zero window switching.**
+> **144+ features. 40+ file actions. 5 AI providers. Generative AI image editor. AI Research assistant. Shazam music recognition. Zero window switching.**
 
 ---
 
@@ -162,6 +162,43 @@ The **Zenith Generative Editor** is a full-window AI image creation and editing 
 - **Send to Stage** — save current canvas to temp and stage it back into the main panel with one click; instant sync via Tauri event
 - **New Canvas** — creates a new thread and switches to blank canvas; current thread auto-saved
 - **Reset** — clears all threads, canvas, cost tracker, and all temp files
+
+---
+
+## &#128300; Zenith Research Window
+
+> *Click Research. Ask a question. Get papers, citations, novelty scores, and full paper sections — all in one chat.*
+
+The **Zenith Research Window** is an AI-powered autonomous research assistant that opens as a dedicated window. Inspired by [AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw).
+
+### How to Open
+
+- Click the **🔬 Research** button in the main panel header
+
+### Key Features
+
+- **Multi-turn research chat** — conversational AI with automatic tool dispatch; supports all 5 LLM providers
+- **Literature search** — searches arXiv, Semantic Scholar, and OpenAlex simultaneously with deduplication and citation-count sorting
+- **Web search** — DuckDuckGo HTML search (no API key required)
+- **PDF text extraction** — extract and analyze PDF content for research context
+- **Novelty scoring** — LLM-based assessment of research idea novelty against existing literature (1-10 scale)
+- **Citation verification** — verify references exist via Semantic Scholar API
+- **Experiment sandbox** — run Python code in isolated subprocess with 60s timeout
+- **Section generation** — generate paper sections (abstract, introduction, related work, methodology, results, conclusion)
+- **Thread management** — create, switch, delete, search, and rename threads; grouped by date (Today/Yesterday/Older)
+- **Export (5 formats)** — Markdown, PDF, LaTeX, BibTeX, JSON; exported files auto-staged in Bubble
+- **Rich message types** — expandable paper cards with abstract/DOI/citations, syntax-highlighted code blocks, data tables
+- **Full parameter control** — provider/model picker, temperature slider, max tokens, editable system prompt, 6 toggleable research tools
+- **Session cost tracking** — per-thread and total cost; syncs to Settings token usage
+- **Persistent threads** — localStorage persistence; max 50 threads × 200 messages; survives window close
+
+### 3-Column Layout
+
+| Panel | Width | Contents |
+|-------|-------|----------|
+| **Thread Sidebar** | 250px (collapsible) | Search, date-grouped thread list, total cost |
+| **Chat Area** | flex | Messages, paper cards, code blocks, typing indicator |
+| **Parameter Panel** | 280px (collapsible) | Model config, tool toggles, export format, system prompt |
 
 ---
 
@@ -292,13 +329,13 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
 ```
  React 19 (UI)  ────  Rust / Tauri v2 (OS layer)  ────  Python sidecar (AI + processing)
       │                         │                               │
- Framer Motion 12        Native OLE drag-drop           40+ file actions
+ Framer Motion 12        Native OLE drag-drop           50+ file actions
  Tailwind CSS 4          Multi-window architecture      5 LLM providers + image gen models
  Zustand 5               Clipboard interception         TheAudioDB / OMDB / imdbapi.dev
                          Clipboard image paste          Shazam fingerprint recognition
  Font Awesome 7          WASM plugin engine (wasmtime)  PDF / Image / Media / OCR
                          HTTP API server (:7890)         VirusTotal v3 integration
-                         Transactional file I/O          EXIF / ID3 metadata
+                         Transactional file I/O          Research engine (arXiv + S2 + OA)
                          walkdir recursive traversal     FFmpeg / QR / Tesseract / Pillow
 ```
 
@@ -357,12 +394,15 @@ zenith-app/
 │   │   ├── Bubble.tsx             # Floating pill/panel + batch actions + pin mode + ✨ Canvas button
 │   │   ├── StagedItemCard.tsx     # File card with 40+ per-item actions
 │   │   ├── ZenithEditor.tsx       # Generative AI image editor (full window, /editor route)
+│   │   ├── ZenithResearch.tsx     # AI Research assistant (full window, /research route)
 │   │   ├── ReviewStudio.tsx       # Auto-Studio auxiliary panel (tree view + execute)
 │   │   ├── PreviewDrawer.tsx      # Dynamic multi-format preview panel
 │   │   ├── Settings.tsx           # Full settings modal (9 tabs)
 │   │   ├── FolderTree.tsx         # Recursive navigable folder tree
 │   │   └── ScriptWindow.tsx       # WASM plugin runner UI
 │   ├── store.ts                   # Zustand store (items, studio, previews, settings, tokens)
+│   ├── stores/
+│   │   └── useResearchStore.ts    # Research window Zustand store (threads, params, persistence)
 │   ├── utils.ts                   # Helpers (icons, colors, formatting)
 │   └── App.tsx                    # Root component
 ├── src-tauri/
@@ -372,7 +412,8 @@ zenith-app/
 │       ├── settings.rs            # Settings structs (Rust ↔ JSON ↔ React)
 │       └── plugins.rs             # WASM plugin engine (wasmtime)
 ├── scripts/
-│   ├── process_files.py           # 40+ Python processing actions + Auto-Studio engine + image gen
+│   ├── process_files.py           # 50+ Python processing actions + Auto-Studio engine + image gen
+│   ├── research_engine.py         # Research assistant actions (literature, web, novelty, export)
 │   ├── shazam_recognize.py        # Shazam audio fingerprinting & recognition (adapted from SongRec)
 │   └── requirements.txt           # Python dependencies
 ├── docs/
@@ -398,6 +439,9 @@ zenith-app/
 | Clipboard pastes | `%TEMP%/Zenith/clipboard_paste_*.png` |
 | Editor prompt library | `localStorage` key `zenith_editor_prompts` |
 | Editor threads | `localStorage` keys `zenith_editor_threads`, `zenith_editor_active_thread`, `zenith_editor_items_{id}` |
+| Research threads | `localStorage` keys `zenith_research_threads`, `zenith_research_active_thread`, `zenith_research_params` |
+| Research exports | `%TEMP%/Zenith/Research/exports/` |
+| Research experiments | `%TEMP%/Zenith/Research/experiments/` |
 
 ---
 
@@ -421,6 +465,9 @@ zenith-app/
 | Preview | &#9989; | &#9989; | — | — | &#9989; | &#9989; |
 | Self-Destruct Timer | &#9989; | &#9989; | — | — | — | — |
 | Clipboard Image Paste | — | — | — | &#9989; (Ctrl+V) | — | — |
+| Research Chat | — | — | — | &#9989; (Research btn) | — | — |
+| Literature Search | — | — | — | &#9989; (Research) | — | — |
+| Export (MD/PDF/LaTeX/BibTeX) | — | — | — | &#9989; (Research) | — | — |
 
 ---
 
@@ -442,6 +489,7 @@ This project is licensed under the **Zenith Personal Use License** — free for 
 
 ## &#128588; Acknowledgments
 
+- **[AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw)** by [Aiming Lab](https://github.com/aiming-lab) — Autonomous research pipeline architecture. Zenith's Research Window is inspired by AutoResearchClaw's research pipeline design and uses select concepts from its codebase for literature search, citation verification, and experiment sandbox capabilities.
 - **[SongRec](https://github.com/marin-m/SongRec)** by [marin-m](https://github.com/marin-m) — Open-source Shazam client and audio fingerprinting algorithm. Zenith's music recognition module (`scripts/shazam_recognize.py`) is adapted from SongRec's Python implementation. Licensed under [GPL-3.0](https://github.com/marin-m/SongRec/blob/main/LICENSE).
 - **[TheAudioDB](https://www.theaudiodb.com)** — Music metadata API (album, artist, year, genre, cover art).
 - **[imdbapi.dev](https://imdbapi.dev)** — Primary movie/series metadata lookup API.
@@ -454,7 +502,7 @@ This project is licensed under the **Zenith Personal Use License** — free for 
 
 **Built with Rust &#9881;&#65039;, React &#9889;, Python &#128013;, and mass amounts of caffeine &#9749;**
 
-*128+ features. 5 AI providers. Generative image editor. Shazam music ID. 1 invisible tool that does everything.*
+*144+ features. 5 AI providers. Generative image editor. AI research assistant. Shazam music ID. 1 invisible tool that does everything.*
 
 **&#11088; Star this repo if Zenith blew your mind!**
 

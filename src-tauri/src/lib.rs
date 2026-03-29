@@ -583,6 +583,29 @@ fn reveal_in_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn open_research_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    if let Some(win) = app.get_webview_window("zenith_research") {
+        win.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    let _research = tauri::WebviewWindowBuilder::new(
+        &app,
+        "zenith_research",
+        tauri::WebviewUrl::App("/?window=research".into()),
+    )
+    .title("Zenith Research")
+    .inner_size(1400.0, 900.0)
+    .min_inner_size(1000.0, 700.0)
+    .center()
+    .decorations(true)
+    .transparent(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn open_editor_window(
     app: tauri::AppHandle,
     image_path: String,
@@ -1490,6 +1513,7 @@ pub fn run() {
             get_rename_history_counts,
             read_file_preview,
             cancel_all_scripts,
+            open_research_window,
             open_editor_window,
             open_editor_window_blank,
             take_pending_editor_image,

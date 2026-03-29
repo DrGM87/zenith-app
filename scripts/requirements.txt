@@ -23,3 +23,9 @@ numpy>=1.24.0              # Chroma-key background removal (array ops)
 
 # ── Optional (enhanced features) ──
 pyminizip>=0.2.6           # Encrypted ZIP (AES-256) — fallback if 7z not available
+
+# ── Research Engine (Zenith Research Window) ──
+# Note: research_engine.py uses only stdlib (urllib, xml, json, re, subprocess)
+# for core functionality. The following are optional for enhanced features:
+# pdfplumber (already listed above) — PDF text extraction for research
+# reportlab (already listed above) — PDF export for research conversations

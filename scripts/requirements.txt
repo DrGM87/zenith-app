@@ -18,5 +18,8 @@ pytesseract>=0.3.10        # Tesseract OCR Python wrapper (requires Tesseract bi
 requests>=2.31.0           # HTTP client (TheAudioDB API, cover art download)
 mutagen>=1.47.0            # Audio metadata reading/writing (ID3, Vorbis, MP4, ASF)
 
+# ── Image Processing (advanced) ──
+numpy>=1.24.0              # Chroma-key background removal (array ops)
+
 # ── Optional (enhanced features) ──
 pyminizip>=0.2.6           # Encrypted ZIP (AES-256) — fallback if 7z not available

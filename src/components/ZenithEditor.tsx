@@ -237,6 +237,9 @@ export function ZenithEditor() {
   const [saveFormat, setSaveFormat] = useState<SaveFormat>("png");
   const [saveQuality, setSaveQuality] = useState(92);
 
+  // ── Background removal
+  const [isRemovingBg, setIsRemovingBg] = useState(false);
+
   // ── UI
   const [toast, setToast] = useState<string | null>(null);
   const [isEnhancing, setIsEnhancing] = useState(false);
@@ -490,7 +493,7 @@ export function ZenithEditor() {
       };
       if (provider === "google") {
         args.image_size = imageSize;
-        if (selectedModel === "gemini-3-pro-image-preview") args.thinking_level = thinkingLevel <= 50 ? "minimal" : "High";
+        if (selectedModel === "gemini-3.1-flash-image-preview") args.thinking_level = thinkingLevel <= 50 ? "minimal" : "High";
       }
       if (provider === "openai") {
         args.quality = resolution;
@@ -595,6 +598,55 @@ export function ZenithEditor() {
     } catch (e) { showToast(String(e)); }
   }, [currentImageB64, showToast]);
 
+  // ── Background removal ────────────────────────────────────────────────────
+  const handleRemoveBackground = useCallback(async () => {
+    if (!currentImageB64) { showToast("No image to remove background from"); return; }
+    const { api_key } = getApiCreds();
+    if (!api_key) { showToast("No Google API key. Add one in Settings > API Keys."); return; }
+
+    setIsRemovingBg(true);
+    try {
+      const resultStr = await invoke<string>("process_file", {
+        action: "remove_background",
+        argsJson: JSON.stringify({
+          image_b64: currentImageB64,
+          api_key,
+          model: selectedModel.startsWith("gemini") ? selectedModel : "gemini-3.1-flash-image-preview",
+          tolerance: 40,
+        }),
+      });
+      const result = JSON.parse(resultStr);
+      if (!result.ok || !result.image_b64) { showToast(result.error || "Background removal failed"); return; }
+
+      const newB64: string = result.image_b64;
+      const cost: number = result.cost ?? 0.067;
+
+      setCurrentImageB64(newB64);
+      const newSessionCost = sessionCost + cost;
+      setSessionCost(newSessionCost);
+      trackImageCost("google", cost);
+
+      const histItem: HistoryItem = { id: uid(), imageB64: newB64, prompt: "Background removed", title: "BG Removed", timestamp: Date.now(), cost, model: selectedModel };
+      const newHist = [histItem, ...history];
+      setHistory(newHist);
+      setHistoryIndex(0);
+      setLeftTab("images");
+
+      saveItemToDisk(histItem).then((filePath) => {
+        if (filePath && activeThreadId) {
+          const existing = loadItemMetas(activeThreadId);
+          const meta: ItemMeta = { id: histItem.id, prompt: "Background removed", title: "BG Removed", timestamp: histItem.timestamp, cost, model: selectedModel, filePath };
+          persistItemMetas(activeThreadId, [meta, ...existing]);
+        }
+      });
+
+      syncActiveThread(newHist, newSessionCost);
+      showToast("Background removed!");
+    } catch (e) {
+      showToast(`Error: ${String(e)}`);
+    } finally { setIsRemovingBg(false); }
+  }, [currentImageB64, getApiCreds, selectedModel, sessionCost, history, activeThreadId, syncActiveThread, showToast]);
+
   // ── History navigation ────────────────────────────────────────────────────
   const loadHistoryItem = useCallback((item: HistoryItem) => {
     const idx = history.findIndex((h) => h.id === item.id);
@@ -623,7 +675,7 @@ export function ZenithEditor() {
       style={{ background: "linear-gradient(135deg, #0a0a12 0%, #0f0f1a 50%, #0a0a12 100%)" }}>
 
       {/* ── HEADER ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06] shrink-0"
+      <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06] shrink-0 relative z-[60]"
         style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(20px)" }}
         data-tauri-drag-region>
         <div className="flex items-center gap-3">
@@ -646,6 +698,13 @@ export function ZenithEditor() {
             onClick={handleNewCanvas}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-white/45 hover:text-emerald-300 hover:bg-emerald-500/10 transition-all border border-white/[0.06] hover:border-emerald-500/30">
             <i className="fa-solid fa-plus text-[9px]" />New Canvas
+          </motion.button>
+          {/* Remove BG */}
+          <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+            onClick={handleRemoveBackground} disabled={!currentImageB64 || isRemovingBg}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all disabled:opacity-25 border border-white/[0.06] hover:border-pink-500/30 hover:bg-pink-500/10"
+            style={{ color: currentImageB64 ? "rgba(244,114,182,0.9)" : "rgba(255,255,255,0.3)" }}>
+            {isRemovingBg ? <><i className="fa-solid fa-spinner fa-spin text-[9px]" />Removing...</> : <><i className="fa-solid fa-eraser text-[9px]" />Remove BG</>}
           </motion.button>
           {/* Save */}
           <div className="relative">
@@ -856,7 +915,7 @@ export function ZenithEditor() {
             {/* Original image loaded from Stage */}
             {originalImageB64 && !isBlankCanvas && history.length === 0 && !isGenerating && (
               <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-3">
-                <div className="rounded-xl overflow-hidden shadow-2xl max-w-lg border border-white/[0.06]" style={{ boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
+                <div className="rounded-xl overflow-hidden shadow-2xl max-w-lg border border-white/[0.06]" style={{ boxShadow: "0 24px 60px rgba(0,0,0,0.6)", backgroundImage: "repeating-conic-gradient(rgba(255,255,255,0.04) 0% 25%, transparent 0% 50%)", backgroundSize: "16px 16px" }}>
                   <img src={`data:image/png;base64,${originalImageB64}`} alt="Original" className="max-w-full max-h-[50vh] object-contain" draggable={false} />
                 </div>
                 <p className="text-[11px] text-white/30">Original image loaded — describe your edits below</p>
@@ -877,7 +936,8 @@ export function ZenithEditor() {
                   <div className={`max-w-[80%] rounded-2xl rounded-bl-sm p-2 transition-all ${historyIndex >= 0 && history[historyIndex]?.id === item.id ? "ring-2 ring-violet-500/40 shadow-[0_0_20px_rgba(139,92,246,0.15)]" : ""}`}
                     style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
                     <div className="rounded-xl overflow-hidden cursor-pointer group relative"
-                      onClick={() => setExpandedImageId(expandedImageId === item.id ? null : item.id)}>
+                      onClick={() => setExpandedImageId(expandedImageId === item.id ? null : item.id)}
+                      style={{ backgroundImage: "repeating-conic-gradient(rgba(255,255,255,0.04) 0% 25%, transparent 0% 50%)", backgroundSize: "16px 16px" }}>
                       <img src={`data:image/png;base64,${item.imageB64}`} alt={item.title}
                         className={`object-contain transition-all duration-300 ${expandedImageId === item.id ? "max-w-full max-h-[65vh]" : "max-w-md max-h-72"}`} draggable={false} />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
@@ -989,8 +1049,8 @@ export function ZenithEditor() {
                 ))}
               </div>
             </div>
-            {/* Pro: Thinking */}
-            {selectedModel === "gemini-3-pro-image-preview" && (
+            {/* Flash: Thinking (only supported for gemini-3.1-flash) */}
+            {selectedModel === "gemini-3.1-flash-image-preview" && (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-white/40 font-medium">Thinking</span>

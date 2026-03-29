@@ -11,6 +11,12 @@ Outputs JSON result to stdout.
 """
 import sys, os, json, tempfile, zipfile, shutil, subprocess, math
 
+# Force UTF-8 on Windows (stdin/stdout default to system codepage otherwise)
+if sys.platform == "win32":
+    sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 TEMP_DIR = os.path.join(tempfile.gettempdir(), "Zenith")
 os.makedirs(TEMP_DIR, exist_ok=True)
 
@@ -2924,16 +2930,16 @@ def generate_image(args):
             "generationConfig": generation_config,
         }
 
-        # Thinking config for Pro model
-        if thinking_level and "pro" in model:
+        # Thinking config — only supported for gemini-3.1-flash-image-preview
+        if thinking_level and model == "gemini-3.1-flash-image-preview":
             body["generationConfig"]["thinkingConfig"] = {
                 "thinkingLevel": thinking_level,
             }
 
-        payload = json.dumps(body).encode()
+        payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
             url, data=payload,
-            headers={"Content-Type": "application/json"})
+            headers={"Content-Type": "application/json; charset=utf-8"})
 
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
@@ -3100,6 +3106,143 @@ def auto_title_prompt(args):
     return {"title": title}
 
 
+def remove_background(args):
+    """Remove background via AI green-screen then local chroma-key.
+
+    Step 1: Send the image to Gemini with a prompt that replaces the
+            background with flat lime-green (#00FF00) while keeping the
+            main subject perfectly intact.
+    Step 2: Locally chroma-key out the lime-green to produce an RGBA PNG
+            with a transparent background.
+
+    Required: { image_b64, api_key }
+    Optional: { model, tolerance (0-100, default 40) }
+    Returns:  { image_b64, path, cost, model, format }
+    """
+    import base64, urllib.request, urllib.error, uuid
+    from PIL import Image
+    import numpy as np
+
+    image_b64 = args.get("image_b64", "")
+    api_key = args.get("api_key", "")
+    model = args.get("model", "gemini-3.1-flash-image-preview")
+    tolerance = int(args.get("tolerance", 40))
+
+    if not image_b64:
+        return {"error": "No image provided for background removal."}
+    if not api_key:
+        return {"error": "API key required. Set it in Settings > API Keys."}
+
+    # ── Step 1: Ask Gemini to paint the background lime-green ──────────
+    green_prompt = (
+        "Replace the ENTIRE background of this image with a perfectly flat, "
+        "uniform, solid lime-green color (exactly hex #00FF00, RGB 0,255,0). "
+        "Keep the main subject COMPLETELY unchanged — every single pixel of "
+        "the subject must remain exactly as it is with zero modifications, "
+        "zero artifacts, zero color shifts. Only the background should change "
+        "to flat solid #00FF00 green. Do NOT add shadows, gradients, or any "
+        "variation to the green — it must be perfectly uniform #00FF00."
+    )
+
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{model}:generateContent?key={api_key}")
+
+    parts = [
+        {"inline_data": {"mime_type": "image/png", "data": image_b64}},
+        {"text": green_prompt},
+    ]
+
+    body = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {
+            "responseModalities": ["IMAGE", "TEXT"],
+        },
+    }
+
+    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=payload,
+        headers={"Content-Type": "application/json; charset=utf-8"})
+
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode() if e.fp else ""
+        return {"error": f"Gemini API error {e.code}: {body_text[:500]}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+    # Extract green-screen image from response
+    candidates = data.get("candidates", [])
+    if not candidates:
+        feedback = data.get("promptFeedback", {})
+        block = feedback.get("blockReason", "")
+        if block:
+            return {"error": f"Blocked by safety filter: {block}"}
+        return {"error": "No image returned by Gemini."}
+
+    green_b64 = None
+    for part in candidates[0].get("content", {}).get("parts", []):
+        if "inlineData" in part:
+            green_b64 = part["inlineData"]["data"]
+
+    if not green_b64:
+        return {"error": "Gemini returned no image for green-screen step."}
+
+    # ── Step 2: Local chroma-key removal ───────────────────────────────
+    green_bytes = base64.b64decode(green_b64)
+    img = Image.open(__import__("io").BytesIO(green_bytes)).convert("RGBA")
+    arr = np.array(img, dtype=np.float32)
+
+    # Target: pure lime-green (0, 255, 0)
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+
+    # Distance from pure green — weighted to detect green shades
+    # Green has high G channel, low R and B channels
+    dist = np.sqrt(r**2 + (g - 255)**2 + b**2)
+
+    # Create alpha mask: green pixels → transparent
+    # tolerance controls how aggressively green is removed (0-100 mapped to pixel distance 0-120)
+    threshold = tolerance * 1.2  # 40 → 48 pixel distance
+    alpha = arr[:, :, 3].copy()
+    # Fully transparent where very close to green
+    alpha[dist < threshold * 0.6] = 0
+    # Semi-transparent edge blending for smooth cutout
+    edge_mask = (dist >= threshold * 0.6) & (dist < threshold)
+    alpha[edge_mask] = ((dist[edge_mask] - threshold * 0.6) / (threshold * 0.4) * 255).clip(0, 255)
+
+    # Also suppress any green spill on edges: desaturate green channel on semi-transparent pixels
+    spill_mask = (alpha > 0) & (alpha < 240) & (g > 100) & (g > r * 1.3) & (g > b * 1.3)
+    if np.any(spill_mask):
+        avg = (r[spill_mask] + b[spill_mask]) / 2
+        arr[:, :, 1][spill_mask] = np.minimum(g[spill_mask], avg + 30)
+
+    arr[:, :, 3] = alpha
+    result_img = Image.fromarray(arr.astype(np.uint8), "RGBA")
+
+    # Save as PNG (only format that supports alpha)
+    tmp_path = os.path.join(TEMP_DIR, "Zenith_Editor")
+    os.makedirs(tmp_path, exist_ok=True)
+    out_path = os.path.join(tmp_path, f"nobg_{uuid.uuid4().hex[:8]}.png")
+    result_img.save(out_path, "PNG")
+
+    # Encode result as base64
+    import io
+    buf = io.BytesIO()
+    result_img.save(buf, "PNG")
+    result_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    COST_MAP = {
+        "gemini-3.1-flash-image-preview": 0.067,
+        "gemini-3-pro-image-preview": 0.134,
+    }
+    cost = COST_MAP.get(model, 0.067)
+
+    return {"image_b64": result_b64, "path": out_path, "cost": cost,
+            "model": model, "format": "png"}
+
+
 def save_editor_image(args):
     """Save a base64 image to a file with chosen format and quality."""
     import base64
@@ -3187,6 +3330,7 @@ ACTIONS = {
     "enhance_prompt": enhance_prompt,
     "auto_title_prompt": auto_title_prompt,
     "save_editor_image": save_editor_image,
+    "remove_background": remove_background,
     "reset_editor": reset_editor,
 }
 
@@ -3220,7 +3364,7 @@ if __name__ == "__main__":
                 "provider": _usage_accumulator["provider"],
                 "model": _usage_accumulator["model"],
             }
-        print(json.dumps(output))
+        print(json.dumps(output, ensure_ascii=False))
     except Exception as e:
-        print(json.dumps({"ok": False, "error": str(e)}))
+        print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
         sys.exit(1)

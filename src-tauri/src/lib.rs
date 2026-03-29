@@ -1214,6 +1214,7 @@ async fn process_file(
     cmd.arg("-u")
         .arg(&full_path)
         .arg(&action)
+        .env("PYTHONIOENCODING", "utf-8")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());

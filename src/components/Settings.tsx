@@ -75,6 +75,7 @@ interface AiPrompts {
   summarize: string;
   super_summary: string;
   dashboard: string;
+  research: string;
 }
 
 interface TokenUsageEntry {
@@ -105,6 +106,7 @@ interface ZenithSettings {
   omdb_api_key: string;
   audiodb_api_key: string;
   imdb_api_key: string;
+  tavily_api_key: string;
   shazam_auto_recognize: boolean;
 }
 
@@ -779,6 +781,16 @@ export function Settings() {
               />
               <p className="text-[10px] text-white/20 mt-1">Get a free key at <code className="text-white/40">virustotal.com/gui/my-apikey</code></p>
             </SettingGroup>
+            <SettingGroup title="Tavily (Research Web Search)">
+              <p className="text-[11px] text-white/30 mb-2">AI-powered web search used by the Research Window. Falls back to DuckDuckGo if no key is set.</p>
+              <input
+                type="password" placeholder="Tavily API Key (optional)"
+                value={settings.tavily_api_key ?? ""}
+                onChange={(e) => save({ ...settings, tavily_api_key: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-cyan-400/40 transition-colors font-mono"
+              />
+              <p className="text-[10px] text-white/20 mt-1">Get a key at <code className="text-white/40">tavily.com</code> — free tier available. Powers Research Window web search.</p>
+            </SettingGroup>
             <SettingGroup title="IMDb API (Movies & Series) — Primary">
               <p className="text-[11px] text-white/30 mb-2">Primary API for movie/series identification. Free tier available, premium key optional.</p>
               <input
@@ -920,6 +932,19 @@ export function Settings() {
                   </div>
                   <p className="text-[10px] text-white/25 mb-1.5">Creates interactive HTML dashboard from CSV. Column info appended automatically.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.dashboard ?? ""} onChange={(v) => updateAiPrompt("dashboard", v)} rows={2} />
+                </div>
+              </div>
+            </SettingGroup>
+
+            <SettingGroup title="Research Window">
+              <div className="space-y-5">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <i className="fa-solid fa-microscope text-[10px] text-cyan-400" />
+                    <span className="text-[12px] font-medium text-white/70">Research Assistant</span>
+                  </div>
+                  <p className="text-[10px] text-white/25 mb-1.5">System prompt for the Zenith Research Window. Controls how the AI researcher behaves, including tool usage and citation style.</p>
+                  <TextArea label="" description="" value={settings.ai_prompts?.research ?? ""} onChange={(v) => updateAiPrompt("research", v)} rows={4} />
                 </div>
               </div>
             </SettingGroup>

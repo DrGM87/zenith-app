@@ -16,6 +16,8 @@ interface TokenUsage { entries: TokenUsageEntry[]; total_input_tokens: number; t
 interface ZenithSettings {
   api_keys: ApiKeyEntry[];
   token_usage?: TokenUsage;
+  ai_prompts?: { research?: string; [key: string]: unknown };
+  tavily_api_key?: string;
   [key: string]: unknown;
 }
 
@@ -24,26 +26,37 @@ interface ZenithSettings {
 const PROVIDER_MODELS: Record<string, { id: string; label: string }[]> = {
   openai: [
     { id: "gpt-4.1-nano", label: "GPT-4.1 Nano" },
+    { id: "gpt-4o-mini", label: "GPT-4o Mini" },
     { id: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
+    { id: "gpt-5.4-nano", label: "GPT-5.4 Nano" },
+    { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+    { id: "o3-mini", label: "o3 Mini" },
+    { id: "o4-mini", label: "o4 Mini" },
     { id: "gpt-4.1", label: "GPT-4.1" },
     { id: "gpt-4o", label: "GPT-4o" },
-    { id: "o4-mini", label: "o4-mini" },
+    { id: "gpt-5.4", label: "GPT-5.4" },
   ],
   anthropic: [
     { id: "claude-haiku-4-5-20250514", label: "Claude Haiku 4.5" },
     { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
+    { id: "claude-sonnet-4-5-20260115", label: "Claude Sonnet 4.5" },
+    { id: "claude-opus-4-20250918", label: "Claude Opus 4" },
+    { id: "claude-opus-4-6-20260310", label: "Claude Opus 4.6" },
   ],
   google: [
     { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+    { id: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
     { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+    { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
   ],
   deepseek: [
-    { id: "deepseek-chat", label: "DeepSeek Chat (V3)" },
-    { id: "deepseek-reasoner", label: "DeepSeek Reasoner (R1)" },
+    { id: "deepseek-chat", label: "DeepSeek V3 (Chat)" },
+    { id: "deepseek-reasoner", label: "DeepSeek R1 (Reasoner)" },
   ],
   groq: [
     { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B" },
     { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B" },
+    { id: "gemma2-9b-it", label: "Gemma 2 9B" },
   ],
 };
 
@@ -65,11 +78,25 @@ const EXPORT_FORMATS = [
 ];
 
 const PRICING: Record<string, Record<string, { input: number; output: number }>> = {
-  openai: { "gpt-4.1-nano": { input: 0.10, output: 0.40 }, "gpt-4o-mini": { input: 0.15, output: 0.60 }, "gpt-4.1-mini": { input: 0.40, output: 1.60 }, "gpt-4.1": { input: 2.00, output: 8.00 }, "gpt-4o": { input: 2.50, output: 10.00 }, "o4-mini": { input: 1.10, output: 4.40 } },
-  google: { "gemini-2.5-flash": { input: 0.15, output: 0.60 }, "gemini-2.5-pro": { input: 1.25, output: 10.00 } },
-  anthropic: { "claude-haiku-4-5-20250514": { input: 1.00, output: 5.00 }, "claude-sonnet-4-20250514": { input: 3.00, output: 15.00 } },
+  openai: {
+    "gpt-4.1-nano": { input: 0.10, output: 0.40 }, "gpt-4o-mini": { input: 0.15, output: 0.60 },
+    "gpt-4.1-mini": { input: 0.40, output: 1.60 }, "o3-mini": { input: 1.10, output: 4.40 },
+    "o4-mini": { input: 1.10, output: 4.40 }, "gpt-4.1": { input: 2.00, output: 8.00 },
+    "gpt-4o": { input: 2.50, output: 10.00 },
+    "gpt-5.4-nano": { input: 0.20, output: 1.25 }, "gpt-5.4-mini": { input: 0.40, output: 2.50 },
+    "gpt-5.4": { input: 3.00, output: 12.00 },
+  },
+  anthropic: {
+    "claude-haiku-4-5-20250514": { input: 1.00, output: 5.00 }, "claude-sonnet-4-20250514": { input: 3.00, output: 15.00 },
+    "claude-sonnet-4-5-20260115": { input: 3.00, output: 15.00 }, "claude-opus-4-20250918": { input: 5.00, output: 25.00 },
+    "claude-opus-4-6-20260310": { input: 5.00, output: 25.00 },
+  },
+  google: {
+    "gemini-2.5-flash": { input: 0.15, output: 0.60 }, "gemini-3-flash-preview": { input: 0.50, output: 3.00 },
+    "gemini-2.5-pro": { input: 1.25, output: 10.00 }, "gemini-3.1-pro-preview": { input: 2.00, output: 12.00 },
+  },
   deepseek: { "deepseek-chat": { input: 0.27, output: 1.10 }, "deepseek-reasoner": { input: 0.55, output: 2.19 } },
-  groq: { "llama-3.3-70b-versatile": { input: 0.59, output: 0.79 }, "llama-3.1-8b-instant": { input: 0.05, output: 0.08 } },
+  groq: { "llama-3.3-70b-versatile": { input: 0.59, output: 0.79 }, "llama-3.1-8b-instant": { input: 0.05, output: 0.08 }, "gemma2-9b-it": { input: 0.20, output: 0.20 } },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -148,6 +175,10 @@ export function ZenithResearch() {
       const def = keys.find((k) => k.is_default) || keys[0];
       if (def && !params.provider) {
         setParams({ provider: def.provider, model: def.model, api_key: def.key });
+      }
+      // Wire system prompt from Settings → AI Prompts → Research
+      if (s.ai_prompts?.research) {
+        setParams({ system_prompt: s.ai_prompts.research });
       }
     }).catch(console.error);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,6 +271,7 @@ export function ZenithResearch() {
         max_tokens: params.max_tokens,
         system_prompt: params.system_prompt,
         enabled_tools: params.enabled_tools,
+        tavily_api_key: settings?.tavily_api_key ?? "",
       });
 
       const resultStr = await invoke<string>("process_file", { action: "research_chat", argsJson });
@@ -772,14 +804,13 @@ export function ZenithResearch() {
                 </div>
               </div>
 
-              {/* System Prompt */}
+              {/* System Prompt — managed in Settings > AI Prompts */}
               <div className="p-3">
-                <div className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-2">System Prompt</div>
-                <textarea value={params.system_prompt}
-                  onChange={(e) => setParams({ system_prompt: e.target.value })}
-                  rows={4}
-                  className="w-full rounded-lg px-2.5 py-2 text-[11px] text-white/70 placeholder:text-white/20 outline-none resize-y"
-                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", minHeight: 80 }} />
+                <div className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-1.5">System Prompt</div>
+                <p className="text-[10px] text-white/25 leading-relaxed">
+                  <i className="fa-solid fa-gear text-[8px] mr-1 text-white/15" />
+                  Managed in <span className="text-cyan-400/50">Settings → AI Prompts → Research</span>
+                </p>
               </div>
             </motion.div>
           )}

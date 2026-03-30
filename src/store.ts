@@ -65,6 +65,7 @@ export interface AiPrompts {
   summarize: string;
   super_summary: string;
   dashboard: string;
+  research: string;
 }
 
 export interface TokenUsageEntry {

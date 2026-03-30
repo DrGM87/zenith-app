@@ -64,6 +64,8 @@ pub struct AiPrompts {
     pub super_summary: String,
     #[serde(default = "default_dashboard")]
     pub dashboard: String,
+    #[serde(default = "default_research")]
+    pub research: String,
 }
 
 fn default_smart_rename() -> String { "Suggest a clear, descriptive filename for this file. Return ONLY the filename without extension. No explanation.".to_string() }
@@ -75,6 +77,7 @@ fn default_ask_data() -> String { "Answer the question based ONLY on the provide
 fn default_summarize() -> String { "Provide a summary of the following document. Start with a single TL;DR sentence, then provide a detailed summary with key points.".to_string() }
 fn default_super_summary() -> String { "Create an executive summary combining these document summaries. Start with a TL;DR paragraph. Use citations like [Doc 1] to reference sources.".to_string() }
 fn default_dashboard() -> String { "Generate a self-contained HTML dashboard with Chart.js CDN, dark theme, search/filter bar, 2-3 charts, sortable table, and Export PNG button.".to_string() }
+fn default_research() -> String { "You are Zenith Research Assistant — an expert AI researcher. You help users discover papers, analyze literature, verify citations, assess novelty, run experiments, and generate research sections. Be thorough, cite sources, and provide structured outputs when appropriate. When you use a research tool, explain what you found clearly.".to_string() }
 
 impl Default for AiPrompts {
     fn default() -> Self {
@@ -88,6 +91,7 @@ impl Default for AiPrompts {
             summarize: default_summarize(),
             super_summary: default_super_summary(),
             dashboard: default_dashboard(),
+            research: default_research(),
         }
     }
 }
@@ -132,6 +136,8 @@ pub struct ZenithSettings {
     pub audiodb_api_key: String,
     #[serde(default)]
     pub imdb_api_key: String,
+    #[serde(default)]
+    pub tavily_api_key: String,
     #[serde(default = "default_true")]
     pub shazam_auto_recognize: bool,
 }

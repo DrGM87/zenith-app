@@ -15,7 +15,7 @@ _RETRY_BASE_DELAY = 2.0
 _MAX_BACKOFF_SEC = 60
 _RETRYABLE_CODES = frozenset({429, 500, 502, 503, 504, 529})
 _USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-_NO_TEMPERATURE_MODELS = frozenset({"o3", "o3-mini", "o4-mini"})
+_NO_TEMPERATURE_MODELS = frozenset({"o3", "o3-mini", "o4-mini", "deepseek-reasoner"})
 
 TEMP_DIR = os.path.join(tempfile.gettempdir(), "Zenith")
 RESEARCH_DIR = os.path.join(TEMP_DIR, "Research")
@@ -40,7 +40,7 @@ def _llm_chat(provider, api_key, model, messages, temperature=0.7, max_tokens=40
         """Build the urllib request for the given provider."""
         if provider == "openai":
             url = "https://api.openai.com/v1/chat/completions"
-            mdl = model or "gpt-4.1-nano"
+            mdl = model or "gpt-5.4-nano"
             body = {"model": mdl, "messages": messages, "max_tokens": max_tokens}
             # Reasoning models reject temperature param (ARC pattern)
             if not any(mdl.startswith(p) for p in _NO_TEMPERATURE_MODELS):
@@ -52,7 +52,7 @@ def _llm_chat(provider, api_key, model, messages, temperature=0.7, max_tokens=40
 
         elif provider == "anthropic":
             url = "https://api.anthropic.com/v1/messages"
-            mdl = model or "claude-sonnet-4-20250514"
+            mdl = model or "claude-sonnet-4-5-20260115"
             sys_msgs = [m for m in messages if m["role"] == "system"]
             non_sys = [m for m in messages if m["role"] != "system"]
             body = {"model": mdl, "max_tokens": max_tokens, "messages": non_sys,
@@ -65,7 +65,7 @@ def _llm_chat(provider, api_key, model, messages, temperature=0.7, max_tokens=40
                 "anthropic-version": "2023-06-01", "User-Agent": _USER_AGENT}), mdl
 
         elif provider == "google":
-            mdl = model or "gemini-2.5-flash"
+            mdl = model or "gemini-3-flash-preview"
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={api_key}"
             contents = []
             for m in messages:
@@ -368,6 +368,7 @@ def research_chat(args):
     max_tokens = args.get("max_tokens", 4096)
     system_prompt = args.get("system_prompt", "")
     enabled_tools = args.get("enabled_tools", [])
+    tavily_api_key = args.get("tavily_api_key", "")
 
     if not api_key:
         return {"error": "API key required. Set it in Settings > API Keys."}
@@ -398,7 +399,10 @@ def research_chat(args):
                 "[TOOL:TOOL_NAME]{\"param\": \"value\"}[/TOOL]\n"
                 "For LITERATURE_SEARCH: {\"query\": \"...\", \"max_results\": 5}\n"
                 "For WEB_SEARCH: {\"query\": \"...\"}\n"
+                "For PDF_EXTRACT: {\"path\": \"...\"}\n"
                 "For NOVELTY_CHECK: {\"idea\": \"...\"}\n"
+                "For CITATION_VERIFY: {\"citations\": [\"title1\", \"title2\"]}\n"
+                "For EXPERIMENT: {\"code\": \"print('hello')\", \"timeout_sec\": 30}\n"
                 "Always explain what you found after using a tool."
             )
 
@@ -431,7 +435,7 @@ def research_chat(args):
             except json.JSONDecodeError:
                 tool_args = {"query": tool_args_str.strip()}
 
-            tool_result = _execute_tool(tool_name, tool_args, api_key, provider, model)
+            tool_result = _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key)
             tool_results.append(tool_result)
 
         # If we got tool results, do a follow-up LLM call to synthesize
@@ -475,7 +479,7 @@ def research_chat(args):
     }
 
 
-def _execute_tool(tool_name, tool_args, api_key, provider, model):
+def _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key=""):
     """Dispatch a tool call and return structured result."""
     tool_name = tool_name.upper().strip()
 
@@ -484,12 +488,13 @@ def _execute_tool(tool_name, tool_args, api_key, provider, model):
         max_results = tool_args.get("max_results", 5)
         year_min = tool_args.get("year_min", None)
 
+        # Source order matches ARC: OpenAlex (10K/day) → S2 (1K/5min) → arXiv (1/3s)
         all_papers = []
-        all_papers.extend(_search_arxiv(query, max_results))
-        time.sleep(0.5)  # rate-limit gap between sources (ARC pattern)
-        all_papers.extend(_search_semantic_scholar(query, max_results, year_min))
-        time.sleep(1.0)  # S2 is the most rate-limited
         all_papers.extend(_search_openalex(query, max_results))
+        time.sleep(0.5)
+        all_papers.extend(_search_semantic_scholar(query, max_results, year_min))
+        time.sleep(1.0)
+        all_papers.extend(_search_arxiv(query, max_results))
 
         # Deduplicate by title similarity
         seen = set()
@@ -513,51 +518,125 @@ def _execute_tool(tool_name, tool_args, api_key, provider, model):
 
     elif tool_name == "WEB_SEARCH":
         query = tool_args.get("query", "")
-        # Try DuckDuckGo (no API key needed)
-        result = _web_search_duckduckgo(query)
+        # ARC pattern: Try Tavily first (if key available), then DDG fallback
+        tavily_key = tavily_api_key or tool_args.get("tavily_api_key", "")
+        result = None
+        if tavily_key:
+            result = _web_search_tavily(query, tavily_key)
+            if result.get("error") or not result.get("results"):
+                result = None  # fall through to DDG
+        if result is None:
+            result = _web_search_duckduckgo(query)
         results = result.get("results", [])
         summary = f"Found {len(results)} web results for '{query}'."
         if results:
             summary += " " + "; ".join([f"{r['title']}" for r in results[:3]])
+        if result.get("answer"):
+            summary = result["answer"] + "\n\n" + summary
         return {"tool_name": "WEB_SEARCH", "type": "text", "data": results, "summary": summary}
 
     elif tool_name == "NOVELTY_CHECK":
         idea = tool_args.get("idea", "")
-        # Search for similar papers
-        papers = _search_semantic_scholar(idea, 10)
-        similar = [p for p in papers if p.get("citations", 0) > 0][:5]
+        # ARC pattern: keyword extraction + Jaccard similarity + multi-source search
+        _STOP = frozenset({"a","an","the","and","or","but","in","on","of","for","to","with","by","at","from","as","is","are","was","were","be","been","have","has","had","do","does","did","will","would","could","should","may","might","not","using","based","via","new","novel","approach","method","study","research","paper","proposed","results"})
+        idea_keywords = [t for t in re.findall(r'[a-zA-Z][a-zA-Z0-9_-]+', idea.lower()) if t not in _STOP and len(t) >= 3]
+        idea_kw_set = set(idea_keywords)
 
-        summary = f"Novelty assessment for: \"{idea[:100]}...\"\n"
+        # Search multiple sources (ARC: multi-query)
+        all_papers = []
+        all_papers.extend(_search_openalex(idea, 10))
+        time.sleep(0.5)
+        all_papers.extend(_search_semantic_scholar(idea, 10))
+        time.sleep(0.5)
+        # Build keyword query from top keywords
+        if len(idea_keywords) >= 3:
+            kw_query = " ".join(idea_keywords[:5])
+            all_papers.extend(_search_semantic_scholar(kw_query, 5))
+
+        # Deduplicate
+        seen = set()
+        unique = []
+        for p in all_papers:
+            key = p["title"].lower().strip()[:80]
+            if key not in seen:
+                seen.add(key)
+                unique.append(p)
+
+        # Compute similarity scores (ARC Jaccard pattern)
+        similar = []
+        for p in unique:
+            p_kw = set(re.findall(r'[a-zA-Z][a-zA-Z0-9_-]+', (p.get("title","") + " " + p.get("abstract","")).lower())) - _STOP
+            if not p_kw or not idea_kw_set:
+                sim = 0.0
+            else:
+                sim = len(idea_kw_set & p_kw) / max(len(idea_kw_set | p_kw), 1)
+            if sim >= 0.15:  # ARC threshold
+                similar.append({**p, "similarity": round(sim, 3)})
+        similar.sort(key=lambda x: x["similarity"], reverse=True)
+        similar = similar[:15]
+
+        # Compute novelty score (ARC pattern)
         if not similar:
-            summary += "No closely related papers found — this appears to be a novel direction."
+            novelty_score, assessment = 1.0, "high"
         else:
-            summary += f"Found {len(similar)} potentially related papers:\n"
-            for p in similar:
-                summary += f"  - \"{p['title']}\" ({p.get('year','?')}, {p.get('citations',0)} cites)\n"
+            top = similar[:5]
+            max_sim = max(p["similarity"] for p in top)
+            high_cite = sum(1 for p in top if p["similarity"] >= 0.3 and p.get("citations", 0) >= 50)
+            raw = 1.0 - max_sim
+            if high_cite >= 2:
+                raw *= 0.7
+            novelty_score = round(max(0.0, min(1.0, raw)), 3)
+            if novelty_score >= 0.7: assessment = "high"
+            elif novelty_score >= 0.45: assessment = "moderate"
+            elif novelty_score >= 0.25: assessment = "low"
+            else: assessment = "critical"
 
-        return {"tool_name": "NOVELTY_CHECK", "type": "text", "data": similar, "summary": summary}
+        recommendation = "proceed" if assessment == "high" else ("differentiate" if assessment in ("moderate","low") else "abort")
+        summary = f"Novelty score: {novelty_score} ({assessment}) — Recommendation: {recommendation}\n"
+        summary += f"Found {len(similar)} potentially overlapping papers (of {len(unique)} searched).\n"
+        for p in similar[:5]:
+            summary += f"  - \"{p['title']}\" ({p.get('year','?')}, sim={p['similarity']}, {p.get('citations',0)} cites)\n"
+
+        return {"tool_name": "NOVELTY_CHECK", "type": "text",
+                "data": {"novelty_score": novelty_score, "assessment": assessment, "recommendation": recommendation, "similar_papers": similar[:10]},
+                "summary": summary}
 
     elif tool_name == "CITATION_VERIFY":
         citations = tool_args.get("citations", [])
         if isinstance(citations, str):
             citations = [c.strip() for c in citations.split(";") if c.strip()]
-        results = []
-        for cite in citations[:10]:
-            # Try to find via Semantic Scholar
-            found = _search_semantic_scholar(cite, 1)
-            if found:
-                results.append({"ref": cite, "verified": True, "match": found[0].get("title", ""), "doi": found[0].get("doi", "")})
-            else:
-                results.append({"ref": cite, "verified": False, "match": "", "doi": ""})
+        # Use the full 3-layer verification system
+        vr = verify_citations({"citations": citations})
+        if "error" in vr:
+            return {"tool_name": "CITATION_VERIFY", "type": "text", "data": None, "summary": vr["error"]}
+        s = vr.get("summary", {})
+        summary = (f"Citation verification: {s.get('verified',0)} verified, {s.get('suspicious',0)} suspicious, "
+                   f"{s.get('hallucinated',0)} hallucinated (integrity: {s.get('integrity_score',0):.0%})")
+        return {"tool_name": "CITATION_VERIFY", "type": "text", "data": vr.get("results", []), "summary": summary}
 
-        verified = sum(1 for r in results if r["verified"])
-        summary = f"Verified {verified}/{len(results)} citations."
-        return {"tool_name": "CITATION_VERIFY", "type": "text", "data": results, "summary": summary}
+    elif tool_name == "PDF_EXTRACT":
+        path = tool_args.get("path", "")
+        if not path:
+            return {"tool_name": "PDF_EXTRACT", "type": "text", "data": None, "summary": "No PDF path provided."}
+        pdf_result = extract_pdf_text({"path": path})
+        if "error" in pdf_result:
+            return {"tool_name": "PDF_EXTRACT", "type": "text", "data": None, "summary": pdf_result["error"]}
+        text = pdf_result.get("text", "")[:3000]
+        summary = f"Extracted {pdf_result.get('pages', 0)} pages ({len(text)} chars) from PDF."
+        return {"tool_name": "PDF_EXTRACT", "type": "text", "data": {"text": text, "pages": pdf_result.get("pages", 0)}, "summary": summary}
 
     elif tool_name == "EXPERIMENT":
         code = tool_args.get("code", "")
-        summary = "Experiment execution is available but sandboxing is not yet implemented. Please review code manually."
-        return {"tool_name": "EXPERIMENT", "type": "code", "data": code, "summary": summary}
+        if not code:
+            return {"tool_name": "EXPERIMENT", "type": "code", "data": None, "summary": "No code provided."}
+        exp_result = run_experiment_action({"code": code, "timeout_sec": tool_args.get("timeout_sec", 30)})
+        if exp_result.get("ok"):
+            summary = f"Experiment completed (exit code {exp_result.get('exit_code', -1)}).\nstdout: {exp_result.get('stdout', '')[:500]}"
+            if exp_result.get("stderr"):
+                summary += f"\nstderr: {exp_result['stderr'][:300]}"
+        else:
+            summary = f"Experiment failed: {exp_result.get('stderr', exp_result.get('error', 'Unknown error'))}"
+        return {"tool_name": "EXPERIMENT", "type": "code", "data": exp_result, "summary": summary}
 
     else:
         return {"tool_name": tool_name, "type": "text", "data": None, "summary": f"Unknown tool: {tool_name}"}
@@ -576,13 +655,16 @@ def search_papers(args):
     if not query:
         return {"error": "Query is required."}
 
+    # Source order matches ARC: OpenAlex (10K/day) → S2 (1K/5min) → arXiv (1/3s)
     all_papers = []
-    if "arxiv" in sources:
-        all_papers.extend(_search_arxiv(query, max_results))
-    if "semantic_scholar" in sources:
-        all_papers.extend(_search_semantic_scholar(query, max_results, year_min))
     if "openalex" in sources:
         all_papers.extend(_search_openalex(query, max_results))
+        time.sleep(0.5)
+    if "semantic_scholar" in sources:
+        all_papers.extend(_search_semantic_scholar(query, max_results, year_min))
+        time.sleep(1.0)
+    if "arxiv" in sources:
+        all_papers.extend(_search_arxiv(query, max_results))
 
     # Deduplicate
     seen = set()
@@ -747,10 +829,101 @@ def check_novelty(args):
     }
 
 
+# ── Title similarity (mirrors ARC verify.py) ──────────────────────────────
+
+def _title_similarity(a, b):
+    """Word-overlap Jaccard-ish similarity between two titles (0.0-1.0)."""
+    def _words(t):
+        return set(re.sub(r'[^a-z0-9\s]', '', t.lower()).split()) - {''}
+    wa, wb = _words(a), _words(b)
+    if not wa or not wb:
+        return 0.0
+    return len(wa & wb) / max(len(wa), len(wb))
+
+
+def _verify_by_doi(doi, expected_title):
+    """L2: Verify DOI via CrossRef API, with DataCite fallback for arXiv DOIs (ARC pattern)."""
+    encoded_doi = urllib.parse.quote(doi, safe='')
+    url = f"https://api.crossref.org/works/{encoded_doi}"
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Zenith/1.0 (mailto:zenith@example.com)", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = json.loads(resp.read().decode())
+        titles = body.get("message", {}).get("title", [])
+        found_title = titles[0] if titles else ""
+        if not found_title:
+            return {"status": "verified", "confidence": 0.85, "method": "doi", "details": f"DOI {doi} resolves via CrossRef"}
+        sim = _title_similarity(expected_title, found_title)
+        if sim >= 0.80:
+            return {"status": "verified", "confidence": sim, "method": "doi", "details": f"Confirmed via CrossRef: '{found_title}'"}
+        elif sim >= 0.50:
+            return {"status": "suspicious", "confidence": sim, "method": "doi", "details": f"DOI resolves but title differs (sim={sim:.2f})"}
+        else:
+            return {"status": "suspicious", "confidence": sim, "method": "doi", "details": f"DOI resolves but title mismatch (sim={sim:.2f})"}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            # Try DataCite for arXiv DOIs
+            if doi.startswith("10.48550/") or doi.startswith("10.5281/"):
+                return _verify_by_datacite(doi, expected_title)
+            return {"status": "hallucinated", "confidence": 0.9, "method": "doi", "details": f"DOI {doi} not found (HTTP 404)"}
+        return None
+    except Exception:
+        return None
+
+
+def _verify_by_datacite(doi, expected_title):
+    """DataCite fallback for arXiv/Zenodo DOIs (ARC pattern)."""
+    try:
+        encoded = urllib.parse.quote(doi, safe='')
+        url = f"https://api.datacite.org/dois/{encoded}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Zenith/1.0", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = json.loads(resp.read().decode())
+        dc_titles = body.get("data", {}).get("attributes", {}).get("titles", [])
+        found_title = dc_titles[0].get("title", "") if dc_titles else ""
+        if not found_title:
+            return {"status": "verified", "confidence": 0.85, "method": "doi", "details": f"DOI {doi} resolves via DataCite"}
+        sim = _title_similarity(expected_title, found_title)
+        if sim >= 0.80:
+            return {"status": "verified", "confidence": sim, "method": "doi", "details": f"Confirmed via DataCite: '{found_title}'"}
+        return {"status": "suspicious", "confidence": sim, "method": "doi", "details": f"DataCite title differs (sim={sim:.2f})"}
+    except Exception:
+        return None
+
+
+def _verify_by_openalex(title):
+    """L3a: Verify via OpenAlex title search (10K+/day, ARC pattern)."""
+    try:
+        params = urllib.parse.urlencode({"filter": "title.search:" + title.replace(",", " ").replace(":", " "),
+                                         "per_page": "5", "mailto": "zenith@example.com"})
+        url = f"https://api.openalex.org/works?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Zenith/1.0 (mailto:zenith@example.com)", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = json.loads(resp.read().decode())
+        results = body.get("results", [])
+        if not results:
+            return {"status": "hallucinated", "confidence": 0.7, "method": "openalex", "details": "No results found via OpenAlex"}
+        best_sim, best_title = 0.0, ""
+        for r in results:
+            ft = r.get("title", "")
+            if ft:
+                sim = _title_similarity(title, ft)
+                if sim > best_sim:
+                    best_sim, best_title = sim, ft
+        if best_sim >= 0.80:
+            return {"status": "verified", "confidence": best_sim, "method": "openalex", "details": f"Confirmed via OpenAlex: '{best_title}'"}
+        elif best_sim >= 0.50:
+            return {"status": "suspicious", "confidence": best_sim, "method": "openalex", "details": f"Partial match via OpenAlex (sim={best_sim:.2f})"}
+        return {"status": "hallucinated", "confidence": 0.7, "method": "openalex", "details": "No close match found via OpenAlex"}
+    except Exception:
+        return None
+
+
 def verify_citations(args):
-    """Verify a list of citations.
-    Args: {citations: [str]}
-    Returns: {ok, results: [{ref, verified, doi, url, error}]}
+    """Verify citations using ARC's 3-layer system: DOI/CrossRef → OpenAlex → S2+arXiv title search.
+    Args: {citations: [str] or [{title, doi, arxiv_id}]}
+    Returns: {ok, results: [{ref, status, confidence, method, details, doi, url}]}
     """
     citations = args.get("citations", [])
     if isinstance(citations, str):
@@ -759,20 +932,95 @@ def verify_citations(args):
     if not citations:
         return {"error": "No citations to verify."}
 
-    results = []
-    for cite in citations[:20]:  # limit to 20
-        found = _search_semantic_scholar(cite, 1)
-        if found and found[0].get("title"):
-            results.append({
-                "ref": cite, "verified": True,
-                "title": found[0]["title"], "doi": found[0].get("doi", ""),
-                "url": found[0].get("url", ""), "year": found[0].get("year", ""),
-            })
-        else:
-            results.append({"ref": cite, "verified": False, "title": "", "doi": "", "url": "", "error": "Not found"})
+    # Adaptive delays (ARC pattern)
+    _DELAY_CROSSREF = 0.3
+    _DELAY_OPENALEX = 0.2
+    _DELAY_S2 = 1.5
+    api_calls = 0
+    _start = time.time()
+    _TIMEOUT = 300  # 5 min global timeout (ARC BUG-22 fix)
 
-    verified = sum(1 for r in results if r["verified"])
-    return {"ok": True, "results": results, "verified_count": verified, "total": len(results)}
+    results = []
+    for i, cite in enumerate(citations[:20]):
+        # Global timeout check
+        if time.time() - _start > _TIMEOUT:
+            for remaining in citations[i:]:
+                ref = remaining if isinstance(remaining, str) else remaining.get("title", str(remaining))
+                results.append({"ref": ref, "status": "skipped", "confidence": 0, "method": "timeout", "details": "Verification timeout exceeded"})
+            break
+
+        # Normalize input
+        if isinstance(cite, dict):
+            title = cite.get("title", "")
+            doi = cite.get("doi", "")
+            arxiv_id = cite.get("arxiv_id", "")
+            ref_str = title or str(cite)
+        else:
+            title = cite
+            doi, arxiv_id = "", ""
+            ref_str = cite
+
+        if not title:
+            results.append({"ref": ref_str, "status": "skipped", "confidence": 0, "method": "skipped", "details": "No title provided"})
+            continue
+
+        result = None
+
+        # L2: DOI via CrossRef (fast, generous limits)
+        if result is None and doi:
+            if api_calls > 0:
+                time.sleep(_DELAY_CROSSREF)
+            result = _verify_by_doi(doi, title)
+            api_calls += 1
+
+        # L3a: OpenAlex title search (10K/day)
+        if result is None:
+            if api_calls > 0:
+                time.sleep(_DELAY_OPENALEX)
+            result = _verify_by_openalex(title)
+            api_calls += 1
+
+        # L3b: S2 title search (last resort)
+        if result is None:
+            if api_calls > 0:
+                time.sleep(_DELAY_S2)
+            found = _search_semantic_scholar(title, 3)
+            api_calls += 1
+            if found:
+                best_sim, best = 0.0, None
+                for p in found:
+                    sim = _title_similarity(title, p.get("title", ""))
+                    if sim > best_sim:
+                        best_sim, best = sim, p
+                if best_sim >= 0.80:
+                    result = {"status": "verified", "confidence": best_sim, "method": "title_search",
+                              "details": f"Found via S2: '{best['title']}'"}
+                elif best_sim >= 0.50:
+                    result = {"status": "suspicious", "confidence": best_sim, "method": "title_search",
+                              "details": f"Partial match via S2 (sim={best_sim:.2f})"}
+                else:
+                    result = {"status": "hallucinated", "confidence": 1.0 - best_sim, "method": "title_search",
+                              "details": "No close match found"}
+            else:
+                result = {"status": "hallucinated", "confidence": 0.7, "method": "title_search",
+                          "details": "No results found via S2 + arXiv"}
+
+        # Fallback: all layers failed
+        if result is None:
+            result = {"status": "skipped", "confidence": 0, "method": "skipped", "details": "All verification methods failed"}
+
+        results.append({"ref": ref_str, "doi": doi, **result})
+
+    verified = sum(1 for r in results if r["status"] == "verified")
+    suspicious = sum(1 for r in results if r["status"] == "suspicious")
+    hallucinated = sum(1 for r in results if r["status"] == "hallucinated")
+    integrity = verified / max(1, len(results) - sum(1 for r in results if r["status"] == "skipped")) if results else 1.0
+
+    return {
+        "ok": True, "results": results,
+        "summary": {"total": len(results), "verified": verified, "suspicious": suspicious,
+                     "hallucinated": hallucinated, "integrity_score": round(integrity, 3)},
+    }
 
 
 def run_experiment_action(args):

@@ -59,6 +59,7 @@ export function Bubble() {
   const [qrText, setQrText] = useState("");
   const [showBatchAudioConvert, setShowBatchAudioConvert] = useState(false);
   const [batchAudioBitrate, setBatchAudioBitrate] = useState("192");
+  const [showFooterMore, setShowFooterMore] = useState(false);
 
   const selectedItems = items.filter((i) => selectedIds.has(i.id));
   const selectedPaths = selectedItems.filter((i) => i.path.length > 0).map((i) => i.path);
@@ -320,113 +321,92 @@ export function Bubble() {
           >
             {auroraEnabled && <SoftAurora color1={`${accent}18`} color2="rgba(139,92,246,0.10)" color3="rgba(236,72,153,0.05)" speed={auroraSpeed} />}
             {/* Header */}
-            <div className="flex items-center justify-between px-4 pt-4 pb-2">
+            <div className="flex items-center justify-between px-4 pt-3 pb-2">
               <div className="flex items-center gap-2.5">
                 <MagicRings color={accent} color2="#ec4899" color3="#f59e0b" size={21} />
                 <span style={{ fontSize: `${fontSize}px` }} className="font-semibold text-white/90 tracking-wide uppercase">
                   Zenith
                 </span>
-                <span style={{ fontSize: `${fontSize - 2}px` }} className="text-white/30 font-medium">
+                <span style={{ fontSize: `${fontSize - 2}px` }} className="text-white/25 font-medium tabular-nums">
                   {items.length} {items.length === 1 ? "item" : "items"}
                 </span>
               </div>
-
-              <div className="flex items-center gap-1">
-                {items.length > 0 && (
-                  <motion.button
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={clearAll}
-                    className="text-[11px] font-medium text-white/40 hover:text-red-400 px-2.5 py-1 rounded-lg hover:bg-white/5 transition-colors"
+              <div className="flex items-center gap-0.5">
+                {/* Undo/Redo rename — compact pair */}
+                <div className="flex items-center rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.04)" }}>
+                  <motion.button whileTap={{ scale: 0.9 }}
+                    disabled={renameUndoCount === 0}
+                    onClick={async () => {
+                      try {
+                        const r = JSON.parse(await invoke<string>("undo_last_rename"));
+                        if (r.undone) { setFooterToast(`Undo: restored ${r.restored_path.split(/[\\/]/).pop()}`); setTimeout(() => setFooterToast(null), 2500); refreshRenameCounts(); loadItems(); }
+                      } catch (e) { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); }
+                    }}
+                    className={`w-7 h-7 flex items-center justify-center transition-colors ${renameUndoCount > 0 ? "text-white/45 hover:text-white/80 hover:bg-white/[0.06]" : "text-white/10 cursor-not-allowed"}`}
+                    title={`Undo rename (${renameUndoCount})`}
                   >
-                    <i className="fa-solid fa-trash-can mr-1 text-[9px]" />
-                    Clear all
+                    <i className="fa-solid fa-rotate-left text-[10px]" />
                   </motion.button>
-                )}
-                {/* Undo/Redo rename buttons */}
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  disabled={renameUndoCount === 0}
-                  onClick={async () => {
-                    try {
-                      const r = JSON.parse(await invoke<string>("undo_last_rename"));
-                      if (r.undone) {
-                        setFooterToast(`Undo: restored ${r.restored_path.split(/[\\/]/).pop()}`);
-                        setTimeout(() => setFooterToast(null), 2500);
-                        refreshRenameCounts();
-                        loadItems();
-                      }
-                    } catch (e) { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); }
-                  }}
-                  className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${renameUndoCount > 0 ? "text-white/50 hover:text-white/90 hover:bg-white/5" : "text-white/15 cursor-not-allowed"}`}
-                  title={`Undo rename (${renameUndoCount})`}
-                >
-                  <i className="fa-solid fa-rotate-left text-[11px]" />
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  disabled={renameRedoCount === 0}
-                  onClick={async () => {
-                    try {
-                      const r = JSON.parse(await invoke<string>("redo_last_rename"));
-                      if (r.redone) {
-                        setFooterToast(`Redo: renamed to ${r.new_path.split(/[\\/]/).pop()}`);
-                        setTimeout(() => setFooterToast(null), 2500);
-                        refreshRenameCounts();
-                        loadItems();
-                      }
-                    } catch (e) { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); }
-                  }}
-                  className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${renameRedoCount > 0 ? "text-white/50 hover:text-white/90 hover:bg-white/5" : "text-white/15 cursor-not-allowed"}`}
-                  title={`Redo rename (${renameRedoCount})`}
-                >
-                  <i className="fa-solid fa-rotate-right text-[11px]" />
-                </motion.button>
-                {/* Generative Canvas button */}
-                <motion.button
-                  whileHover={{ scale: 1.08 }}
-                  whileTap={{ scale: 0.92 }}
+                  <div className="w-px h-3.5 bg-white/[0.06]" />
+                  <motion.button whileTap={{ scale: 0.9 }}
+                    disabled={renameRedoCount === 0}
+                    onClick={async () => {
+                      try {
+                        const r = JSON.parse(await invoke<string>("redo_last_rename"));
+                        if (r.redone) { setFooterToast(`Redo: renamed to ${r.new_path.split(/[\\/]/).pop()}`); setTimeout(() => setFooterToast(null), 2500); refreshRenameCounts(); loadItems(); }
+                      } catch (e) { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); }
+                    }}
+                    className={`w-7 h-7 flex items-center justify-center transition-colors ${renameRedoCount > 0 ? "text-white/45 hover:text-white/80 hover:bg-white/[0.06]" : "text-white/10 cursor-not-allowed"}`}
+                    title={`Redo rename (${renameRedoCount})`}
+                  >
+                    <i className="fa-solid fa-rotate-right text-[10px]" />
+                  </motion.button>
+                </div>
+                {/* Separator */}
+                <div className="w-px h-4 bg-white/[0.06] mx-1" />
+                {/* Windows — Canvas + Research */}
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
                   onClick={() => invoke("open_editor_window_blank").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors"
-                  style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.25), rgba(236,72,153,0.18))", color: "#c084fc", border: "1px solid rgba(139,92,246,0.3)" }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer"
+                  style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.18), rgba(236,72,153,0.12))", color: "#c084fc", border: "1px solid rgba(139,92,246,0.2)" }}
                   title="Open Generative Canvas (text-to-image)"
                 >
-                  <i className="fa-solid fa-wand-magic-sparkles text-[10px]" />
-                  Canvas
+                  <i className="fa-solid fa-wand-magic-sparkles text-[9px]" />Canvas
                 </motion.button>
-                {/* Research Window button */}
-                <motion.button
-                  whileHover={{ scale: 1.08 }}
-                  whileTap={{ scale: 0.92 }}
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
                   onClick={() => invoke("open_research_window").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors"
-                  style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.20), rgba(56,189,248,0.15))", color: "#67e8f9", border: "1px solid rgba(34,211,238,0.3)" }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer"
+                  style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.15), rgba(56,189,248,0.10))", color: "#67e8f9", border: "1px solid rgba(34,211,238,0.2)" }}
                   title="Open Research Window"
                 >
-                  <i className="fa-solid fa-microscope text-[10px]" />
-                  Research
+                  <i className="fa-solid fa-microscope text-[9px]" />Research
                 </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
+                {/* Separator */}
+                <div className="w-px h-4 bg-white/[0.06] mx-1" />
+                {/* Utility controls */}
+                <motion.button whileTap={{ scale: 0.9 }}
                   onClick={() => setPinned(!pinned)}
-                  className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${pinned ? "text-cyan-400 bg-cyan-500/15" : "text-white/30 hover:text-white/70 hover:bg-white/5"}`}
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${pinned ? "text-cyan-400 bg-cyan-500/12" : "text-white/25 hover:text-white/60 hover:bg-white/[0.04]"}`}
                   title={pinned ? "Unpin panel" : "Pin panel open"}
                 >
-                  <i className={`fa-solid fa-thumbtack text-[12px] ${pinned ? "" : "rotate-45"}`} />
+                  <i className={`fa-solid fa-thumbtack text-[11px] ${pinned ? "" : "rotate-45"}`} />
                 </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.1, rotate: 45 }}
-                  whileTap={{ scale: 0.9 }}
+                <motion.button whileHover={{ rotate: 45 }} whileTap={{ scale: 0.9 }}
                   onClick={() => invoke("open_settings")}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-white/70 hover:bg-white/5 transition-colors"
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-white/25 hover:text-white/60 hover:bg-white/[0.04] transition-colors cursor-pointer"
+                  title="Settings"
                 >
-                  <i className="fa-solid fa-gear text-[13px]" />
+                  <i className="fa-solid fa-gear text-[12px]" />
                 </motion.button>
+                {items.length > 0 && (
+                  <motion.button initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} whileTap={{ scale: 0.9 }}
+                    onClick={clearAll}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                    title="Clear all items"
+                  >
+                    <i className="fa-solid fa-trash-can text-[10px]" />
+                  </motion.button>
+                )}
               </div>
             </div>
 
@@ -966,53 +946,13 @@ export function Bubble() {
 
             {/* Footer */}
             <div
-              className="px-4 py-2.5 flex items-center justify-between relative"
-              style={{
-                borderTop: "1px solid rgba(255, 255, 255, 0.05)",
-                background: "rgba(0, 0, 0, 0.2)",
-              }}
+              className="px-3 py-2 relative"
+              style={{ borderTop: "1px solid rgba(255, 255, 255, 0.04)", background: "rgba(0, 0, 0, 0.15)" }}
             >
-              <span className="text-[10px] text-white/20 font-medium tracking-widest uppercase">
-                <i className="fa-solid fa-layer-group mr-1" />
-                Staging Area
-              </span>
-              <div className="flex items-center gap-2">
-                {/* Clipboard stack toggle */}
-                <button
-                  onClick={() => setStackMode(!isStackMode)}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                    isStackMode
-                      ? "text-violet-400 bg-violet-500/15"
-                      : "text-white/25 hover:text-white/50"
-                  }`}
-                  title="Clipboard stacking mode"
-                >
-                  <i className="fa-solid fa-clipboard-list text-[9px]" />
-                </button>
-                {/* Zip all */}
-                {items.filter((i) => i.path.length > 0).length >= 2 && (
-                  <button
-                    onClick={handleZipAll}
-                    disabled={zipping}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white/25 hover:text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-40"
-                    title="Zip all files"
-                  >
-                    {zipping ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-file-zipper text-[9px]" />}
-                  </button>
-                )}
-                {/* Merge PDFs */}
-                {pdfItems.length >= 2 && (
-                  <button
-                    onClick={handleMergePdfs}
-                    disabled={merging}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white/25 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
-                    title={`Merge ${pdfItems.length} PDFs`}
-                  >
-                    {merging ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-file-pdf text-[9px]" />}
-                  </button>
-                )}
-                {/* Smart Organize → Review Studio */}
-                {allPaths.length >= 2 && (
+              {/* Primary actions — visible labeled buttons */}
+              <div className="flex items-center gap-1">
+                {/* AI group */}
+                {allPaths.length >= 2 && (<>
                   <button
                     disabled={organizing}
                     onClick={async () => {
@@ -1023,17 +963,13 @@ export function Bubble() {
                       setStudioPlan(null);
                       setStudioProgress({ status: "analyzing", current: 0, total: allPaths.length, message: "Expanding folders..." });
                       try {
-                        // Phase 1.2: walk directories to flatten folders into individual file paths
                         const walkResult = JSON.parse(await invoke<string>("walk_directory", { pathsJson: JSON.stringify(allPaths) }));
                         const flatPaths: string[] = (walkResult.files || []).map((f: { path: string }) => f.path);
                         if (flatPaths.length === 0) { setStudioProgress(null); setStudioOpen(false); setFooterToast("No files found"); setTimeout(() => setFooterToast(null), 2000); setOrganizing(false); return; }
                         setStudioProgress({ status: "analyzing", current: 0, total: flatPaths.length, message: `Analyzing ${flatPaths.length} files...` });
                         const argsJson = JSON.stringify({
-                          paths: flatPaths,
-                          system_prompt: settings?.ai_prompts?.auto_organize,
-                          ...apiKey,
-                          omdb_key: settings?.omdb_api_key || "",
-                          imdb_api_key: settings?.imdb_api_key || "",
+                          paths: flatPaths, system_prompt: settings?.ai_prompts?.auto_organize, ...apiKey,
+                          omdb_key: settings?.omdb_api_key || "", imdb_api_key: settings?.imdb_api_key || "",
                           audiodb_key: settings?.audiodb_api_key || "",
                           group_images_by: useZenithStore.getState().studioGroupImages,
                           group_docs_by: useZenithStore.getState().studioGroupDocs,
@@ -1042,32 +978,17 @@ export function Bubble() {
                         });
                         const r = JSON.parse(await invoke<string>("process_file", { action: "smart_organize_studio", argsJson }));
                         if (r.token_usage) trackTokenUsage(r.token_usage.provider, r.token_usage.model, r.token_usage.input_tokens, r.token_usage.output_tokens);
-                        if (r.ok && r.plan) {
-                          setStudioPlan(r.plan);
-                          setStudioProgress(null);
-                          setFooterToast(`Plan ready: ${r.plan.total_items} items in ${r.plan.folders.length} folders`);
-                          setTimeout(() => setFooterToast(null), 3000);
-                        } else {
-                          setStudioProgress(null);
-                          setStudioOpen(false);
-                          setFooterToast(r.error || "Studio analysis failed");
-                          setTimeout(() => setFooterToast(null), 3000);
-                        }
-                      } catch (e) {
-                        setStudioProgress(null);
-                        setStudioOpen(false);
-                        setFooterToast(String(e));
-                        setTimeout(() => setFooterToast(null), 3000);
-                      } finally { setOrganizing(false); }
+                        if (r.ok && r.plan) { setStudioPlan(r.plan); setStudioProgress(null); setFooterToast(`Plan ready: ${r.plan.total_items} items in ${r.plan.folders.length} folders`); setTimeout(() => setFooterToast(null), 3000); }
+                        else { setStudioProgress(null); setStudioOpen(false); setFooterToast(r.error || "Studio analysis failed"); setTimeout(() => setFooterToast(null), 3000); }
+                      } catch (e) { setStudioProgress(null); setStudioOpen(false); setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); }
+                      finally { setOrganizing(false); }
                     }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white/25 hover:text-purple-400 hover:bg-purple-500/10 transition-colors disabled:opacity-40"
+                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-medium text-white/30 hover:text-purple-300 hover:bg-purple-500/10 transition-all disabled:opacity-40 cursor-pointer"
                     title="Smart Organize → Review Studio"
                   >
                     {organizing ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-wand-magic-sparkles text-[9px]" />}
+                    <span>Organize</span>
                   </button>
-                )}
-                {/* Smart Sort */}
-                {allPaths.length >= 2 && (
                   <button
                     disabled={batchProcessing !== null}
                     onClick={async () => {
@@ -1078,102 +999,17 @@ export function Bubble() {
                         const argsJson = JSON.stringify({ paths: allPaths, system_prompt: settings?.ai_prompts?.smart_sort, ...apiKey });
                         const r = JSON.parse(await invoke<string>("process_file", { action: "smart_sort", argsJson }));
                         if (r.token_usage) trackTokenUsage(r.token_usage.provider, r.token_usage.model, r.token_usage.input_tokens, r.token_usage.output_tokens);
-                        if (r.ok && r.categories) {
-                          const cats = Object.keys(r.categories).length;
-                          setFooterToast(`Sorted into ${cats} categories`);
-                        } else setFooterToast(r.error || "Sort failed");
+                        if (r.ok && r.categories) { setFooterToast(`Sorted into ${Object.keys(r.categories).length} categories`); }
+                        else setFooterToast(r.error || "Sort failed");
                       } catch (e) { setFooterToast(String(e)); }
                       finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
                     }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white/25 hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors disabled:opacity-40"
-                    title="Smart Sort files by category"
+                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-medium text-white/30 hover:text-cyan-300 hover:bg-cyan-500/10 transition-all disabled:opacity-40 cursor-pointer"
+                    title="Smart Sort by category"
                   >
                     {batchProcessing === "sort" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-arrow-down-a-z text-[9px]" />}
+                    <span>Sort</span>
                   </button>
-                )}
-                {/* Super Summary */}
-                {textDocItems.length >= 2 && (
-                  <button
-                    disabled={batchProcessing !== null}
-                    onClick={async () => {
-                      const apiKey = getDefaultApiKey();
-                      if (!apiKey.api_key) { setFooterToast("Set an API key first"); setTimeout(() => setFooterToast(null), 2000); return; }
-                      setBatchProcessing("summary");
-                      try {
-                        const paths = textDocItems.map((i) => i.path);
-                        const argsJson = JSON.stringify({ paths, system_prompt: settings?.ai_prompts?.super_summary, ...apiKey });
-                        const r = JSON.parse(await invoke<string>("process_file", { action: "super_summary", argsJson }));
-                        if (r.token_usage) trackTokenUsage(r.token_usage.provider, r.token_usage.model, r.token_usage.input_tokens, r.token_usage.output_tokens);
-                        if (r.ok && r.path) { await stageFile(r.path); setFooterToast(`Summary of ${r.docs_processed} docs!`); }
-                        else setFooterToast(r.error || "Failed");
-                      } catch (e) { setFooterToast(String(e)); }
-                      finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
-                    }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white/25 hover:text-violet-400 hover:bg-violet-500/10 transition-colors disabled:opacity-40"
-                    title="Super Summary of all docs"
-                  >
-                    {batchProcessing === "summary" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-book-open text-[9px]" />}
-                  </button>
-                )}
-                {/* PDF to CSV batch */}
-                {(() => {
-                  const pdfItems = (selectedItems.length > 1 ? selectedItems : items).filter((i) => i.extension.toLowerCase() === "pdf" && i.path);
-                  if (pdfItems.length < 1) return null;
-                  return (
-                    <button
-                      disabled={batchProcessing !== null}
-                      onClick={async () => {
-                        const apiKey = getDefaultApiKey();
-                        if (!apiKey.api_key) { setFooterToast("Set an API key first"); setTimeout(() => setFooterToast(null), 2000); return; }
-                        setBatchProcessing("pdf_csv");
-                        try {
-                          const paths = pdfItems.map((i) => i.path);
-                          const argsJson = JSON.stringify({ paths, ...apiKey });
-                          const r = JSON.parse(await invoke<string>("process_file", { action: "pdf_to_csv", argsJson }));
-                          if (r.token_usage) trackTokenUsage(r.token_usage.provider, r.token_usage.model, r.token_usage.input_tokens, r.token_usage.output_tokens);
-                          if (r.ok && r.path) { await stageFile(r.path); setFooterToast(`CSV: ${r.rows} rows from ${r.docs_processed} PDFs`); }
-                          else setFooterToast(r.error || "Failed");
-                        } catch (e) { setFooterToast(String(e)); }
-                        finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
-                      }}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white/25 hover:text-orange-400 hover:bg-orange-500/10 transition-colors disabled:opacity-40"
-                      title="Extract PDFs to CSV"
-                    >
-                      {batchProcessing === "pdf_csv" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-table text-[9px]" />}
-                    </button>
-                  );
-                })()}
-                {/* Save All — copy all staged files to a folder */}
-                {allPaths.length >= 1 && (
-                  <button
-                    disabled={batchProcessing !== null}
-                    onClick={async () => {
-                      const dest = window.prompt("Enter destination folder path:", "");
-                      if (!dest || !dest.trim()) return;
-                      setBatchProcessing("save_all");
-                      try {
-                        const moves = allPaths.map((p) => ({ old_path: p, new_path: `${dest.trim().replace(/[\\/]$/, "")}\\${p.split(/[\\/]/).pop()}` }));
-                        const r = JSON.parse(await invoke<string>("move_files", { movesJson: JSON.stringify(moves) }));
-                        setFooterToast(`Saved ${r.moved ?? moves.length} files to folder`);
-                      } catch (e) { setFooterToast(String(e)); }
-                      finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
-                    }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white/25 hover:text-teal-400 hover:bg-teal-500/10 transition-colors disabled:opacity-40"
-                    title="Save all files to a folder"
-                  >
-                    {batchProcessing === "save_all" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-floppy-disk text-[9px]" />}
-                  </button>
-                )}
-                {/* QR from text (file-less) */}
-                <button
-                  onClick={() => setShowQrInput(!showQrInput)}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${showQrInput ? "text-violet-400 bg-violet-500/15" : "text-white/25 hover:text-violet-400 hover:bg-violet-500/10"}`}
-                  title="Generate QR code from text/URL"
-                >
-                  <i className="fa-solid fa-qrcode text-[9px]" />
-                </button>
-                {/* Batch Smart Rename */}
-                {allPaths.length >= 2 && (
                   <button
                     disabled={batchProcessing !== null}
                     onClick={async () => {
@@ -1192,32 +1028,174 @@ export function Bubble() {
                       } catch (e) { setFooterToast(String(e)); }
                       finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
                     }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white/25 hover:text-pink-400 hover:bg-pink-500/10 transition-colors disabled:opacity-40"
+                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-medium text-white/30 hover:text-pink-300 hover:bg-pink-500/10 transition-all disabled:opacity-40 cursor-pointer"
                     title="AI Rename all files"
                   >
-                    {batchProcessing === "rename" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-wand-magic-sparkles text-[9px]" />}
+                    {batchProcessing === "rename" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-font text-[9px]" />}
+                    <span>Rename</span>
+                  </button>
+                </>)}
+
+                {/* Separator when AI group is shown */}
+                {allPaths.length >= 2 && <div className="w-px h-4 bg-white/[0.06] mx-0.5" />}
+
+                {/* File ops — always visible */}
+                {items.filter((i) => i.path.length > 0).length >= 2 && (
+                  <button onClick={handleZipAll} disabled={zipping}
+                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-medium text-white/30 hover:text-amber-300 hover:bg-amber-500/10 transition-all disabled:opacity-40 cursor-pointer"
+                    title="Zip all files"
+                  >
+                    {zipping ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-file-zipper text-[9px]" />}
+                    <span>Zip</span>
                   </button>
                 )}
-                {/* Undo organize */}
+                {pdfItems.length >= 2 && (
+                  <button onClick={handleMergePdfs} disabled={merging}
+                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-medium text-white/30 hover:text-red-300 hover:bg-red-500/10 transition-all disabled:opacity-40 cursor-pointer"
+                    title={`Merge ${pdfItems.length} PDFs`}
+                  >
+                    {merging ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-file-pdf text-[9px]" />}
+                    <span>Merge</span>
+                  </button>
+                )}
+
+                {/* Spacer */}
+                <div className="flex-1" />
+
+                {/* Undo organize — ephemeral, highlighted when available */}
                 {undoable && (
                   <button
                     onClick={async () => {
-                      try {
-                        const r = JSON.parse(await invoke<string>("undo_moves"));
-                        setFooterToast(`Reverted ${r.reverted} files`);
-                        setUndoable(false);
-                      } catch (e) { setFooterToast(String(e)); }
+                      try { const r = JSON.parse(await invoke<string>("undo_moves")); setFooterToast(`Reverted ${r.reverted} files`); setUndoable(false); }
+                      catch (e) { setFooterToast(String(e)); }
                       setTimeout(() => setFooterToast(null), 3000);
                     }}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                    className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors cursor-pointer"
                     title="Undo last organize"
                   >
                     <i className="fa-solid fa-rotate-left text-[9px]" /> Undo
                   </button>
                 )}
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/60" />
-                <span className="text-[10px] text-white/25">Ready</span>
+
+                {/* More actions overflow */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowFooterMore(!showFooterMore)}
+                    className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-medium transition-all cursor-pointer ${showFooterMore ? "text-white/60 bg-white/[0.06]" : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"}`}
+                    title="More actions"
+                  >
+                    <i className="fa-solid fa-ellipsis text-[10px]" />
+                  </button>
+                  <AnimatePresence>
+                    {showFooterMore && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute bottom-full right-0 mb-2 z-50 rounded-xl p-1.5 min-w-[180px]"
+                        style={{ background: "rgba(12,12,20,0.97)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 16px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03) inset" }}
+                      >
+                        {/* Document tools */}
+                        {textDocItems.length >= 2 && (
+                          <button disabled={batchProcessing !== null}
+                            onClick={async () => {
+                              setShowFooterMore(false);
+                              const apiKey = getDefaultApiKey();
+                              if (!apiKey.api_key) { setFooterToast("Set an API key first"); setTimeout(() => setFooterToast(null), 2000); return; }
+                              setBatchProcessing("summary");
+                              try {
+                                const paths = textDocItems.map((i) => i.path);
+                                const argsJson = JSON.stringify({ paths, system_prompt: settings?.ai_prompts?.super_summary, ...apiKey });
+                                const r = JSON.parse(await invoke<string>("process_file", { action: "super_summary", argsJson }));
+                                if (r.token_usage) trackTokenUsage(r.token_usage.provider, r.token_usage.model, r.token_usage.input_tokens, r.token_usage.output_tokens);
+                                if (r.ok && r.path) { await stageFile(r.path); setFooterToast(`Summary of ${r.docs_processed} docs!`); }
+                                else setFooterToast(r.error || "Failed");
+                              } catch (e) { setFooterToast(String(e)); }
+                              finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
+                            }}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] font-medium text-white/50 hover:text-violet-300 hover:bg-violet-500/10 transition-all disabled:opacity-40 cursor-pointer text-left"
+                          >
+                            {batchProcessing === "summary" ? <i className="fa-solid fa-spinner fa-spin text-[10px] w-4 text-center" /> : <i className="fa-solid fa-book-open text-[10px] w-4 text-center" />}
+                            Super Summary
+                          </button>
+                        )}
+                        {(() => {
+                          const pdfItems = (selectedItems.length > 1 ? selectedItems : items).filter((i) => i.extension.toLowerCase() === "pdf" && i.path);
+                          if (pdfItems.length < 1) return null;
+                          return (
+                            <button disabled={batchProcessing !== null}
+                              onClick={async () => {
+                                setShowFooterMore(false);
+                                const apiKey = getDefaultApiKey();
+                                if (!apiKey.api_key) { setFooterToast("Set an API key first"); setTimeout(() => setFooterToast(null), 2000); return; }
+                                setBatchProcessing("pdf_csv");
+                                try {
+                                  const paths = pdfItems.map((i) => i.path);
+                                  const argsJson = JSON.stringify({ paths, ...apiKey });
+                                  const r = JSON.parse(await invoke<string>("process_file", { action: "pdf_to_csv", argsJson }));
+                                  if (r.token_usage) trackTokenUsage(r.token_usage.provider, r.token_usage.model, r.token_usage.input_tokens, r.token_usage.output_tokens);
+                                  if (r.ok && r.path) { await stageFile(r.path); setFooterToast(`CSV: ${r.rows} rows from ${r.docs_processed} PDFs`); }
+                                  else setFooterToast(r.error || "Failed");
+                                } catch (e) { setFooterToast(String(e)); }
+                                finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
+                              }}
+                              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] font-medium text-white/50 hover:text-orange-300 hover:bg-orange-500/10 transition-all disabled:opacity-40 cursor-pointer text-left"
+                            >
+                              {batchProcessing === "pdf_csv" ? <i className="fa-solid fa-spinner fa-spin text-[10px] w-4 text-center" /> : <i className="fa-solid fa-table text-[10px] w-4 text-center" />}
+                              PDF to CSV
+                            </button>
+                          );
+                        })()}
+                        {/* Utilities */}
+                        {(textDocItems.length >= 2 || (selectedItems.length > 1 ? selectedItems : items).filter((i) => i.extension.toLowerCase() === "pdf" && i.path).length >= 1) && (
+                          <div className="h-px bg-white/[0.05] mx-1.5 my-1" />
+                        )}
+                        {allPaths.length >= 1 && (
+                          <button disabled={batchProcessing !== null}
+                            onClick={async () => {
+                              setShowFooterMore(false);
+                              const dest = window.prompt("Enter destination folder path:", "");
+                              if (!dest || !dest.trim()) return;
+                              setBatchProcessing("save_all");
+                              try {
+                                const moves = allPaths.map((p) => ({ old_path: p, new_path: `${dest.trim().replace(/[\\/]$/, "")}\\${p.split(/[\\/]/).pop()}` }));
+                                const r = JSON.parse(await invoke<string>("move_files", { movesJson: JSON.stringify(moves) }));
+                                setFooterToast(`Saved ${r.moved ?? moves.length} files to folder`);
+                              } catch (e) { setFooterToast(String(e)); }
+                              finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
+                            }}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] font-medium text-white/50 hover:text-teal-300 hover:bg-teal-500/10 transition-all disabled:opacity-40 cursor-pointer text-left"
+                          >
+                            {batchProcessing === "save_all" ? <i className="fa-solid fa-spinner fa-spin text-[10px] w-4 text-center" /> : <i className="fa-solid fa-floppy-disk text-[10px] w-4 text-center" />}
+                            Save All to Folder
+                          </button>
+                        )}
+                        <button
+                          onClick={() => { setShowFooterMore(false); setShowQrInput(!showQrInput); }}
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] font-medium transition-all cursor-pointer text-left ${showQrInput ? "text-violet-300 bg-violet-500/12" : "text-white/50 hover:text-violet-300 hover:bg-violet-500/10"}`}
+                        >
+                          <i className="fa-solid fa-qrcode text-[10px] w-4 text-center" />
+                          QR Code
+                        </button>
+                        <button
+                          onClick={() => { setShowFooterMore(false); setStackMode(!isStackMode); }}
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] font-medium transition-all cursor-pointer text-left ${isStackMode ? "text-violet-300 bg-violet-500/12" : "text-white/50 hover:text-violet-300 hover:bg-violet-500/10"}`}
+                        >
+                          <i className="fa-solid fa-clipboard-list text-[10px] w-4 text-center" />
+                          Clipboard Stack {isStackMode && <span className="text-[9px] text-violet-400/60 ml-auto">ON</span>}
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Status dot */}
+                <div className="flex items-center gap-1.5 ml-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/60" />
+                  <span className="text-[9px] text-white/20 font-medium">Ready</span>
+                </div>
               </div>
+              {/* Click-outside to close More menu */}
+              {showFooterMore && <div className="fixed inset-0 z-40" onClick={() => setShowFooterMore(false)} />}
               {/* Footer toast */}
               <AnimatePresence>
                 {footerToast && (
@@ -1225,7 +1203,8 @@ export function Bubble() {
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 6 }}
-                    className="absolute -top-8 right-4 px-2.5 py-1 rounded-md bg-black/90 text-[10px] text-white/80 font-medium whitespace-nowrap z-50"
+                    className="absolute -top-8 right-4 px-2.5 py-1 rounded-lg text-[10px] text-white/80 font-medium whitespace-nowrap z-50"
+                    style={{ background: "rgba(0,0,0,0.85)", border: "1px solid rgba(255,255,255,0.06)" }}
                   >
                     {footerToast}
                   </motion.div>

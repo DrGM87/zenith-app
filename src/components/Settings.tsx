@@ -107,6 +107,8 @@ interface ZenithSettings {
   audiodb_api_key: string;
   imdb_api_key: string;
   tavily_api_key: string;
+  brave_api_key: string;
+  firecrawl_api_key: string;
   shazam_auto_recognize: boolean;
 }
 
@@ -786,7 +788,7 @@ export function Settings() {
                 onChange={(e) => save({ ...settings, vt_api_key: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
-              <p className="text-[10px] text-white/20 mt-1">Get a free key at <code className="text-white/40">virustotal.com/gui/my-apikey</code></p>
+              <p className="text-[10px] text-white/20 mt-1">Get a free key at <a href="https://www.virustotal.com/gui/my-apikey" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">virustotal.com/gui/my-apikey</a></p>
             </SettingGroup>
             <SettingGroup title="Tavily (Research Web Search)">
               <p className="text-[11px] text-white/30 mb-2">AI-powered web search used by the Research Window. Falls back to DuckDuckGo if no key is set.</p>
@@ -796,7 +798,27 @@ export function Settings() {
                 onChange={(e) => save({ ...settings, tavily_api_key: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-cyan-400/40 transition-colors font-mono"
               />
-              <p className="text-[10px] text-white/20 mt-1">Get a key at <code className="text-white/40">tavily.com</code> — free tier available. Powers Research Window web search.</p>
+              <p className="text-[10px] text-white/20 mt-1">Get a key at <a href="https://tavily.com" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">tavily.com</a> — free tier available. Powers Research Window web search.</p>
+            </SettingGroup>
+            <SettingGroup title="Brave Search (Research)">
+              <p className="text-[11px] text-white/30 mb-2">High-quality web search via Brave Search API. Results are aggregated with other search providers and deduplicated.</p>
+              <input
+                type="password" placeholder="Brave Search API Key (optional)"
+                value={settings.brave_api_key ?? ""}
+                onChange={(e) => save({ ...settings, brave_api_key: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-orange-400/40 transition-colors font-mono"
+              />
+              <p className="text-[10px] text-white/20 mt-1">Get a key at <a href="https://brave.com/search/api/" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">brave.com/search/api</a> — free tier: 2,000 queries/month.</p>
+            </SettingGroup>
+            <SettingGroup title="Firecrawl (Research Deep Scraping)">
+              <p className="text-[11px] text-white/30 mb-2">Deep web scraping and search. Extracts full page content as markdown for richer research context.</p>
+              <input
+                type="password" placeholder="Firecrawl API Key (optional)"
+                value={settings.firecrawl_api_key ?? ""}
+                onChange={(e) => save({ ...settings, firecrawl_api_key: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-orange-400/40 transition-colors font-mono"
+              />
+              <p className="text-[10px] text-white/20 mt-1">Get a key at <a href="https://www.firecrawl.dev" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">firecrawl.dev</a> — free tier: 500 credits.</p>
             </SettingGroup>
             <SettingGroup title="IMDb API (Movies & Series) — Primary">
               <p className="text-[11px] text-white/30 mb-2">Primary API for movie/series identification. Free tier available, premium key optional.</p>
@@ -806,7 +828,7 @@ export function Settings() {
                 onChange={(e) => save({ ...settings, imdb_api_key: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
-              <p className="text-[10px] text-white/20 mt-1">API: <code className="text-white/40">imdbapi.dev</code> — works without a key for basic searches</p>
+              <p className="text-[10px] text-white/20 mt-1">API: <a href="https://imdbapi.dev" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">imdbapi.dev</a> — works without a key for basic searches</p>
             </SettingGroup>
             <SettingGroup title="OMDB (Movies & Series) — Fallback">
               <p className="text-[11px] text-white/30 mb-2">Fallback API if imdbapi.dev fails. Used for detailed metadata (ratings, plot, director).</p>
@@ -816,7 +838,7 @@ export function Settings() {
                 onChange={(e) => save({ ...settings, omdb_api_key: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
-              <p className="text-[10px] text-white/20 mt-1">Get a free key at <code className="text-white/40">omdbapi.com/apikey.aspx</code> (1,000 requests/day)</p>
+              <p className="text-[10px] text-white/20 mt-1">Get a free key at <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">omdbapi.com/apikey.aspx</a> (1,000 requests/day)</p>
             </SettingGroup>
             <SettingGroup title="Shazam Music Recognition">
               <p className="text-[11px] text-white/30 mb-2">Audio fingerprinting powered by SongRec. Identifies songs from audio files using Shazam's recognition API. Used as a fallback in Smart Organize when filename-based lookup fails.</p>
@@ -841,7 +863,7 @@ export function Settings() {
                 onChange={(e) => save({ ...settings, audiodb_api_key: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
-              <p className="text-[10px] text-white/20 mt-1">API: <code className="text-white/40">theaudiodb.com/free_music_api</code> — free key <code className="text-white/40">523532</code> used by default</p>
+              <p className="text-[10px] text-white/20 mt-1">API: <a href="https://www.theaudiodb.com/free_music_api" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">theaudiodb.com/free_music_api</a> — free key <code className="text-white/40">523532</code> used by default</p>
             </SettingGroup>
             <div className="mt-4 p-4 rounded-xl bg-white/3 border border-white/6">
               <p className="text-[11px] text-white/30 leading-relaxed">

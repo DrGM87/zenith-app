@@ -181,6 +181,10 @@ pub struct ZenithSettings {
     pub imdb_api_key: String,
     #[serde(default)]
     pub tavily_api_key: String,
+    #[serde(default)]
+    pub brave_api_key: String,
+    #[serde(default)]
+    pub firecrawl_api_key: String,
     #[serde(default = "default_true")]
     pub shazam_auto_recognize: bool,
 }
@@ -309,6 +313,8 @@ impl Default for ZenithSettings {
             audiodb_api_key: String::new(),
             imdb_api_key: String::new(),
             tavily_api_key: String::new(),
+            brave_api_key: String::new(),
+            firecrawl_api_key: String::new(),
             shazam_auto_recognize: true,
         }
     }

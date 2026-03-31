@@ -179,7 +179,7 @@ The **Zenith Research Window** is an AI-powered autonomous research assistant th
 
 - **Multi-turn research chat** — conversational AI with LLM-driven tool dispatch; supports all 5 LLM providers
 - **Literature search** — searches arXiv, Semantic Scholar, and OpenAlex simultaneously with deduplication and citation-count sorting
-- **Web search** — DuckDuckGo HTML search (no API key required)
+- **Web search** — aggregated multi-source search: Brave Search, Tavily AI, Firecrawl deep scraping, and DuckDuckGo fallback — all deduplicated by URL and title
 - **PDF text extraction** — extract and analyze PDF content for research context
 - **Novelty scoring** — LLM-based assessment of research idea novelty against existing literature (1-10 scale)
 - **Citation verification** — verify references exist via Semantic Scholar API
@@ -270,7 +270,7 @@ A **full-featured settings panel** with 9 tabs — because power users deserve c
 | **Appearance** | Accent color, opacity, blur intensity, corner radius, font size, border glow, animations |
 | **Behavior** | Collapse delay, hover/drag expand triggers, max items, duplicate detection, screen position |
 | **Processing** | Image quality, WebP quality, resize %, PDF compression level, split chunk size |
-| **API Keys** | Per-provider key management with model selection, pricing display, and OMDB/VirusTotal keys |
+| **API Keys** | Per-provider key management with model selection, pricing display, OMDB/VirusTotal/Brave/Firecrawl keys, clickable API signup links |
 | **AI Prompts** | All 9 system prompts editable (File Management, Document Intelligence, Vision & Data) |
 | **Token Usage** | Per-provider usage cards with cost breakdown, total spend tracking, reset |
 | **Shortcuts** | Configurable keyboard shortcuts (stage clipboard, toggle window, clear all) |

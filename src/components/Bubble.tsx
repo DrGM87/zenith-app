@@ -365,22 +365,25 @@ export function Bubble() {
                 {/* Separator */}
                 <div className="w-px h-4 bg-white/[0.06] mx-1" />
                 {/* Windows — Canvas + Research */}
-                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
-                  onClick={() => invoke("open_editor_window_blank").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer"
-                  style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.18), rgba(236,72,153,0.12))", color: "#c084fc", border: "1px solid rgba(139,92,246,0.2)" }}
-                  title="Open Generative Canvas (text-to-image)"
-                >
-                  <i className="fa-solid fa-wand-magic-sparkles text-[9px]" />Canvas
-                </motion.button>
-                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
-                  onClick={() => invoke("open_research_window").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer"
-                  style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.15), rgba(56,189,248,0.10))", color: "#67e8f9", border: "1px solid rgba(34,211,238,0.2)" }}
-                  title="Open Research Window"
-                >
-                  <i className="fa-solid fa-microscope text-[9px]" />Research
-                </motion.button>
+                <div className="flex items-center rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <motion.button whileTap={{ scale: 0.92 }}
+                    onClick={() => invoke("open_editor_window_blank").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
+                    className="w-7 h-7 flex items-center justify-center transition-colors cursor-pointer hover:bg-white/[0.06]"
+                    style={{ background: "rgba(139,92,246,0.10)", color: "#c084fc" }}
+                    title="Open Generative Canvas"
+                  >
+                    <i className="fa-solid fa-wand-magic-sparkles text-[10px]" />
+                  </motion.button>
+                  <div className="w-px h-3.5 bg-white/[0.06]" />
+                  <motion.button whileTap={{ scale: 0.92 }}
+                    onClick={() => invoke("open_research_window").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
+                    className="w-7 h-7 flex items-center justify-center transition-colors cursor-pointer hover:bg-white/[0.06]"
+                    style={{ background: "rgba(34,211,238,0.08)", color: "#67e8f9" }}
+                    title="Open Research Window"
+                  >
+                    <i className="fa-solid fa-microscope text-[10px]" />
+                  </motion.button>
+                </div>
                 {/* Separator */}
                 <div className="w-px h-4 bg-white/[0.06] mx-1" />
                 {/* Utility controls */}

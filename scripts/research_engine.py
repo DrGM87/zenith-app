@@ -293,6 +293,94 @@ def _search_openalex(query, max_results=5):
         return []
 
 
+def _web_search_brave(query, api_key, max_results=10):
+    """Web search via Brave Search API (https://brave.com/search/api/)."""
+    try:
+        encoded = urllib.parse.quote_plus(query)
+        url = f"https://api.search.brave.com/res/v1/web/search?q={encoded}&count={max_results}"
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+            "X-Subscription-Token": api_key,
+        })
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read()
+            # Handle gzip
+            if resp.headers.get("Content-Encoding") == "gzip":
+                import gzip
+                raw = gzip.decompress(raw)
+            data = json.loads(raw.decode("utf-8"))
+        results = []
+        for r in data.get("web", {}).get("results", []):
+            results.append({
+                "title": r.get("title", ""), "url": r.get("url", ""),
+                "snippet": r.get("description", "")[:400], "score": 0,
+                "source": "brave",
+            })
+        # Brave may include an infobox / summary
+        answer = ""
+        if data.get("summarizer", {}).get("key"):
+            answer = data["summarizer"].get("summary", "")
+        return {"results": results, "answer": answer}
+    except Exception as e:
+        return {"results": [], "answer": "", "error": str(e)}
+
+
+def _firecrawl_scrape(url_to_scrape, api_key):
+    """Scrape a URL via Firecrawl API (https://firecrawl.dev) → returns markdown text."""
+    try:
+        payload = json.dumps({
+            "url": url_to_scrape,
+            "formats": ["markdown"],
+            "onlyMainContent": True,
+            "timeout": 30000,
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.firecrawl.dev/v1/scrape",
+            data=payload,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        )
+        with urllib.request.urlopen(req, timeout=40) as resp:
+            data = json.loads(resp.read().decode())
+        if data.get("success"):
+            md = data.get("data", {}).get("markdown", "")
+            title = data.get("data", {}).get("metadata", {}).get("title", "")
+            return {"ok": True, "markdown": md[:8000], "title": title, "url": url_to_scrape}
+        return {"ok": False, "error": data.get("error", "Unknown error")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _firecrawl_search(query, api_key, max_results=5):
+    """Search via Firecrawl Search API → returns URLs + scraped content."""
+    try:
+        payload = json.dumps({
+            "query": query,
+            "limit": max_results,
+            "scrapeOptions": {"formats": ["markdown"], "onlyMainContent": True},
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.firecrawl.dev/v1/search",
+            data=payload,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        )
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            data = json.loads(resp.read().decode())
+        results = []
+        if data.get("success"):
+            for r in data.get("data", []):
+                results.append({
+                    "title": r.get("metadata", {}).get("title", r.get("url", "")),
+                    "url": r.get("url", ""),
+                    "snippet": r.get("markdown", "")[:500],
+                    "score": 0,
+                    "source": "firecrawl",
+                })
+        return {"results": results}
+    except Exception as e:
+        return {"results": [], "error": str(e)}
+
+
 def _web_search_tavily(query, api_key, max_results=5):
     """Web search via Tavily AI."""
     try:
@@ -309,6 +397,7 @@ def _web_search_tavily(query, api_key, max_results=5):
             results.append({
                 "title": r.get("title", ""), "url": r.get("url", ""),
                 "snippet": r.get("content", "")[:300], "score": r.get("score", 0),
+                "source": "tavily",
             })
         return {"results": results, "answer": data.get("answer", "")}
     except Exception as e:
@@ -369,6 +458,8 @@ def research_chat(args):
     system_prompt = args.get("system_prompt", "")
     enabled_tools = args.get("enabled_tools", [])
     tavily_api_key = args.get("tavily_api_key", "")
+    brave_api_key = args.get("brave_api_key", "")
+    firecrawl_api_key = args.get("firecrawl_api_key", "")
 
     if not api_key:
         return {"error": "API key required. Set it in Settings > API Keys."}
@@ -382,7 +473,7 @@ def research_chat(args):
         if "literature" in enabled_tools:
             tools.append("- LITERATURE_SEARCH: Search academic papers on arXiv, Semantic Scholar, and OpenAlex")
         if "web_search" in enabled_tools:
-            tools.append("- WEB_SEARCH: Search the web for information")
+            tools.append("- WEB_SEARCH: Search the web for information (uses Brave, Tavily, Firecrawl, DuckDuckGo — aggregated & deduplicated)")
         if "pdf_extract" in enabled_tools:
             tools.append("- PDF_EXTRACT: Extract text from PDF files")
         if "novelty" in enabled_tools:
@@ -435,7 +526,7 @@ def research_chat(args):
             except json.JSONDecodeError:
                 tool_args = {"query": tool_args_str.strip()}
 
-            tool_result = _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key)
+            tool_result = _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key, brave_api_key, firecrawl_api_key)
             tool_results.append(tool_result)
 
         # If we got tool results, do a follow-up LLM call to synthesize
@@ -479,7 +570,7 @@ def research_chat(args):
     }
 
 
-def _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key=""):
+def _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key="", brave_api_key="", firecrawl_api_key=""):
     """Dispatch a tool call and return structured result."""
     tool_name = tool_name.upper().strip()
 
@@ -518,21 +609,77 @@ def _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key
 
     elif tool_name == "WEB_SEARCH":
         query = tool_args.get("query", "")
-        # ARC pattern: Try Tavily first (if key available), then DDG fallback
+        max_res = tool_args.get("max_results", 8)
+        # ── Aggregate results from all available search providers ──
+        all_results = []
+        answer = ""
+        sources_used = []
+
+        # 1. Brave Search (highest quality, if key available)
+        brave_key = brave_api_key or tool_args.get("brave_api_key", "")
+        if brave_key:
+            br = _web_search_brave(query, brave_key, max_res)
+            if br.get("results"):
+                all_results.extend(br["results"])
+                sources_used.append("Brave")
+            if br.get("answer"):
+                answer = br["answer"]
+
+        # 2. Tavily (AI-powered, if key available)
         tavily_key = tavily_api_key or tool_args.get("tavily_api_key", "")
-        result = None
         if tavily_key:
-            result = _web_search_tavily(query, tavily_key)
-            if result.get("error") or not result.get("results"):
-                result = None  # fall through to DDG
-        if result is None:
-            result = _web_search_duckduckgo(query)
-        results = result.get("results", [])
-        summary = f"Found {len(results)} web results for '{query}'."
+            tv = _web_search_tavily(query, tavily_key, max_res)
+            if tv.get("results"):
+                all_results.extend(tv["results"])
+                sources_used.append("Tavily")
+            if tv.get("answer") and not answer:
+                answer = tv["answer"]
+
+        # 3. Firecrawl Search (deep content, if key available)
+        fc_key = firecrawl_api_key or tool_args.get("firecrawl_api_key", "")
+        if fc_key:
+            fc = _firecrawl_search(query, fc_key, min(max_res, 5))
+            if fc.get("results"):
+                all_results.extend(fc["results"])
+                sources_used.append("Firecrawl")
+
+        # 4. DuckDuckGo fallback (always available, no key needed)
+        ddg = _web_search_duckduckgo(query, max_res)
+        if ddg.get("results"):
+            for r in ddg["results"]:
+                r["source"] = "duckduckgo"
+            all_results.extend(ddg["results"])
+            if not sources_used:
+                sources_used.append("DuckDuckGo")
+
+        # ── Smart deduplication by domain+path ──
+        seen_urls = set()
+        unique = []
+        for r in all_results:
+            url = r.get("url", "")
+            # Normalize URL for dedup: strip protocol, trailing slash, query params
+            norm = re.sub(r'^https?://(www\.)?', '', url).rstrip('/').split('?')[0].split('#')[0].lower()
+            if norm and norm not in seen_urls:
+                seen_urls.add(norm)
+                unique.append(r)
+        # Also dedup by title similarity
+        seen_titles = set()
+        deduped = []
+        for r in unique:
+            title_key = re.sub(r'[^a-z0-9]+', ' ', r.get("title", "").lower()).strip()[:60]
+            if title_key and title_key not in seen_titles:
+                seen_titles.add(title_key)
+                deduped.append(r)
+            elif not title_key:
+                deduped.append(r)
+
+        results = deduped[:max_res * 2]
+        src_str = " + ".join(sources_used) if sources_used else "DuckDuckGo"
+        summary = f"Found {len(results)} web results for '{query}' via {src_str}."
         if results:
-            summary += " " + "; ".join([f"{r['title']}" for r in results[:3]])
-        if result.get("answer"):
-            summary = result["answer"] + "\n\n" + summary
+            summary += " Top: " + "; ".join([f"{r['title']}" for r in results[:3]])
+        if answer:
+            summary = answer + "\n\n" + summary
         return {"tool_name": "WEB_SEARCH", "type": "text", "data": results, "summary": summary}
 
     elif tool_name == "NOVELTY_CHECK":
@@ -1136,27 +1283,282 @@ def export_chat(args):
         ext = ".bib"
 
     elif fmt == "pdf":
-        # Simple text-based PDF via reportlab if available, otherwise fallback to markdown
+        # Full markdown-to-PDF via reportlab with proper rendering
         try:
             from reportlab.lib.pagesizes import A4
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-            from reportlab.lib.styles import getSampleStyleSheet
-            from reportlab.lib.units import cm
+            from reportlab.platypus import (
+                SimpleDocTemplate, Paragraph, Spacer, Preformatted,
+                Table, TableStyle, HRFlowable,
+            )
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import cm, mm
+            from reportlab.lib.colors import HexColor
+            from reportlab.lib.enums import TA_LEFT
 
             out_path = os.path.join(EXPORTS_DIR, f"{safe_title}_{timestamp}.pdf")
-            doc = SimpleDocTemplate(out_path, pagesize=A4)
+            doc = SimpleDocTemplate(
+                out_path, pagesize=A4,
+                leftMargin=2 * cm, rightMargin=2 * cm,
+                topMargin=2 * cm, bottomMargin=2 * cm,
+            )
             styles = getSampleStyleSheet()
+
+            # ── Custom styles ──
+            styles.add(ParagraphStyle(
+                "MDH1", parent=styles["Heading1"], fontSize=18, spaceAfter=10, spaceBefore=14,
+                textColor=HexColor("#1a1a2e"),
+            ))
+            styles.add(ParagraphStyle(
+                "MDH2", parent=styles["Heading2"], fontSize=15, spaceAfter=8, spaceBefore=12,
+                textColor=HexColor("#1a1a2e"),
+            ))
+            styles.add(ParagraphStyle(
+                "MDH3", parent=styles["Heading3"], fontSize=13, spaceAfter=6, spaceBefore=10,
+                textColor=HexColor("#2a2a4e"),
+            ))
+            styles.add(ParagraphStyle(
+                "MDH4", parent=styles["Heading4"], fontSize=11, spaceAfter=4, spaceBefore=8,
+                textColor=HexColor("#2a2a4e"),
+            ))
+            styles.add(ParagraphStyle(
+                "CodeBlock", fontName="Courier", fontSize=8, leading=10,
+                backColor=HexColor("#f5f5f5"), textColor=HexColor("#333333"),
+                leftIndent=12, rightIndent=12, spaceBefore=6, spaceAfter=6,
+                borderPadding=(6, 6, 6, 6),
+            ))
+            styles.add(ParagraphStyle(
+                "MDBody", parent=styles["Normal"], fontSize=10, leading=14,
+                spaceAfter=4, alignment=TA_LEFT,
+            ))
+            styles.add(ParagraphStyle(
+                "Blockquote", parent=styles["Normal"], fontSize=10, leading=13,
+                leftIndent=20, textColor=HexColor("#555555"), fontName="Helvetica-Oblique",
+                spaceBefore=4, spaceAfter=4,
+            ))
+            styles.add(ParagraphStyle(
+                "BulletItem", parent=styles["Normal"], fontSize=10, leading=13,
+                leftIndent=20, bulletIndent=10, spaceBefore=1, spaceAfter=1,
+            ))
+            styles.add(ParagraphStyle(
+                "RoleLabel", parent=styles["Heading3"], fontSize=11, spaceAfter=4,
+                spaceBefore=8, textColor=HexColor("#0891b2"),
+            ))
+
+            def _esc(t):
+                """Escape HTML entities for reportlab Paragraph markup."""
+                return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+            def _inline(t):
+                """Convert inline markdown to reportlab XML: bold, italic, code, links."""
+                t = _esc(t)
+                # Bold: **text**
+                t = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', t)
+                # Italic: *text*
+                t = re.sub(r'\*(.+?)\*', r'<i>\1</i>', t)
+                # Inline code: `text`
+                t = re.sub(r'`(.+?)`', r'<font face="Courier" size="8" color="#c0392b">\1</font>', t)
+                # Links: [text](url)
+                t = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2" color="blue">\1</a>', t)
+                # Bare URLs
+                t = re.sub(r'(https?://[^\s<>]+)', r'<a href="\1" color="blue">\1</a>', t)
+                return t
+
+            def _md_to_flowables(md_text):
+                """Convert markdown text to a list of reportlab flowables."""
+                flowables = []
+                lines = md_text.split("\n")
+                i = 0
+                while i < len(lines):
+                    line = lines[i]
+
+                    # Code block
+                    if line.strip().startswith("```"):
+                        code_lines = []
+                        i += 1
+                        while i < len(lines) and not lines[i].strip().startswith("```"):
+                            code_lines.append(lines[i])
+                            i += 1
+                        i += 1  # skip closing ```
+                        code_text = _esc("\n".join(code_lines))
+                        flowables.append(Preformatted(code_text, styles["CodeBlock"]))
+                        continue
+
+                    # Headers
+                    hm = re.match(r'^(#{1,4})\s+(.+)$', line)
+                    if hm:
+                        level = len(hm.group(1))
+                        style_name = f"MDH{level}"
+                        flowables.append(Paragraph(_inline(hm.group(2)), styles[style_name]))
+                        i += 1
+                        continue
+
+                    # Horizontal rule
+                    if re.match(r'^-{3,}$', line.strip()) or re.match(r'^\*{3,}$', line.strip()):
+                        flowables.append(HRFlowable(
+                            width="100%", thickness=0.5,
+                            color=HexColor("#cccccc"), spaceBefore=6, spaceAfter=6,
+                        ))
+                        i += 1
+                        continue
+
+                    # Blockquote
+                    bq = re.match(r'^>\s?(.*)$', line)
+                    if bq:
+                        flowables.append(Paragraph(_inline(bq.group(1)), styles["Blockquote"]))
+                        i += 1
+                        continue
+
+                    # Table: detect | header | header | lines
+                    if line.strip().startswith("|") and "|" in line[1:]:
+                        table_rows = []
+                        while i < len(lines) and lines[i].strip().startswith("|"):
+                            row_line = lines[i].strip()
+                            # Skip separator rows like |:---|:---|
+                            if re.match(r'^\|[\s:|-]+\|$', row_line):
+                                i += 1
+                                continue
+                            cells = [c.strip() for c in row_line.split("|")[1:-1]]
+                            table_rows.append(cells)
+                            i += 1
+                        if table_rows:
+                            # Normalize column count
+                            max_cols = max(len(r) for r in table_rows)
+                            for r in table_rows:
+                                while len(r) < max_cols:
+                                    r.append("")
+                            # Convert cells to Paragraphs for wrapping
+                            pdf_data = []
+                            for ri, row in enumerate(table_rows):
+                                pdf_row = []
+                                for cell in row:
+                                    st = styles["MDBody"] if ri > 0 else styles["MDH4"]
+                                    pdf_row.append(Paragraph(_inline(cell), st))
+                                pdf_data.append(pdf_row)
+                            # Build table with styling
+                            col_w = (A4[0] - 4 * cm) / max_cols
+                            tbl = Table(pdf_data, colWidths=[col_w] * max_cols)
+                            tbl.setStyle(TableStyle([
+                                ("BACKGROUND", (0, 0), (-1, 0), HexColor("#e8e8e8")),
+                                ("TEXTCOLOR", (0, 0), (-1, 0), HexColor("#1a1a2e")),
+                                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                                ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#cccccc")),
+                                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                            ]))
+                            flowables.append(Spacer(1, 4 * mm))
+                            flowables.append(tbl)
+                            flowables.append(Spacer(1, 4 * mm))
+                        continue
+
+                    # Unordered list item
+                    ul = re.match(r'^(\s*)[-*]\s+(.+)$', line)
+                    if ul:
+                        indent = len(ul.group(1)) // 2
+                        bullet = "\u2022 " if indent == 0 else "  \u25E6 "
+                        st = ParagraphStyle(
+                            f"_bullet_{i}", parent=styles["BulletItem"],
+                            leftIndent=20 + indent * 14,
+                        )
+                        flowables.append(Paragraph(bullet + _inline(ul.group(2)), st))
+                        i += 1
+                        continue
+
+                    # Ordered list item
+                    ol = re.match(r'^(\s*)(\d+)[.)]\s+(.+)$', line)
+                    if ol:
+                        indent = len(ol.group(1)) // 2
+                        num = ol.group(2)
+                        st = ParagraphStyle(
+                            f"_ol_{i}", parent=styles["BulletItem"],
+                            leftIndent=20 + indent * 14,
+                        )
+                        flowables.append(Paragraph(f"{num}. " + _inline(ol.group(3)), st))
+                        i += 1
+                        continue
+
+                    # Empty line → small spacer
+                    if not line.strip():
+                        flowables.append(Spacer(1, 3 * mm))
+                        i += 1
+                        continue
+
+                    # Regular paragraph — accumulate consecutive non-empty lines
+                    para_lines = []
+                    while i < len(lines) and lines[i].strip() and not lines[i].strip().startswith(("#", "```", "|", ">", "---", "***", "- ", "* ")):
+                        # Also break on numbered list items
+                        if re.match(r'^\s*\d+[.)]\s+', lines[i]):
+                            break
+                        para_lines.append(lines[i])
+                        i += 1
+                    if para_lines:
+                        flowables.append(Paragraph(_inline(" ".join(para_lines)), styles["MDBody"]))
+                    else:
+                        # Single line that didn't match anything
+                        flowables.append(Paragraph(_inline(line), styles["MDBody"]))
+                        i += 1
+
+                return flowables
+
+            # ── Build the PDF ──
             story = []
-            story.append(Paragraph(title, styles['Title']))
+            story.append(Paragraph(_esc(title), styles["Title"]))
+            story.append(Paragraph(
+                f'<font size="9" color="#888888">Exported from Zenith Research \u2014 {time.strftime("%Y-%m-%d %H:%M")}</font>',
+                styles["Normal"],
+            ))
             story.append(Spacer(1, 0.5 * cm))
+            story.append(HRFlowable(width="100%", thickness=1, color=HexColor("#0891b2"), spaceBefore=4, spaceAfter=10))
 
             for m in messages:
                 role = m.get("role", "user").capitalize()
-                text = m.get("content", "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                text = text.replace("\n", "<br/>")
-                story.append(Paragraph(f"<b>{role}:</b>", styles['Heading3']))
-                story.append(Paragraph(text[:5000], styles['Normal']))
-                story.append(Spacer(1, 0.3 * cm))
+                text = m.get("content", "")
+                mtype = m.get("type", "text")
+
+                # Role header
+                role_label = {"User": "You", "Assistant": "Assistant", "Tool": f"Tool: {m.get('tool_used', 'result')}", "System": "System"}.get(role, role)
+                story.append(Paragraph(role_label, styles["RoleLabel"]))
+
+                # Convert full message content via markdown parser — NO truncation
+                story.extend(_md_to_flowables(text))
+
+                # If the message has paper data, render it as a table
+                data = m.get("data")
+                if data and isinstance(data, list) and mtype == "papers":
+                    paper_rows = [["Title", "Authors", "Year", "Citations"]]
+                    for p in data[:20]:
+                        if isinstance(p, dict) and p.get("title"):
+                            authors = ", ".join(p.get("authors", [])[:3])
+                            if len(p.get("authors", [])) > 3:
+                                authors += " et al."
+                            paper_rows.append([
+                                p.get("title", "")[:80],
+                                authors[:40],
+                                str(p.get("year", "")),
+                                str(p.get("citations", "")),
+                            ])
+                    if len(paper_rows) > 1:
+                        col_widths = [200, 120, 40, 50]
+                        ptbl = Table(
+                            [[Paragraph(_esc(c), styles["MDBody"]) for c in row] for row in paper_rows],
+                            colWidths=col_widths,
+                        )
+                        ptbl.setStyle(TableStyle([
+                            ("BACKGROUND", (0, 0), (-1, 0), HexColor("#0891b2")),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), HexColor("#ffffff")),
+                            ("FONTSIZE", (0, 0), (-1, -1), 8),
+                            ("GRID", (0, 0), (-1, -1), 0.4, HexColor("#cccccc")),
+                            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                            ("TOPPADDING", (0, 0), (-1, -1), 3),
+                            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                        ]))
+                        story.append(Spacer(1, 3 * mm))
+                        story.append(ptbl)
+
+                story.append(Spacer(1, 3 * mm))
+                story.append(HRFlowable(width="100%", thickness=0.3, color=HexColor("#dddddd"), spaceBefore=2, spaceAfter=6))
 
             doc.build(story)
             size = os.path.getsize(out_path)

@@ -272,6 +272,8 @@ export function ZenithResearch() {
         system_prompt: params.system_prompt,
         enabled_tools: params.enabled_tools,
         tavily_api_key: settings?.tavily_api_key ?? "",
+        brave_api_key: (settings?.brave_api_key as string) ?? "",
+        firecrawl_api_key: (settings?.firecrawl_api_key as string) ?? "",
       });
 
       const resultStr = await invoke<string>("process_file", { action: "research_chat", argsJson });

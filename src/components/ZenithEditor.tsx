@@ -699,6 +699,9 @@ export function ZenithEditor() {
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-white/45 hover:text-emerald-300 hover:bg-emerald-500/10 transition-all border border-white/[0.06] hover:border-emerald-500/30">
             <i className="fa-solid fa-plus text-[9px]" />New Canvas
           </motion.button>
+
+          <div className="w-px h-5 bg-white/[0.08]" />
+
           {/* Remove BG */}
           <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
             onClick={handleRemoveBackground} disabled={!currentImageB64 || isRemovingBg}
@@ -739,6 +742,8 @@ export function ZenithEditor() {
               )}
             </AnimatePresence>
           </div>
+          <div className="w-px h-5 bg-white/[0.08]" />
+
           {/* Reset */}
           <div className="relative">
             <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
@@ -1008,7 +1013,12 @@ export function ZenithEditor() {
         <div className="w-52 shrink-0 flex flex-col border-l border-white/[0.06] overflow-hidden"
           style={{ background: "rgba(255,255,255,0.012)" }}>
           <div className="px-3 py-2 border-b border-white/[0.06]">
-            <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">Parameters</span>
+            <div className="flex items-center gap-1.5">
+              <div className="w-4 h-4 rounded flex items-center justify-center" style={{ background: "rgba(139,92,246,0.12)" }}>
+                <i className="fa-solid fa-sliders text-[7px] text-violet-400" />
+              </div>
+              <span className="text-[10px] font-semibold text-white/35 uppercase tracking-wider">Parameters</span>
+            </div>
           </div>
           <div className="flex-1 px-3 py-2.5 space-y-3.5 overflow-y-auto scrollbar-thin">
             {/* Aspect Ratio */}
@@ -1084,7 +1094,12 @@ export function ZenithEditor() {
             )}
             {/* Session summary */}
             <div className="pt-3 border-t border-white/[0.06] space-y-1.5">
-              <span className="text-[10px] text-white/35 font-semibold uppercase tracking-wider">Session</span>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3.5 h-3.5 rounded flex items-center justify-center" style={{ background: "rgba(245,158,11,0.12)" }}>
+                  <i className="fa-solid fa-chart-simple text-[7px] text-amber-400" />
+                </div>
+                <span className="text-[10px] text-white/35 font-semibold uppercase tracking-wider">Session</span>
+              </div>
               <div className="space-y-1">
                 <div className="flex justify-between text-[9px]"><span className="text-white/30">Generations:</span><span className="text-white/50 font-mono">{history.length}</span></div>
                 <div className="flex justify-between text-[9px]"><span className="text-white/30">Cost:</span><span className="text-amber-300/80 font-mono">{fmtCost(sessionCost)}</span></div>
@@ -1092,7 +1107,12 @@ export function ZenithEditor() {
               </div>
             </div>
             <div className="pt-3 border-t border-white/[0.06] space-y-1">
-              <span className="text-[10px] text-white/35 font-semibold uppercase tracking-wider">Model</span>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3.5 h-3.5 rounded flex items-center justify-center" style={{ background: "rgba(139,92,246,0.12)" }}>
+                  <i className="fa-solid fa-microchip text-[7px] text-violet-400" />
+                </div>
+                <span className="text-[10px] text-white/35 font-semibold uppercase tracking-wider">Model</span>
+              </div>
               <p className="text-[10px] text-violet-300/80 font-medium">{currentModel.label}</p>
               <p className="text-[9px] text-white/25">{currentModel.desc}</p>
               <p className="text-[9px] text-amber-400/50 font-mono">~{fmtCost(currentModel.cost)} per image</p>
@@ -1142,19 +1162,26 @@ export function ZenithEditor() {
               {isEnhancing ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-wand-magic-sparkles text-[10px]" />}
             </button>
           </div>
-          <div className="flex gap-1.5 pb-0.5">
-            <motion.button whileHover={canUndo ? { scale: 1.08 } : {}} whileTap={canUndo ? { scale: 0.92 } : {}}
-              onClick={handleUndo} disabled={!canUndo}
-              className={`flex items-center px-2 py-2 rounded-xl text-[10px] font-medium transition-all border ${canUndo ? "text-white/50 hover:text-white/80 hover:bg-white/[0.06] border-white/[0.06]" : "text-white/15 border-white/[0.03] cursor-not-allowed"}`}>
-              <i className="fa-solid fa-rotate-left text-[9px]" />
-            </motion.button>
-            <motion.button whileHover={canRedo ? { scale: 1.08 } : {}} whileTap={canRedo ? { scale: 0.92 } : {}}
-              onClick={handleRedo} disabled={!canRedo}
-              className={`flex items-center px-2 py-2 rounded-xl text-[10px] font-medium transition-all border ${canRedo ? "text-white/50 hover:text-white/80 hover:bg-white/[0.06] border-white/[0.06]" : "text-white/15 border-white/[0.03] cursor-not-allowed"}`}>
-              <i className="fa-solid fa-rotate-right text-[9px]" />
-            </motion.button>
-            <div className="w-px h-8 bg-white/[0.06] self-center" />
-            <motion.button whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.94 }}
+          <div className="flex gap-1 pb-0.5">
+            {/* Undo / Redo group */}
+            <div className="flex rounded-xl overflow-hidden border border-white/[0.06]">
+              <motion.button whileHover={canUndo ? { scale: 1.04 } : {}} whileTap={canUndo ? { scale: 0.96 } : {}}
+                onClick={handleUndo} disabled={!canUndo}
+                className={`flex items-center px-2.5 py-2 text-[10px] font-medium transition-all ${canUndo ? "text-white/50 hover:text-white/80 hover:bg-white/[0.06]" : "text-white/15 cursor-not-allowed"}`}
+                title="Undo">
+                <i className="fa-solid fa-rotate-left text-[9px]" />
+              </motion.button>
+              <div className="w-px bg-white/[0.06]" />
+              <motion.button whileHover={canRedo ? { scale: 1.04 } : {}} whileTap={canRedo ? { scale: 0.96 } : {}}
+                onClick={handleRedo} disabled={!canRedo}
+                className={`flex items-center px-2.5 py-2 text-[10px] font-medium transition-all ${canRedo ? "text-white/50 hover:text-white/80 hover:bg-white/[0.06]" : "text-white/15 cursor-not-allowed"}`}
+                title="Redo">
+                <i className="fa-solid fa-rotate-right text-[9px]" />
+              </motion.button>
+            </div>
+            <div className="w-px h-8 bg-white/[0.06] self-center mx-0.5" />
+            {/* Send action */}
+            <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
               onClick={() => handleSend()} disabled={isGenerating || !prompt.trim()}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-semibold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               style={{
@@ -1165,18 +1192,23 @@ export function ZenithEditor() {
               }}>
               <i className="fa-solid fa-paper-plane text-[10px]" />Send
             </motion.button>
-            <motion.button whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.94 }}
-              onClick={() => handleSend(lastPrompt)} disabled={isGenerating || !lastPrompt}
-              className="flex items-center px-2.5 py-2 rounded-xl text-[11px] font-medium transition-all disabled:opacity-25 text-white/45 hover:text-white/80 hover:bg-white/[0.06] border border-white/[0.06]"
-              title="Retry last prompt">
-              <i className="fa-solid fa-rotate text-[9px]" />
-            </motion.button>
-            <motion.button whileHover={isGenerating ? { scale: 1.06 } : {}} whileTap={isGenerating ? { scale: 0.94 } : {}}
-              onClick={() => { abortRef.current = true; setIsGenerating(false); showToast("Cancelled"); }}
-              disabled={!isGenerating}
-              className={`flex items-center px-2.5 py-2 rounded-xl text-[11px] font-medium transition-all border ${isGenerating ? "text-red-400 hover:bg-red-500/15 border-red-500/25" : "text-white/15 border-white/[0.03] cursor-not-allowed"}`}>
-              <i className="fa-solid fa-stop text-[9px]" />
-            </motion.button>
+            {/* Retry / Cancel group */}
+            <div className="flex rounded-xl overflow-hidden border border-white/[0.06]">
+              <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                onClick={() => handleSend(lastPrompt)} disabled={isGenerating || !lastPrompt}
+                className="flex items-center px-2.5 py-2 text-[10px] font-medium transition-all disabled:opacity-25 text-white/45 hover:text-white/80 hover:bg-white/[0.06]"
+                title="Retry last prompt">
+                <i className="fa-solid fa-rotate text-[9px]" />
+              </motion.button>
+              <div className="w-px bg-white/[0.06]" />
+              <motion.button whileHover={isGenerating ? { scale: 1.04 } : {}} whileTap={isGenerating ? { scale: 0.96 } : {}}
+                onClick={() => { abortRef.current = true; setIsGenerating(false); showToast("Cancelled"); }}
+                disabled={!isGenerating}
+                className={`flex items-center px-2.5 py-2 text-[10px] font-medium transition-all ${isGenerating ? "text-red-400 hover:bg-red-500/15" : "text-white/15 cursor-not-allowed"}`}
+                title="Cancel generation">
+                <i className="fa-solid fa-stop text-[9px]" />
+              </motion.button>
+            </div>
           </div>
         </div>
       </div>

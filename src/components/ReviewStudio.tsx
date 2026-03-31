@@ -300,38 +300,40 @@ export function ReviewStudio() {
 
           {/* Grouping Options + Re-analyze */}
           <div className="px-3 py-2 space-y-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                <i className="fa-solid fa-image text-[8px] text-emerald-400/60 shrink-0" />
-                <select value={studioGroupImages} onChange={(e) => setStudioGroupImages(e.target.value as "date" | "vision")} style={selectStyle}>
-                  <option value="date" style={optionStyle}>Images: Date</option>
-                  <option value="vision" style={optionStyle}>Images: AI Vision</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                <i className="fa-solid fa-file-lines text-[8px] text-blue-400/60 shrink-0" />
-                <select value={studioGroupDocs} onChange={(e) => setStudioGroupDocs(e.target.value as "category" | "type" | "date")} style={selectStyle}>
-                  <option value="category" style={optionStyle}>Docs: Category</option>
-                  <option value="type" style={optionStyle}>Docs: Type</option>
-                  <option value="date" style={optionStyle}>Docs: Date</option>
-                </select>
-              </div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <i className="fa-solid fa-sliders text-[8px]" style={{ color: accent, opacity: 0.6 }} />
+              <span className="text-[9px] font-semibold text-white/30 uppercase tracking-wider">Grouping Rules</span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                <i className="fa-solid fa-film text-[8px] text-pink-400/60 shrink-0" />
-                <select value={studioVideoHint} onChange={(e) => setStudioVideoHint(e.target.value as "auto" | "movie" | "personal")} style={selectStyle}>
-                  <option value="auto" style={optionStyle}>Video: Auto-detect</option>
-                  <option value="movie" style={optionStyle}>Video: Movie/Series</option>
-                  <option value="personal" style={optionStyle}>Video: Personal</option>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div className="flex flex-col gap-1">
+                <span className="text-[8px] text-emerald-400/50 font-medium uppercase tracking-wider px-0.5"><i className="fa-solid fa-image text-[7px] mr-1" />Images</span>
+                <select value={studioGroupImages} onChange={(e) => setStudioGroupImages(e.target.value as "date" | "vision")} style={selectStyle}>
+                  <option value="date" style={optionStyle}>By Date</option>
+                  <option value="vision" style={optionStyle}>By AI Vision</option>
                 </select>
               </div>
-              <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                <i className="fa-solid fa-music text-[8px] text-purple-400/60 shrink-0" />
+              <div className="flex flex-col gap-1">
+                <span className="text-[8px] text-blue-400/50 font-medium uppercase tracking-wider px-0.5"><i className="fa-solid fa-file-lines text-[7px] mr-1" />Docs</span>
+                <select value={studioGroupDocs} onChange={(e) => setStudioGroupDocs(e.target.value as "category" | "type" | "date")} style={selectStyle}>
+                  <option value="category" style={optionStyle}>By Category</option>
+                  <option value="type" style={optionStyle}>By Type</option>
+                  <option value="date" style={optionStyle}>By Date</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[8px] text-pink-400/50 font-medium uppercase tracking-wider px-0.5"><i className="fa-solid fa-film text-[7px] mr-1" />Video</span>
+                <select value={studioVideoHint} onChange={(e) => setStudioVideoHint(e.target.value as "auto" | "movie" | "personal")} style={selectStyle}>
+                  <option value="auto" style={optionStyle}>Auto-detect</option>
+                  <option value="movie" style={optionStyle}>Movie/Series</option>
+                  <option value="personal" style={optionStyle}>Personal</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[8px] text-purple-400/50 font-medium uppercase tracking-wider px-0.5"><i className="fa-solid fa-music text-[7px] mr-1" />Audio</span>
                 <select value={studioAudioHint} onChange={(e) => setStudioAudioHint(e.target.value as "auto" | "music" | "personal")} style={selectStyle}>
-                  <option value="auto" style={optionStyle}>Audio: Auto-detect</option>
-                  <option value="music" style={optionStyle}>Audio: Music</option>
-                  <option value="personal" style={optionStyle}>Audio: Recording</option>
+                  <option value="auto" style={optionStyle}>Auto-detect</option>
+                  <option value="music" style={optionStyle}>Music</option>
+                  <option value="personal" style={optionStyle}>Recording</option>
                 </select>
               </div>
             </div>
@@ -390,10 +392,19 @@ export function ReviewStudio() {
 
           {/* Footer: Execute / Undo */}
           <div className="px-3 pb-3 pt-2 space-y-2" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+            {/* Item count summary */}
+            {studioPlan && (
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[9px] text-white/25">{totalEnabled} of {studioPlan.total_items} items selected</span>
+                {totalEnabled < studioPlan.total_items && (
+                  <span className="text-[8px] text-amber-400/40"><i className="fa-solid fa-circle-info text-[7px] mr-0.5" />{studioPlan.total_items - totalEnabled} excluded</span>
+                )}
+              </div>
+            )}
             {undoable && (
               <button
                 onClick={handleUndo}
-                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors border border-emerald-500/15 hover:border-emerald-500/25"
                 style={{ color: "#34d399", background: "rgba(16,185,129,0.08)" }}
               >
                 <i className="fa-solid fa-rotate-left text-[9px]" /> Undo Last Operation

@@ -66,7 +66,7 @@ const DEFAULT_PARAMS: ResearchParams = {
   model: "",
   api_key: "",
   temperature: 0.7,
-  max_tokens: 4096,
+  max_tokens: 16384,
   enabled_tools: ["literature", "web_search", "pdf_extract", "novelty", "citation_verify", "experiment"],
   export_format: "markdown",
   system_prompt: DEFAULT_SYSTEM_PROMPT,
@@ -114,6 +114,7 @@ interface ResearchState {
   addMessage: (threadId: string, msg: ResearchMessage) => void;
   updateMessage: (threadId: string, msgId: string, partial: Partial<ResearchMessage>) => void;
   clearMessages: (threadId: string) => void;
+  removeMessagesFrom: (threadId: string, msgId: string) => void;
 
   // Params
   setParams: (partial: Partial<ResearchParams>) => void;
@@ -216,6 +217,21 @@ export const useResearchStore = create<ResearchState>((set, get) => ({
   clearMessages: (threadId) => {
     set((s) => {
       const threads = s.threads.map((t) => (t.id === threadId ? { ...t, messages: [], total_cost: 0, updated_at: Date.now() } : t));
+      saveToLS(LS_THREADS, threads);
+      return { threads };
+    });
+  },
+
+  removeMessagesFrom: (threadId, msgId) => {
+    set((s) => {
+      const threads = s.threads.map((t) => {
+        if (t.id !== threadId) return t;
+        const idx = t.messages.findIndex((m) => m.id === msgId);
+        if (idx < 0) return t;
+        const removed = t.messages.slice(idx);
+        const costDelta = removed.reduce((sum, m) => sum + (m.tokens?.cost ?? 0), 0);
+        return { ...t, messages: t.messages.slice(0, idx), total_cost: Math.max(0, t.total_cost - costDelta), updated_at: Date.now() };
+      });
       saveToLS(LS_THREADS, threads);
       return { threads };
     });

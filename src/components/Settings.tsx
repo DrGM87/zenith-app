@@ -329,9 +329,16 @@ export function Settings() {
         className="w-[200px] flex flex-col border-r"
         style={{ borderColor: "rgba(255,255,255,0.06)", background: "rgba(0,0,0,0.3)" }}
       >
-        <div className="px-5 pt-6 pb-4">
-          <h1 className="text-[15px] font-bold tracking-wide text-white/90">Settings</h1>
-          <p className="text-[11px] text-white/30 mt-0.5">Zenith v0.1.0</p>
+        <div className="px-5 pt-6 pb-4 border-b border-white/[0.04] mb-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(34,211,238,0.12)" }}>
+              <i className="fa-solid fa-gear text-[11px] text-cyan-400" />
+            </div>
+            <div>
+              <h1 className="text-[15px] font-bold tracking-wide text-white/90">Settings</h1>
+              <p className="text-[10px] text-white/30">Zenith v0.1.0</p>
+            </div>
+          </div>
         </div>
 
         <nav className="flex-1 px-2 space-y-0.5">
@@ -341,8 +348,8 @@ export function Settings() {
               onClick={() => setActiveTab(tab.id)}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all ${
                 activeTab === tab.id
-                  ? "bg-white/10 text-white"
-                  : "text-white/40 hover:text-white/70 hover:bg-white/4"
+                  ? "bg-white/10 text-white border-l-2 border-cyan-400"
+                  : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-l-2 border-transparent"
               }`}
             >
               <i className={`${tab.icon} text-sm w-4 text-center`} />

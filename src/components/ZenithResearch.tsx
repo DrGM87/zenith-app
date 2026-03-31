@@ -145,7 +145,7 @@ export function ZenithResearch() {
   const {
     threads, activeThreadId, params, isGenerating,
     createThread, deleteThread, switchThread, renameThread,
-    addMessage, setParams, setGenerating,
+    addMessage, removeMessagesFrom, setParams, setGenerating,
     loadThreads, activeThread, totalCost,
   } = useResearchStore();
 
@@ -293,17 +293,7 @@ export function ZenithResearch() {
           await trackTokenUsage(params.provider, params.model, result.tokens.input || 0, result.tokens.output || 0, cost);
         }
 
-        const assistantMsg: ResearchMessage = {
-          id: uid(), role: "assistant", content: result.reply || result.content || "",
-          type: result.type || "text",
-          data: result.data,
-          timestamp: Date.now(),
-          tokens: result.tokens ? { input: result.tokens.input || 0, output: result.tokens.output || 0, cost } : undefined,
-          tool_used: result.tool_used,
-        };
-        addMessage(currentThread.id, assistantMsg);
-
-        // Handle tool results embedded in response
+        // Add tool results FIRST so papers/results appear before the synthesis
         if (result.tool_results && Array.isArray(result.tool_results)) {
           for (const tr of result.tool_results) {
             const toolMsg: ResearchMessage = {
@@ -316,6 +306,17 @@ export function ZenithResearch() {
             addMessage(currentThread.id, toolMsg);
           }
         }
+
+        // Then add the assistant's synthesized response as the final message
+        const assistantMsg: ResearchMessage = {
+          id: uid(), role: "assistant", content: result.reply || result.content || "",
+          type: result.type || "text",
+          data: result.data,
+          timestamp: Date.now(),
+          tokens: result.tokens ? { input: result.tokens.input || 0, output: result.tokens.output || 0, cost } : undefined,
+          tool_used: result.tool_used,
+        };
+        addMessage(currentThread.id, assistantMsg);
       }
 
       // Auto-name thread
@@ -350,11 +351,13 @@ export function ZenithResearch() {
       if (result.ok && result.path) {
         // Auto-stage the exported file in Bubble
         try { await invoke("stage_file", { path: result.path }); await emit("items-changed"); } catch { /* main window may be closed */ }
-        // Add export message to thread
+        // Add export message to thread with full path for open/reveal
         addMessage(currentThread.id, {
-          id: crypto.randomUUID(), role: "assistant", content: `Exported as ${format.toUpperCase()} → ${result.path.split(/[/\\]/).pop()}`,
+          id: crypto.randomUUID(), role: "assistant", content: `Exported as ${format.toUpperCase()}`,
           type: "export", data: { path: result.path, format, size: result.size }, timestamp: Date.now(),
         });
+        // Open the exported file automatically
+        try { await invoke("open_file", { path: result.path }); } catch { /* silent */ }
         showToast(`Exported → ${result.path.split(/[/\\]/).pop()}`);
       } else {
         showToast(result.error || "Export failed");
@@ -363,6 +366,39 @@ export function ZenithResearch() {
       showToast(`Export error: ${String(e)}`);
     }
   }, [currentThread, messages, showToast, addMessage]);
+
+  // ── Retry: re-send last user message
+  const handleRetry = useCallback(() => {
+    if (!currentThread || isGenerating) return;
+    // Find last user message
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+    // Remove all messages after the last user message
+    const idx = messages.indexOf(lastUser);
+    const toRemove = messages.slice(idx + 1);
+    for (const m of toRemove.reverse()) {
+      removeMessagesFrom(currentThread.id, m.id);
+    }
+    // Re-send via input
+    setInputText(lastUser.content);
+    setTimeout(() => handleSend(), 50);
+  }, [currentThread, isGenerating, messages, removeMessagesFrom, handleSend]);
+
+  // ── Edit & Retry: fill input with user message, remove it + all after
+  const handleEditRetry = useCallback((msgId: string) => {
+    if (!currentThread || isGenerating) return;
+    const msg = messages.find((m) => m.id === msgId);
+    if (!msg) return;
+    setInputText(msg.content);
+    removeMessagesFrom(currentThread.id, msgId);
+    inputRef.current?.focus();
+  }, [currentThread, isGenerating, messages, removeMessagesFrom]);
+
+  // ── Copy message content
+  const handleCopyMessage = useCallback((content: string) => {
+    navigator.clipboard.writeText(content);
+    showToast("Copied to clipboard");
+  }, [showToast]);
 
   // ── Key handler
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -389,11 +425,11 @@ export function ZenithResearch() {
   // ══════════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden select-none"
+    <div className="h-screen w-screen flex flex-col overflow-hidden"
       style={{ background: "linear-gradient(145deg, #0a0a0f 0%, #0d1117 40%, #0a0f1a 100%)", color: "#e2e8f0", fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif" }}>
 
       {/* ── HEADER BAR ── */}
-      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/[0.06]"
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/[0.06] select-none"
         style={{ background: "rgba(15,15,25,0.85)", backdropFilter: "blur(20px)" }}>
         {/* Left toggle */}
         <button onClick={() => setLeftCollapsed(!leftCollapsed)}
@@ -429,6 +465,8 @@ export function ZenithResearch() {
             {fmtCost(currentThread?.total_cost ?? 0)}
           </div>
 
+          <div className="w-px h-5 bg-white/[0.06]" />
+
           {/* Export dropdown */}
           <div className="relative">
             <button onClick={() => setShowExportMenu(!showExportMenu)}
@@ -461,6 +499,8 @@ export function ZenithResearch() {
             <i className="fa-solid fa-plus text-[10px]" /> New Thread
           </button>
 
+          <div className="w-px h-5 bg-white/[0.06]" />
+
           {/* Right panel toggle */}
           <button onClick={() => setRightCollapsed(!rightCollapsed)}
             className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-colors"
@@ -478,7 +518,7 @@ export function ZenithResearch() {
           {!leftCollapsed && (
             <motion.div initial={{ width: 0, opacity: 0 }} animate={{ width: 250, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="flex flex-col border-r border-white/[0.06] overflow-hidden"
+              className="flex flex-col border-r border-white/[0.06] overflow-hidden select-none"
               style={{ background: "rgba(10,10,18,0.6)", minWidth: 0 }}>
 
               {/* Search */}
@@ -573,23 +613,35 @@ export function ZenithResearch() {
             )}
 
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} msg={msg} />
+              <MessageBubble key={msg.id} msg={msg}
+                onCopy={() => handleCopyMessage(msg.content)}
+                onRetry={msg.role === "assistant" || msg.role === "tool" ? handleRetry : undefined}
+                onEditRetry={msg.role === "user" ? () => handleEditRetry(msg.id) : undefined}
+                isGenerating={isGenerating}
+              />
             ))}
 
             {isGenerating && (
               <div className="flex items-start gap-3 max-w-3xl">
                 <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
                   style={{ background: "rgba(34,211,238,0.12)" }}>
-                  <i className="fa-solid fa-microscope text-[11px] text-cyan-400" />
+                  <i className="fa-solid fa-microscope text-[11px] text-cyan-400 animate-pulse" />
                 </div>
-                <div className="flex items-center gap-2 px-4 py-3 rounded-xl"
+                <div className="px-4 py-3 rounded-xl"
                   style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}>
-                  <div className="flex gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/60 animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/60 animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="flex gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </div>
+                    <span className="text-[12px] text-white/40">Researching...</span>
                   </div>
-                  <span className="text-[12px] text-white/30">Researching...</span>
+                  <div className="text-[10px] text-white/20 leading-relaxed">
+                    Analyzing your query → calling {params.enabled_tools.length} enabled tools ({params.enabled_tools.map(t =>
+                      RESEARCH_TOOLS.find(rt => rt.id === t)?.label || t
+                    ).join(", ")}) → synthesizing results
+                  </div>
                 </div>
               </div>
             )}
@@ -598,7 +650,7 @@ export function ZenithResearch() {
           </div>
 
           {/* ── INPUT BAR ── */}
-          <div className="px-4 py-3 border-t border-white/[0.06]"
+          <div className="px-4 py-3 border-t border-white/[0.06] select-none"
             style={{ background: "rgba(12,12,22,0.8)" }}>
             {/* Attached file chips */}
             {attachedFiles.length > 0 && (
@@ -617,7 +669,7 @@ export function ZenithResearch() {
               </div>
             )}
             <div className="flex items-end gap-2 max-w-4xl mx-auto">
-              {/* Attach button */}
+              {/* Attach + Tools toolbar */}
               <input ref={fileInputRef} type="file" multiple className="hidden"
                 onChange={(e) => {
                   const files = e.target.files;
@@ -627,20 +679,23 @@ export function ZenithResearch() {
                   }
                   e.target.value = "";
                 }} />
-              <button onClick={() => fileInputRef.current?.click()}
-                className="w-10 h-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0"
-                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-                title="Attach files (PDFs, documents)">
-                <i className="fa-solid fa-paperclip text-[12px] text-white/30 hover:text-white/60" />
-              </button>
-              {/* Tools quick-insert dropdown */}
-              <div className="relative">
-                <button onClick={() => setShowToolsMenu(!showToolsMenu)}
-                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0"
-                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-                  title="Quick tool commands">
-                  <i className="fa-solid fa-wrench text-[12px] text-white/30 hover:text-white/60" />
+              <div className="flex rounded-xl overflow-hidden flex-shrink-0"
+                style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+                <button onClick={() => fileInputRef.current?.click()}
+                  className="w-10 h-10 flex items-center justify-center transition-all hover:bg-white/[0.06]"
+                  style={{ background: "rgba(255,255,255,0.03)" }}
+                  title="Attach files (PDFs, documents)">
+                  <i className="fa-solid fa-paperclip text-[12px] text-white/30 hover:text-white/60" />
                 </button>
+                <div className="w-px bg-white/[0.06]" />
+                {/* Tools quick-insert dropdown */}
+                <div className="relative">
+                  <button onClick={() => setShowToolsMenu(!showToolsMenu)}
+                    className="w-10 h-10 flex items-center justify-center transition-all hover:bg-white/[0.06]"
+                    style={{ background: "rgba(255,255,255,0.03)" }}
+                    title="Quick tool commands">
+                    <i className="fa-solid fa-wrench text-[12px] text-white/30 hover:text-white/60" />
+                  </button>
                 <AnimatePresence>
                   {showToolsMenu && (
                     <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
@@ -663,6 +718,7 @@ export function ZenithResearch() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+                </div>
               </div>
               {/* Text input */}
               <div className="flex-1 rounded-xl overflow-hidden"
@@ -685,13 +741,23 @@ export function ZenithResearch() {
               </button>
             </div>
             <div className="flex items-center justify-between mt-1.5 max-w-4xl mx-auto px-1">
-              <div className="flex items-center gap-3 text-[10px] text-white/20">
-                <span>{params.provider}/{params.model || "no model"}</span>
-                <span>T={params.temperature}</span>
-                <span>{params.enabled_tools.length} tools active</span>
-                {attachedFiles.length > 0 && <span className="text-cyan-400/40">{attachedFiles.length} file(s) attached</span>}
+              <div className="flex items-center gap-1.5 text-[9px]">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.03] text-white/25 border border-white/[0.04]">
+                  <i className="fa-solid fa-microchip text-[7px] text-cyan-400/40" />{params.model || "no model"}
+                </span>
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.03] text-white/25 border border-white/[0.04]">
+                  T={params.temperature}
+                </span>
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.03] text-white/25 border border-white/[0.04]">
+                  <i className="fa-solid fa-wrench text-[7px] text-violet-400/40" />{params.enabled_tools.length} tools
+                </span>
+                {attachedFiles.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-cyan-400/50 border border-cyan-500/10" style={{ background: "rgba(34,211,238,0.06)" }}>
+                    <i className="fa-solid fa-paperclip text-[7px]" />{attachedFiles.length} file(s)
+                  </span>
+                )}
               </div>
-              <span className="text-[10px] text-white/15">Shift+Enter for new line</span>
+              <span className="text-[9px] text-white/15">Shift+Enter for new line</span>
             </div>
           </div>
         </div>
@@ -701,12 +767,17 @@ export function ZenithResearch() {
           {!rightCollapsed && (
             <motion.div initial={{ width: 0, opacity: 0 }} animate={{ width: 280, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="flex flex-col border-l border-white/[0.06] overflow-y-auto"
+              className="flex flex-col border-l border-white/[0.06] overflow-y-auto select-none"
               style={{ background: "rgba(10,10,18,0.6)", minWidth: 0, scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}>
 
               {/* Model Config */}
               <div className="p-3 border-b border-white/[0.04]">
-                <div className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-2">Model Configuration</div>
+                <div className="flex items-center gap-1.5 mb-2.5">
+                  <div className="w-4 h-4 rounded flex items-center justify-center" style={{ background: "rgba(34,211,238,0.12)" }}>
+                    <i className="fa-solid fa-microchip text-[7px] text-cyan-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-white/35 uppercase tracking-wider">Model</span>
+                </div>
 
                 {/* Provider */}
                 <label className="text-[11px] text-white/40 mb-1 block">Provider</label>
@@ -741,16 +812,22 @@ export function ZenithResearch() {
                 {/* Max Tokens */}
                 <label className="text-[11px] text-white/40 mb-1 flex justify-between">
                   <span>Max Tokens</span>
-                  <span className="text-white/60 font-mono">{params.max_tokens}</span>
+                  <span className="text-white/60 font-mono">{params.max_tokens >= 1000 ? `${(params.max_tokens / 1000).toFixed(params.max_tokens % 1000 === 0 ? 0 : 1)}k` : params.max_tokens}</span>
                 </label>
-                <input type="range" min={256} max={16384} step={256} value={params.max_tokens}
+                <input type="range" min={1024} max={128000} step={1024} value={params.max_tokens}
                   onChange={(e) => setParams({ max_tokens: parseInt(e.target.value) })}
                   className="w-full mb-1 accent-cyan-400 h-1" />
               </div>
 
               {/* Research Tools */}
               <div className="p-3 border-b border-white/[0.04]">
-                <div className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-2">Research Tools</div>
+                <div className="flex items-center gap-1.5 mb-2.5">
+                  <div className="w-4 h-4 rounded flex items-center justify-center" style={{ background: "rgba(167,139,250,0.12)" }}>
+                    <i className="fa-solid fa-toolbox text-[7px] text-violet-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-white/35 uppercase tracking-wider">Research Tools</span>
+                  <span className="text-[8px] text-cyan-400/40 font-mono ml-auto">{params.enabled_tools.length}/{RESEARCH_TOOLS.length}</span>
+                </div>
                 <div className="space-y-1.5">
                   {RESEARCH_TOOLS.map((tool) => {
                     const enabled = params.enabled_tools.includes(tool.id);
@@ -787,7 +864,12 @@ export function ZenithResearch() {
 
               {/* Export Format */}
               <div className="p-3 border-b border-white/[0.04]">
-                <div className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-2">Default Export Format</div>
+                <div className="flex items-center gap-1.5 mb-2.5">
+                  <div className="w-4 h-4 rounded flex items-center justify-center" style={{ background: "rgba(16,185,129,0.12)" }}>
+                    <i className="fa-solid fa-file-export text-[7px] text-emerald-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-white/35 uppercase tracking-wider">Export Format</span>
+                </div>
                 <div className="space-y-1">
                   {EXPORT_FORMATS.map((f) => (
                     <button key={f.id}
@@ -806,7 +888,12 @@ export function ZenithResearch() {
 
               {/* System Prompt — managed in Settings > AI Prompts */}
               <div className="p-3">
-                <div className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-1.5">System Prompt</div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <div className="w-4 h-4 rounded flex items-center justify-center" style={{ background: "rgba(245,158,11,0.12)" }}>
+                    <i className="fa-solid fa-terminal text-[7px] text-amber-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-white/35 uppercase tracking-wider">System Prompt</span>
+                </div>
                 <p className="text-[10px] text-white/25 leading-relaxed">
                   <i className="fa-solid fa-gear text-[8px] mr-1 text-white/15" />
                   Managed in <span className="text-cyan-400/50">Settings → AI Prompts → Research</span>
@@ -832,16 +919,190 @@ export function ZenithResearch() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ██  LIGHTWEIGHT MARKDOWN RENDERER
+// ══════════════════════════════════════════════════════════════════════════════
+
+function renderMarkdown(text: string): React.ReactNode {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Headers
+    const headerMatch = line.match(/^(#{1,4})\s+(.+)$/);
+    if (headerMatch) {
+      const level = headerMatch[1].length;
+      const sizes = ["text-[16px]", "text-[15px]", "text-[14px]", "text-[13px]"];
+      elements.push(
+        <div key={i} className={`${sizes[level - 1]} font-semibold text-white/90 mt-2 mb-1`}>
+          {renderInline(headerMatch[2])}
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Code blocks (``` ... ```)
+    if (line.trimStart().startsWith("```")) {
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].trimStart().startsWith("```")) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++; // skip closing ```
+      elements.push(
+        <pre key={`code-${i}`} className="rounded-lg px-3 py-2 my-1.5 text-[11px] font-mono text-green-300/80 overflow-x-auto"
+          style={{ background: "rgba(0,0,0,0.3)" }}>
+          {codeLines.join("\n")}
+        </pre>
+      );
+      continue;
+    }
+
+    // Unordered list items
+    const ulMatch = line.match(/^(\s*)[-*]\s+(.+)$/);
+    if (ulMatch) {
+      const indent = Math.floor(ulMatch[1].length / 2);
+      elements.push(
+        <div key={i} className="flex items-start gap-1.5" style={{ paddingLeft: `${indent * 12}px` }}>
+          <span className="text-cyan-400/50 mt-[3px] text-[8px]">●</span>
+          <span>{renderInline(ulMatch[2])}</span>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Ordered list items
+    const olMatch = line.match(/^(\s*)\d+[.)]\s+(.+)$/);
+    if (olMatch) {
+      const indent = Math.floor(olMatch[1].length / 2);
+      const num = line.match(/^(\s*)(\d+)/)?.[2] || "1";
+      elements.push(
+        <div key={i} className="flex items-start gap-1.5" style={{ paddingLeft: `${indent * 12}px` }}>
+          <span className="text-cyan-400/50 text-[11px] font-mono min-w-[16px]">{num}.</span>
+          <span>{renderInline(olMatch[2])}</span>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim()) || /^\*\*\*+$/.test(line.trim())) {
+      elements.push(<hr key={i} className="border-white/[0.06] my-2" />);
+      i++;
+      continue;
+    }
+
+    // Blockquote
+    const bqMatch = line.match(/^>\s?(.*)$/);
+    if (bqMatch) {
+      elements.push(
+        <div key={i} className="border-l-2 border-cyan-400/30 pl-3 text-white/60 italic my-1">
+          {renderInline(bqMatch[1])}
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Empty line
+    if (line.trim() === "") {
+      elements.push(<div key={i} className="h-2" />);
+      i++;
+      continue;
+    }
+
+    // Regular paragraph
+    elements.push(<div key={i}>{renderInline(line)}</div>);
+    i++;
+  }
+
+  return <div className="space-y-0.5">{elements}</div>;
+}
+
+/** Renders inline markdown: **bold**, *italic*, `code`, [link](url), bare URLs */
+function renderInline(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  // Regex for inline patterns: bold, italic, inline code, markdown links, bare URLs
+  const regex = /(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))|(https?:\/\/[^\s\])<>]+)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before match
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    if (match[1]) {
+      // **bold**
+      parts.push(<strong key={match.index} className="font-semibold text-white/95">{match[2]}</strong>);
+    } else if (match[3]) {
+      // *italic*
+      parts.push(<em key={match.index} className="italic text-white/70">{match[4]}</em>);
+    } else if (match[5]) {
+      // `code`
+      parts.push(
+        <code key={match.index} className="px-1 py-0.5 rounded bg-white/[0.06] text-cyan-300/80 text-[11px] font-mono">
+          {match[6]}
+        </code>
+      );
+    } else if (match[7]) {
+      // [text](url)
+      parts.push(
+        <a key={match.index} href={match[9]} target="_blank" rel="noopener noreferrer"
+          className="text-cyan-400/80 underline underline-offset-2 hover:text-cyan-300 transition-colors">
+          {match[8]}
+        </a>
+      );
+    } else if (match[10]) {
+      // Bare URL — strip trailing punctuation like ) , . ;
+      let url = match[10].replace(/[.,;:!?)]+$/, "");
+      const consumed = url.length;
+      parts.push(
+        <a key={match.index} href={url} target="_blank" rel="noopener noreferrer"
+          className="text-cyan-400/80 underline underline-offset-2 hover:text-cyan-300 transition-colors break-all">
+          {url.length > 60 ? url.slice(0, 55) + "..." : url}
+        </a>
+      );
+      // Adjust lastIndex if we didn't consume the full match (trailing punctuation put back)
+      lastIndex = match.index + consumed;
+      continue;
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length === 1 && typeof parts[0] === "string" ? parts[0] : <>{parts}</>;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ██  MESSAGE BUBBLE COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-function MessageBubble({ msg }: { msg: ResearchMessage }) {
+function MessageBubble({ msg, onCopy, onRetry, onEditRetry, isGenerating }: {
+  msg: ResearchMessage;
+  onCopy: () => void;
+  onRetry?: () => void;
+  onEditRetry?: () => void;
+  isGenerating: boolean;
+}) {
   const isUser = msg.role === "user";
   const isError = msg.type === "error";
   const isTool = msg.role === "tool";
 
   return (
-    <div className={`flex items-start gap-3 ${isUser ? "flex-row-reverse max-w-3xl ml-auto" : "max-w-3xl"}`}>
+    <div className={`group flex items-start gap-3 ${isUser ? "flex-row-reverse max-w-3xl ml-auto" : "max-w-3xl"}`}>
       {/* Avatar */}
       <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
         isUser ? "bg-violet-500/15" : isTool ? "bg-amber-500/12" : isError ? "bg-red-500/12" : "bg-cyan-500/12"
@@ -856,7 +1117,7 @@ function MessageBubble({ msg }: { msg: ResearchMessage }) {
       {/* Content */}
       <div className={`flex-1 min-w-0 ${isUser ? "text-right" : ""}`}>
         {/* Role label */}
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-1 select-none">
           <span className={`text-[10px] font-medium ${
             isUser ? "text-violet-400/60 ml-auto" : isTool ? "text-amber-400/60" : isError ? "text-red-400/60" : "text-cyan-400/60"
           }`}>
@@ -871,7 +1132,7 @@ function MessageBubble({ msg }: { msg: ResearchMessage }) {
         </div>
 
         {/* Message body */}
-        <div className={`rounded-xl px-4 py-3 text-[13px] leading-relaxed ${
+        <div className={`rounded-xl px-4 py-3 text-[13px] leading-relaxed select-text ${
           isUser
             ? "bg-violet-500/8 border border-violet-500/15 text-white/85 inline-block text-left"
             : isError
@@ -916,7 +1177,35 @@ function MessageBubble({ msg }: { msg: ResearchMessage }) {
               </div>
             </div>
           ) : (
-            <div className="whitespace-pre-wrap">{msg.content}</div>
+            <div>{renderMarkdown(msg.content)}</div>
+          )}
+        </div>
+
+        {/* Action buttons — visible on hover */}
+        <div className={`flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity select-none ${isUser ? "justify-end" : ""}`}>
+          {/* Copy */}
+          <button onClick={onCopy}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-white/25 hover:text-white/60 hover:bg-white/5 transition-colors"
+            title="Copy message">
+            <i className="fa-solid fa-copy text-[8px]" /> Copy
+          </button>
+
+          {/* Edit & Retry — user messages only */}
+          {onEditRetry && !isGenerating && (
+            <button onClick={onEditRetry}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-white/25 hover:text-violet-400/80 hover:bg-violet-500/10 transition-colors"
+              title="Edit this message and retry">
+              <i className="fa-solid fa-pen text-[8px]" /> Edit & Retry
+            </button>
+          )}
+
+          {/* Retry — assistant/tool messages only */}
+          {onRetry && !isGenerating && (
+            <button onClick={onRetry}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-white/25 hover:text-cyan-400/80 hover:bg-cyan-500/10 transition-colors"
+              title="Retry this query">
+              <i className="fa-solid fa-rotate-right text-[8px]" /> Retry
+            </button>
           )}
         </div>
       </div>
@@ -1100,20 +1389,45 @@ function ExportBadge({ content, data }: { content: string; data?: unknown }) {
 
   const fileName = info.path ? info.path.split(/[/\\]/).pop() : "";
 
+  const handleOpen = async () => {
+    if (info.path) {
+      try { await invoke("open_file", { path: info.path }); } catch (e) { console.error("open_file:", e); }
+    }
+  };
+  const handleReveal = async () => {
+    if (info.path) {
+      try { await invoke("reveal_in_folder", { path: info.path }); } catch (e) { console.error("reveal:", e); }
+    }
+  };
+
   return (
     <div className="flex items-center gap-3">
-      <i className="fa-solid fa-file-arrow-down text-green-400/70" />
-      <div>
+      <i className="fa-solid fa-file-arrow-down text-green-400/70 text-lg" />
+      <div className="flex-1 min-w-0">
         {content && <p className="text-white/70 mb-1">{content}</p>}
         {fileName && (
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-cyan-400/60 font-mono">{fileName}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-cyan-400/70 font-mono truncate max-w-[300px]" title={info.path}>{fileName}</span>
             <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400/60 border border-green-500/15">
               {info.format.toUpperCase()}
             </span>
             {info.size > 0 && (
               <span className="text-[9px] text-white/25">{(info.size / 1024).toFixed(1)} KB</span>
             )}
+          </div>
+        )}
+        {info.path && (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <button onClick={handleOpen}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] text-cyan-400/70 hover:text-cyan-300 transition-colors"
+              style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.15)" }}>
+              <i className="fa-solid fa-arrow-up-right-from-square text-[8px]" /> Open File
+            </button>
+            <button onClick={handleReveal}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] text-white/40 hover:text-white/70 transition-colors"
+              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <i className="fa-solid fa-folder-open text-[8px]" /> Show in Explorer
+            </button>
           </div>
         )}
       </div>

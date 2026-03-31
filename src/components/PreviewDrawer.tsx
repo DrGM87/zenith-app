@@ -337,11 +337,13 @@ export function PreviewDrawer() {
     >
       <div className="flex-1 overflow-y-auto px-3 py-2" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent" }}>
         {previewPanes.length > 1 && (
-          <div className="flex justify-end mb-1">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <span className="text-[9px] text-white/25">{previewPanes.length} files open</span>
             <button
               onClick={closeAllPreviews}
-              className="text-[9px] text-white/20 hover:text-red-400 transition-colors"
+              className="flex items-center gap-1 text-[9px] text-white/25 hover:text-red-400 transition-colors px-1.5 py-0.5 rounded hover:bg-red-500/10"
             >
+              <i className="fa-solid fa-xmark text-[7px]" />
               Close all
             </button>
           </div>

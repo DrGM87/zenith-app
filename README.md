@@ -16,11 +16,11 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-[![Features](https://img.shields.io/badge/Features-144+-blueviolet?style=flat-square)]()
+[![Features](https://img.shields.io/badge/Features-150+-blueviolet?style=flat-square)]()
 [![AI Providers](https://img.shields.io/badge/AI_Providers-5-orange?style=flat-square)]()
 [![File Actions](https://img.shields.io/badge/File_Actions-40+-success?style=flat-square)]()
 
-*A glassmorphic floating workspace with 144+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
+*A glassmorphic floating workspace with 150+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
 
 ---
 
@@ -36,7 +36,7 @@ Zenith is an **invisible desktop command center** that floats at the edge of you
 
 Think of it as a **universal file swiss-army-knife** crossed with an **AI-powered media library organizer** that lives at the edge of your screen.
 
-> **144+ features. 40+ file actions. 5 AI providers. Generative AI image editor. AI Research assistant. Shazam music recognition. Zero window switching.**
+> **150+ features. 40+ file actions. 5 AI providers. Generative AI image editor. AI Research assistant. Shazam music recognition. Zero window switching.**
 
 ---
 
@@ -177,7 +177,7 @@ The **Zenith Research Window** is an AI-powered autonomous research assistant th
 
 ### Key Features
 
-- **Multi-turn research chat** — conversational AI with automatic tool dispatch; supports all 5 LLM providers
+- **Multi-turn research chat** — conversational AI with LLM-driven tool dispatch; supports all 5 LLM providers
 - **Literature search** — searches arXiv, Semantic Scholar, and OpenAlex simultaneously with deduplication and citation-count sorting
 - **Web search** — DuckDuckGo HTML search (no API key required)
 - **PDF text extraction** — extract and analyze PDF content for research context
@@ -186,11 +186,14 @@ The **Zenith Research Window** is an AI-powered autonomous research assistant th
 - **Experiment sandbox** — run Python code in isolated subprocess with 60s timeout
 - **Section generation** — generate paper sections (abstract, introduction, related work, methodology, results, conclusion)
 - **Thread management** — create, switch, delete, search, and rename threads; grouped by date (Today/Yesterday/Older)
-- **Export (5 formats)** — Markdown, PDF, LaTeX, BibTeX, JSON; exported files auto-staged in Bubble
-- **Rich message types** — expandable paper cards with abstract/DOI/citations, syntax-highlighted code blocks, data tables
-- **Full parameter control** — provider/model picker, temperature slider, max tokens, editable system prompt, 6 toggleable research tools
+- **Export (5 formats)** — Markdown, PDF, LaTeX, BibTeX, JSON; exported files auto-staged in Bubble, auto-opened on export, with Open File / Show in Explorer buttons
+- **Rich message types** — expandable paper cards with abstract/DOI/citations, syntax-highlighted code blocks, data tables, full markdown rendering (headers, lists, code blocks, bold/italic, links)
+- **Full parameter control** — provider/model picker, temperature slider, max tokens (up to 128k), editable system prompt, 6 toggleable research tools
 - **Session cost tracking** — per-thread and total cost; syncs to Settings token usage
 - **Persistent threads** — localStorage persistence; max 50 threads × 200 messages; survives window close
+- **Message actions** — copy, retry, edit & retry on every message; selectable text throughout chat
+- **Smart response ordering** — tool results (papers, web results) appear before the assistant's synthesis for easy scanning
+- **Inline link detection** — bare URLs and markdown links rendered as clickable, styled links
 
 ### 3-Column Layout
 
@@ -502,7 +505,7 @@ This project is licensed under the **Zenith Personal Use License** — free for 
 
 **Built with Rust &#9881;&#65039;, React &#9889;, Python &#128013;, and mass amounts of caffeine &#9749;**
 
-*144+ features. 5 AI providers. Generative image editor. AI research assistant. Shazam music ID. 1 invisible tool that does everything.*
+*150+ features. 5 AI providers. Generative image editor. AI research assistant. Shazam music ID. 1 invisible tool that does everything.*
 
 **&#11088; Star this repo if Zenith blew your mind!**
 

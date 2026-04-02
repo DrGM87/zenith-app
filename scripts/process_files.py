@@ -3297,6 +3297,7 @@ from research_engine import (
     validate_research_query, generate_search_queries,
     triage_papers, acquire_papers, draft_research_section,
     smooth_manuscript, compile_references, run_pipeline_phase,
+    solve_scihub_captcha,
 )
 
 ACTIONS = {
@@ -3358,6 +3359,7 @@ ACTIONS = {
     "smooth_manuscript": smooth_manuscript,
     "compile_references": compile_references,
     "run_pipeline_phase": run_pipeline_phase,
+    "solve_scihub_captcha": solve_scihub_captcha,
 }
 
 if __name__ == "__main__":

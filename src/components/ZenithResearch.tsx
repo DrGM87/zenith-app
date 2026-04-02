@@ -195,6 +195,12 @@ export function ZenithResearch() {
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [pipelineQuery, setPipelineQuery] = useState("");
   const [pipelineDesign, setPipelineDesign] = useState<StudyDesign>("systematic_review");
+  const [captchaDialog, setCaptchaDialog] = useState<{
+    show: boolean; imgB64: string; doi: string; mirror: string;
+    formAction: string; cookies: Record<string, string>;
+    resolve: ((solution: string) => void) | null;
+  }>({ show: false, imgB64: "", doi: "", mirror: "", formAction: "", cookies: {}, resolve: null });
+  const [captchaSolution, setCaptchaSolution] = useState("");
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -399,7 +405,7 @@ export function ZenithResearch() {
         argsJson: JSON.stringify({ phase: "generate_queries", query: pipelineQuery, domain: validateResult.domain, ...baseArgs }),
       }));
       if (pipelineAbortRef.current) return;
-      const searchQueries = queriesResult.ok ? queriesResult.queries : [{ db: "pubmed", query_string: pipelineQuery }];
+      const searchQueries = Array.isArray(queriesResult?.queries) ? queriesResult.queries : [{ db: "pubmed", query_string: pipelineQuery, description: "Direct search" }];
       setPipeline({ searchQueries, progress: 20, statusMessage: `Generated ${searchQueries.length} search queries` });
 
       // Phase 1.3 — Harvester
@@ -409,8 +415,8 @@ export function ZenithResearch() {
         argsJson: JSON.stringify({ phase: "harvest", query: pipelineQuery, search_queries: searchQueries, ...baseArgs }),
       }));
       if (pipelineAbortRef.current) return;
-      const allPapers = harvestResult.ok ? harvestResult.papers : [];
-      setPipeline({ papers: allPapers, progress: 40, statusMessage: `Found ${allPapers.length} papers from ${(harvestResult.sources || []).join(", ")}` });
+      const allPapers: PaperResult[] = Array.isArray(harvestResult?.papers) ? harvestResult.papers : [];
+      setPipeline({ papers: allPapers, progress: 40, statusMessage: `Found ${allPapers.length} papers from ${(harvestResult?.sources || []).join(", ")}` });
 
       if (allPapers.length === 0) {
         setPipeline({ phase: "error", error: "No papers found. Try broadening your query.", active: false });
@@ -431,26 +437,57 @@ export function ZenithResearch() {
 
       // Phase 1.5 — Acquisition
       const papersWithDoi = relevant.filter((p: PaperResult) => p.doi).slice(0, 15);
+      let acquired: { doi: string; path: string; title: string }[] = [];
       if (papersWithDoi.length > 0) {
         setPipeline({ phase: "acquiring", progress: 58, statusMessage: `Acquiring ${papersWithDoi.length} papers via Sci-Hub/Unpaywall...` });
         const acquireResult = JSON.parse(await invoke<string>("process_file", {
           action: "run_pipeline_phase",
-          argsJson: JSON.stringify({ phase: "acquire", papers: papersWithDoi }),
+          argsJson: JSON.stringify({ phase: "acquire", papers: papersWithDoi, skip_unpaywall: true, ...baseArgs }),
         }));
         if (pipelineAbortRef.current) return;
-        const acquired = acquireResult.ok ? acquireResult.acquired : [];
+        acquired = Array.isArray(acquireResult?.acquired) ? acquireResult.acquired : [];
+
+        // Handle CAPTCHAs interactively
+        const captchaPapers: { doi: string; title: string; captcha_img_b64: string; mirror: string; form_action: string; cookies: Record<string, string> }[] = acquireResult?.captcha_needed ?? [];
+        for (const cp of captchaPapers) {
+          if (pipelineAbortRef.current) return;
+          if (!cp.captcha_img_b64) continue;
+
+          setPipeline({ statusMessage: `CAPTCHA required for "${cp.title.slice(0, 40)}..." — please solve it` });
+
+          // Show CAPTCHA dialog and wait for user input
+          const solution = await new Promise<string>((resolve) => {
+            setCaptchaSolution("");
+            setCaptchaDialog({ show: true, imgB64: cp.captcha_img_b64, doi: cp.doi, mirror: cp.mirror, formAction: cp.form_action, cookies: cp.cookies, resolve });
+          });
+          setCaptchaDialog((d) => ({ ...d, show: false, resolve: null }));
+
+          if (!solution || pipelineAbortRef.current) continue;
+
+          // Submit CAPTCHA solution
+          try {
+            const solveResult = JSON.parse(await invoke<string>("process_file", {
+              action: "solve_scihub_captcha",
+              argsJson: JSON.stringify({ solution, mirror: cp.mirror, doi: cp.doi, form_action: cp.form_action, cookies: cp.cookies }),
+            }));
+            if (solveResult?.ok && solveResult.path) {
+              acquired.push({ doi: cp.doi, path: solveResult.path, title: cp.title });
+            }
+          } catch { /* CAPTCHA solve failed, skip this paper */ }
+        }
+
         setPipeline({ acquiredPdfs: acquired, progress: 65, statusMessage: `Acquired ${acquired.length}/${papersWithDoi.length} full-text PDFs` });
 
         // Phase 2.1 — Extract text
         if (acquired.length > 0) {
           setPipeline({ phase: "extracting", progress: 68, statusMessage: "Extracting text from PDFs..." });
-          const paths = acquired.map((a: { path: string }) => a.path);
+          const paths = acquired.map((a) => a.path);
           const extractResult = JSON.parse(await invoke<string>("process_file", {
             action: "run_pipeline_phase",
-            argsJson: JSON.stringify({ phase: "extract", paths }),
+            argsJson: JSON.stringify({ phase: "extract", paths, ...baseArgs }),
           }));
           if (pipelineAbortRef.current) return;
-          const extracted = extractResult.ok ? extractResult.results.filter((r: { ok: boolean }) => r.ok) : [];
+          const extracted = Array.isArray(extractResult?.results) ? extractResult.results.filter((r: { ok: boolean }) => r.ok) : [];
           setPipeline({ extractedTexts: extracted, progress: 72, statusMessage: `Extracted text from ${extracted.length} PDFs` });
         }
       } else {
@@ -506,9 +543,9 @@ export function ZenithResearch() {
       setPipeline({ phase: "compiling", progress: 98, statusMessage: "Compiling bibliography..." });
       const refsResult = JSON.parse(await invoke<string>("process_file", {
         action: "run_pipeline_phase",
-        argsJson: JSON.stringify({ phase: "compile_refs", papers: relevant.slice(0, 30) }),
+        argsJson: JSON.stringify({ phase: "compile_refs", papers: relevant.slice(0, 30), ...baseArgs }),
       }));
-      if (refsResult.ok) {
+      if (refsResult?.ok && refsResult.bibtex) {
         setPipeline({ bibliography: refsResult.bibtex });
       }
 
@@ -885,19 +922,19 @@ export function ZenithResearch() {
                   )}
 
                   {/* Results summary */}
-                  {(pipeline.papers.length > 0 || pipeline.manuscript) && (
+                  {((pipeline.papers?.length ?? 0) > 0 || pipeline.manuscript) && (
                     <div className="space-y-3">
                       {/* Papers found */}
-                      {pipeline.papers.length > 0 && (
+                      {(pipeline.papers?.length ?? 0) > 0 && (
                         <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
                           <div className="flex items-center gap-2 mb-2">
                             <i className="fa-solid fa-book text-cyan-400/60 text-[11px]" />
                             <span className="text-[11px] font-medium text-white/60">
-                              Papers: {pipeline.papers.length} found → {pipeline.relevantPapers.length} relevant → {pipeline.acquiredPdfs.length} acquired
+                              Papers: {pipeline.papers?.length ?? 0} found → {pipeline.relevantPapers?.length ?? 0} relevant → {pipeline.acquiredPdfs?.length ?? 0} acquired
                             </span>
                           </div>
                           <div className="space-y-1 max-h-40 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-                            {pipeline.relevantPapers.slice(0, 10).map((p, i) => (
+                            {(pipeline.relevantPapers ?? []).slice(0, 10).map((p, i) => (
                               <div key={i} className="text-[11px] text-white/50 truncate pl-2 border-l border-white/[0.06]">
                                 {p.title} <span className="text-white/25">({p.year})</span>
                               </div>
@@ -1300,6 +1337,50 @@ export function ZenithResearch() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* ── CAPTCHA DIALOG ── */}
+      <AnimatePresence>
+        {captchaDialog.show && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}>
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="rounded-2xl p-6 max-w-sm w-full mx-4 space-y-4"
+              style={{ background: "rgba(20,20,35,0.97)", border: "1px solid rgba(255,255,255,0.1)" }}>
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-shield-halved text-amber-400 text-sm" />
+                <span className="text-[13px] font-medium text-white/80">Sci-Hub CAPTCHA Required</span>
+              </div>
+              <p className="text-[11px] text-white/50">
+                Sci-Hub requires a CAPTCHA to download &quot;{captchaDialog.doi.slice(0, 30)}&quot;. Please solve it below.
+              </p>
+              {captchaDialog.imgB64 && (
+                <div className="flex justify-center rounded-lg p-2" style={{ background: "rgba(255,255,255,0.05)" }}>
+                  <img src={`data:image/png;base64,${captchaDialog.imgB64}`} alt="CAPTCHA" className="max-w-full h-auto rounded" />
+                </div>
+              )}
+              <input type="text" value={captchaSolution} onChange={(e) => setCaptchaSolution(e.target.value)}
+                placeholder="Enter CAPTCHA text..."
+                onKeyDown={(e) => { if (e.key === "Enter" && captchaSolution.trim() && captchaDialog.resolve) { captchaDialog.resolve(captchaSolution.trim()); } }}
+                className="w-full px-3 py-2 rounded-xl text-[13px] text-white/90 placeholder-white/30 outline-none"
+                style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}
+                autoFocus />
+              <div className="flex gap-2">
+                <button onClick={() => { if (captchaDialog.resolve) captchaDialog.resolve(""); }}
+                  className="flex-1 px-3 py-2 rounded-xl text-[12px] text-white/50 hover:text-white/70 transition-colors cursor-pointer"
+                  style={{ background: "rgba(255,255,255,0.04)" }}>
+                  Skip
+                </button>
+                <button onClick={() => { if (captchaSolution.trim() && captchaDialog.resolve) captchaDialog.resolve(captchaSolution.trim()); }}
+                  className="flex-1 px-3 py-2 rounded-xl text-[12px] text-white font-medium transition-colors cursor-pointer"
+                  style={{ background: "rgba(34,211,238,0.15)", border: "1px solid rgba(34,211,238,0.3)" }}>
+                  Submit
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── TOAST ── */}
       <AnimatePresence>

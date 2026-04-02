@@ -4,7 +4,8 @@
 # ── Core (required) ──
 Pillow>=10.0.0            # Image processing (compress, resize, EXIF strip, WebP, palette)
 qrcode[pil]>=7.4          # QR code generation from URLs/text
-
+beautifulsoup4
+retrying
 # ── PDF Processing ──
 pdfplumber>=0.10.0         # PDF text extraction (primary)
 PyPDF2>=3.0.0              # PDF merge/compress (fallback)

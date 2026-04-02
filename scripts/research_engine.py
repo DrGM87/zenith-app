@@ -9,6 +9,23 @@ by Aiming Lab. Full credits in README.md.
 """
 import os, sys, json, tempfile, time, re, random, urllib.request, urllib.error, urllib.parse
 
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except ImportError:
+    pass
+
+try:
+    import requests
+    _HAS_REQUESTS = True
+except ImportError:
+    _HAS_REQUESTS = False
+
+try:
+    from scihub import SciHub
+    _HAS_SCIHUB = True
+except Exception:
+    _HAS_SCIHUB = False
 # ── Retry / rate-limit constants (mirrors AutoResearchClaw patterns) ──
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 2.0
@@ -194,7 +211,7 @@ def _llm_chat(provider, api_key, model, messages, temperature=0.7, max_tokens=40
 # ██  TOOL IMPLEMENTATIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _search_arxiv(query, max_results=5):
+def _search_arxiv(query, max_results=50):
     """Search arXiv via its Atom API."""
     try:
         q = urllib.parse.quote(query)
@@ -223,7 +240,7 @@ def _search_arxiv(query, max_results=5):
         return []
 
 
-def _search_semantic_scholar(query, max_results=5, year_min=None):
+def _search_semantic_scholar(query, max_results=50, year_min=None):
     """Search Semantic Scholar API with retry (ARC pattern)."""
     try:
         q = urllib.parse.quote(query)
@@ -269,7 +286,7 @@ def _search_semantic_scholar(query, max_results=5, year_min=None):
         return []
 
 
-def _search_openalex(query, max_results=5):
+def _search_openalex(query, max_results=50):
     """Search OpenAlex API."""
     try:
         import urllib.parse
@@ -293,7 +310,7 @@ def _search_openalex(query, max_results=5):
         return []
 
 
-def _web_search_brave(query, api_key, max_results=10):
+def _web_search_brave(query, api_key, max_results=100):
     """Web search via Brave Search API (https://brave.com/search/api/)."""
     try:
         encoded = urllib.parse.quote_plus(query)
@@ -351,7 +368,7 @@ def _firecrawl_scrape(url_to_scrape, api_key):
         return {"ok": False, "error": str(e)}
 
 
-def _firecrawl_search(query, api_key, max_results=5):
+def _firecrawl_search(query, api_key, max_results=50):
     """Search via Firecrawl Search API → returns URLs + scraped content."""
     try:
         payload = json.dumps({
@@ -381,7 +398,7 @@ def _firecrawl_search(query, api_key, max_results=5):
         return {"results": [], "error": str(e)}
 
 
-def _web_search_tavily(query, api_key, max_results=5):
+def _web_search_tavily(query, api_key, max_results=50):
     """Web search via Tavily AI."""
     try:
         url = "https://api.tavily.com/search"
@@ -404,7 +421,7 @@ def _web_search_tavily(query, api_key, max_results=5):
         return {"results": [], "answer": "", "error": str(e)}
 
 
-def _web_search_duckduckgo(query, max_results=5):
+def _web_search_duckduckgo(query, max_results=50):
     """Fallback web search via DuckDuckGo HTML (no API key needed).
     Uses ARC's pattern: separate regex for links/snippets + URL unwrapping."""
     try:
@@ -443,7 +460,7 @@ def _web_search_duckduckgo(query, max_results=5):
 # ██  V5.6 PIPELINE — PubMed, CrossRef, Sci-Hub, Unpaywall
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _search_pubmed(query, max_results=20):
+def _search_pubmed(query, max_results=200):
     """Search PubMed via NCBI E-utilities API.
     Returns list of paper dicts with title, authors, year, abstract, doi, pmid."""
     try:
@@ -617,93 +634,257 @@ def _enrich_crossref(doi):
         return {}
 
 
+_SCIHUB_MIRRORS = [
+    "https://sci-hub.se",
+    "https://sci-hub.st",
+    "https://sci-hub.ru",
+    "https://sci-hub.ren",
+    "https://sci-hub.wf",
+    "https://sci-hub.shop",
+]
+
+
+def _scihub_extract_pdf_url(html):
+    """Extract PDF URL from Sci-Hub HTML page. Returns (pdf_url, None) or (None, captcha_info)."""
+    # Check for CAPTCHA
+    captcha_img = re.search(r'<img[^>]+src=["\']([^"\']*captcha[^"\']*)["\']', html, re.IGNORECASE)
+    if not captcha_img:
+        captcha_img = re.search(r'<img[^>]+id=["\']captcha["\'][^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
+    captcha_form = re.search(r'<form[^>]*>.*?captcha.*?</form>', html, re.IGNORECASE | re.DOTALL)
+    if captcha_img and captcha_form:
+        # Extract form action
+        action = re.search(r'<form[^>]*action=["\']([^"\']*)["\']', captcha_form.group(), re.IGNORECASE)
+        return None, {
+            "captcha_img_url": captcha_img.group(1),
+            "form_action": action.group(1) if action else "",
+        }
+
+    # Pattern 1: <embed src="..." or <iframe src="..."
+    embed_match = re.search(r'<(?:embed|iframe)[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
+    if embed_match:
+        url = embed_match.group(1)
+        if '.pdf' in url or '/pdf/' in url or 'downloads' in url:
+            return url, None
+
+    # Pattern 2: onclick with location.href
+    onclick_match = re.search(r"location\.href\s*=\s*['\"]([^'\"]+)['\"]", html)
+    if onclick_match:
+        url = onclick_match.group(1)
+        if '.pdf' in url or '/pdf/' in url or 'downloads' in url:
+            return url, None
+
+    # Pattern 3: button onclick
+    btn_match = re.search(r'<button[^>]*onclick="[^"]*location\.href=\'([^\']+)\'', html)
+    if btn_match:
+        return btn_match.group(1), None
+
+    # Pattern 4: Any direct PDF link
+    direct_match = re.search(r'(https?://[^\s"\'<>]+\.pdf(?:\?[^\s"\'<>]*)?)', html)
+    if direct_match:
+        return direct_match.group(1), None
+
+    # Pattern 5: <embed> or <iframe> with any src (Sci-Hub sometimes omits .pdf extension)
+    if embed_match:
+        return embed_match.group(1), None
+
+    return None, None
+
+
+def _scihub_fix_url(url, mirror):
+    """Fix relative URLs to absolute."""
+    if url.startswith("//"):
+        return "https:" + url
+    elif url.startswith("/"):
+        return mirror + url
+    elif not url.startswith("http"):
+        return "https://" + url
+    return url
+
+
+def _scihub_download_pdf(pdf_url, doi, output_dir):
+    """Download PDF from URL, validate, and save. Returns result dict."""
+    headers = {"User-Agent": _USER_AGENT}
+
+    if _HAS_REQUESTS:
+        resp = requests.get(pdf_url, headers=headers, timeout=45, verify=False)
+        pdf_bytes = resp.content
+    else:
+        req = urllib.request.Request(pdf_url, headers=headers)
+        import ssl
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(req, timeout=45, context=ctx) as resp:
+            pdf_bytes = resp.read()
+
+    if len(pdf_bytes) < 1024 or pdf_bytes[:5] != b'%PDF-':
+        return {"ok": False, "error": "Downloaded content is not a valid PDF"}
+
+    safe_doi = re.sub(r'[^a-zA-Z0-9_.-]', '_', doi)
+    out_path = os.path.join(output_dir, f"scihub_{safe_doi}.pdf")
+    with open(out_path, "wb") as f:
+        f.write(pdf_bytes)
+    return {"ok": True, "path": out_path, "url": pdf_url, "size": len(pdf_bytes)}
+
+
 def _fetch_scihub(doi, output_dir=None):
-    """Attempt to fetch a paper PDF from Sci-Hub mirrors.
-    Returns {ok, path, url} or {ok: False, error}."""
+    """Fetch a paper PDF from Sci-Hub with CAPTCHA detection.
+    Returns:
+      {ok: True, path, url, mirror, size} — success
+      {ok: False, captcha_required: True, captcha_img_b64, mirror, doi, cookies_b64} — needs CAPTCHA
+      {ok: False, error} — failure
+    """
     if not doi:
         return {"ok": False, "error": "No DOI provided"}
-
     if output_dir is None:
         output_dir = PAPERS_DIR
     os.makedirs(output_dir, exist_ok=True)
 
-    mirrors = [
-        "https://sci-hub.se",
-        "https://sci-hub.st",
-        "https://sci-hub.ru",
-        "https://sci-hub.ren",
-    ]
+    # Strategy 1: Use scihub.py package if available
+    if _HAS_SCIHUB and _HAS_REQUESTS:
+        try:
+            sh = SciHub()
+            sh.timeout = 30
+            result = sh.fetch(doi)
+            if result and result.get('pdf'):
+                pdf_bytes = result['pdf']
+                if len(pdf_bytes) >= 1024 and pdf_bytes[:5] == b'%PDF-':
+                    safe_doi = re.sub(r'[^a-zA-Z0-9_.-]', '_', doi)
+                    out_path = os.path.join(output_dir, f"scihub_{safe_doi}.pdf")
+                    with open(out_path, "wb") as f:
+                        f.write(pdf_bytes)
+                    return {"ok": True, "path": out_path, "url": result.get('url', ''),
+                            "mirror": getattr(sh, 'base_url', ''), "size": len(pdf_bytes)}
+        except Exception:
+            pass
 
-    for mirror in mirrors:
+    # Strategy 2: Direct URL approach with CAPTCHA detection
+    import base64
+    session = requests.Session() if _HAS_REQUESTS else None
+
+    for mirror in _SCIHUB_MIRRORS:
         try:
             page_url = f"{mirror}/{doi}"
-            req = urllib.request.Request(page_url, headers={
+            headers = {
                 "User-Agent": _USER_AGENT,
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            })
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                html = resp.read().decode("utf-8", errors="replace")
+            }
 
-            # Parse for PDF URL — look for <embed>, <iframe>, or direct link
-            pdf_url = None
+            if session:
+                resp = session.get(page_url, headers=headers, timeout=20, verify=False)
+                html = resp.text
+            else:
+                req = urllib.request.Request(page_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    html = resp.read().decode("utf-8", errors="replace")
 
-            # Pattern 1: <embed src="..." or <iframe src="..."
-            embed_match = re.search(r'<(?:embed|iframe)[^>]+src=["\']([^"\']+\.pdf[^"\']*)["\']', html, re.IGNORECASE)
-            if embed_match:
-                pdf_url = embed_match.group(1)
+            pdf_url, captcha_info = _scihub_extract_pdf_url(html)
 
-            # Pattern 2: <a ... onclick="location.href='...pdf...'"
-            if not pdf_url:
-                onclick_match = re.search(r"location\.href\s*=\s*['\"]([^'\"]+\.pdf[^'\"]*)['\"]", html)
-                if onclick_match:
-                    pdf_url = onclick_match.group(1)
+            # CAPTCHA detected — return image for user to solve
+            if captcha_info:
+                captcha_img_url = _scihub_fix_url(captcha_info["captcha_img_url"], mirror)
+                try:
+                    if session:
+                        img_resp = session.get(captcha_img_url, headers=headers, timeout=10, verify=False)
+                        img_bytes = img_resp.content
+                    else:
+                        img_req = urllib.request.Request(captcha_img_url, headers=headers)
+                        with urllib.request.urlopen(img_req, timeout=10) as img_resp:
+                            img_bytes = img_resp.read()
+                    captcha_b64 = base64.b64encode(img_bytes).decode("ascii")
+                except Exception:
+                    captcha_b64 = ""
 
-            # Pattern 3: <button onclick="location.href='...'"  (Sci-Hub save button)
-            if not pdf_url:
-                btn_match = re.search(r'<button[^>]*onclick="[^"]*location\.href=\'([^\']+)\'', html)
-                if btn_match:
-                    pdf_url = btn_match.group(1)
+                # Serialize cookies for resuming after CAPTCHA solve
+                cookies_dict = {}
+                if session and session.cookies:
+                    cookies_dict = dict(session.cookies)
 
-            # Pattern 4: Direct PDF URL in page
-            if not pdf_url:
-                direct_match = re.search(r'(https?://[^\s"\'<>]+\.pdf)', html)
-                if direct_match:
-                    pdf_url = direct_match.group(1)
+                return {
+                    "ok": False,
+                    "captcha_required": True,
+                    "captcha_img_b64": captcha_b64,
+                    "mirror": mirror,
+                    "doi": doi,
+                    "form_action": captcha_info.get("form_action", ""),
+                    "cookies": cookies_dict,
+                }
 
             if not pdf_url:
                 continue
 
-            # Fix relative URLs
-            if pdf_url.startswith("//"):
-                pdf_url = "https:" + pdf_url
-            elif pdf_url.startswith("/"):
-                pdf_url = mirror + pdf_url
+            pdf_url = _scihub_fix_url(pdf_url, mirror)
+            dl = _scihub_download_pdf(pdf_url, doi, output_dir)
+            if dl.get("ok"):
+                dl["mirror"] = mirror
+                return dl
 
-            # Download the PDF
-            pdf_req = urllib.request.Request(pdf_url, headers={"User-Agent": _USER_AGENT})
-            with urllib.request.urlopen(pdf_req, timeout=45) as pdf_resp:
-                pdf_bytes = pdf_resp.read()
-
-            # Validate PDF (check magic bytes)
-            if len(pdf_bytes) < 1024 or not pdf_bytes[:5] == b'%PDF-':
-                continue
-
-            # Save to file
-            safe_doi = re.sub(r'[^a-zA-Z0-9_.-]', '_', doi)
-            filename = f"scihub_{safe_doi}.pdf"
-            out_path = os.path.join(output_dir, filename)
-            with open(out_path, "wb") as f:
-                f.write(pdf_bytes)
-
-            return {"ok": True, "path": out_path, "url": pdf_url, "mirror": mirror, "size": len(pdf_bytes)}
-
-        except (urllib.error.HTTPError, urllib.error.URLError, OSError):
-            continue
         except Exception:
             continue
 
     return {"ok": False, "error": f"Could not fetch DOI {doi} from any Sci-Hub mirror"}
 
+
+def solve_scihub_captcha(args):
+    """Submit CAPTCHA solution to Sci-Hub and download the paper.
+    Args: {solution, mirror, doi, form_action, cookies, output_dir}
+    Returns: {ok, path, url, mirror, size} or {ok: False, error}"""
+    solution = args.get("solution", "")
+    mirror = args.get("mirror", "")
+    doi = args.get("doi", "")
+    form_action = args.get("form_action", "")
+    cookies = args.get("cookies", {})
+    output_dir = args.get("output_dir", PAPERS_DIR)
+
+    if not solution or not mirror or not doi:
+        return {"error": "Missing captcha solution, mirror, or DOI"}
+    if not _HAS_REQUESTS:
+        return {"error": "requests package required for CAPTCHA solving"}
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    try:
+        session = requests.Session()
+        if cookies:
+            session.cookies.update(cookies)
+
+        # Submit CAPTCHA solution
+        action_url = form_action if form_action.startswith("http") else f"{mirror}{form_action or '/'}"
+        resp = session.post(action_url, data={
+            "answer": solution,
+            "id": doi,
+        }, headers={"User-Agent": _USER_AGENT}, timeout=20, verify=False, allow_redirects=True)
+
+        html = resp.text
+
+        # Check if CAPTCHA was solved — look for PDF URL
+        pdf_url, captcha_info = _scihub_extract_pdf_url(html)
+
+        if captcha_info:
+            return {"ok": False, "error": "CAPTCHA solution was incorrect, please try again",
+                    "captcha_required": True}
+
+        if not pdf_url:
+            # Maybe we got redirected to the PDF directly
+            if resp.headers.get("Content-Type", "").startswith("application/pdf"):
+                pdf_bytes = resp.content
+                if len(pdf_bytes) >= 1024 and pdf_bytes[:5] == b'%PDF-':
+                    safe_doi = re.sub(r'[^a-zA-Z0-9_.-]', '_', doi)
+                    out_path = os.path.join(output_dir, f"scihub_{safe_doi}.pdf")
+                    with open(out_path, "wb") as f:
+                        f.write(pdf_bytes)
+                    return {"ok": True, "path": out_path, "url": resp.url,
+                            "mirror": mirror, "size": len(pdf_bytes)}
+            return {"ok": False, "error": "Could not find PDF after CAPTCHA submission"}
+
+        pdf_url = _scihub_fix_url(pdf_url, mirror)
+        dl = _scihub_download_pdf(pdf_url, doi, output_dir)
+        if dl.get("ok"):
+            dl["mirror"] = mirror
+        return dl
+
+    except Exception as e:
+        return {"ok": False, "error": f"CAPTCHA solve error: {str(e)}"}
 
 def _fetch_unpaywall(doi, output_dir=None):
     """Attempt to fetch open-access PDF via Unpaywall API.
@@ -716,7 +897,7 @@ def _fetch_unpaywall(doi, output_dir=None):
     os.makedirs(output_dir, exist_ok=True)
 
     try:
-        encoded = urllib.parse.quote(doi, safe='')
+        encoded = urllib.parse.quote(doi, safe='/')
         url = f"https://api.unpaywall.org/v2/{encoded}?email=zenith@example.com"
         req = urllib.request.Request(url, headers={"User-Agent": "Zenith/2.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -920,16 +1101,18 @@ def triage_papers(args):
 
 def acquire_papers(args):
     """Phase 1.5 — The Acquisition Engine: Download papers via Sci-Hub + Unpaywall.
-    Args: {papers: [{doi, title}], output_dir (optional)}
-    Returns: {ok, acquired: [{doi, path, source}], failed: [{doi, error}]}"""
+    Args: {papers: [{doi, title}], output_dir (optional), skip_unpaywall (bool)}
+    Returns: {ok, acquired, failed, captcha_needed}"""
     papers = args.get("papers", [])
     output_dir = args.get("output_dir", PAPERS_DIR)
+    skip_unpaywall = args.get("skip_unpaywall", False)
     os.makedirs(output_dir, exist_ok=True)
 
     acquired = []
     failed = []
+    captcha_needed = []
 
-    for p in papers[:50]:  # limit to 50 papers
+    for p in papers[:50]:
         doi = p.get("doi", "")
         title = p.get("title", "unknown")
 
@@ -937,27 +1120,40 @@ def acquire_papers(args):
             failed.append({"doi": "", "title": title, "error": "No DOI available"})
             continue
 
-        # Try Unpaywall first (legal, open access)
-        result = _fetch_unpaywall(doi, output_dir)
-        if result.get("ok"):
-            acquired.append({"doi": doi, "title": title, "path": result["path"],
-                             "source": "unpaywall", "size": result.get("size", 0)})
-            time.sleep(0.3)
-            continue
+        # Try Unpaywall first (legal, open access) unless skipped
+        if not skip_unpaywall:
+            result = _fetch_unpaywall(doi, output_dir)
+            if result.get("ok"):
+                acquired.append({"doi": doi, "title": title, "path": result["path"],
+                                 "source": "unpaywall", "size": result.get("size", 0)})
+                time.sleep(0.3)
+                continue
 
-        # Fallback to Sci-Hub
+        # Sci-Hub
         time.sleep(0.5)
         result = _fetch_scihub(doi, output_dir)
         if result.get("ok"):
             acquired.append({"doi": doi, "title": title, "path": result["path"],
                              "source": "scihub", "size": result.get("size", 0)})
-            time.sleep(1.0)  # Be respectful with Sci-Hub
+            time.sleep(1.0)
+            continue
+
+        # CAPTCHA detected — collect for interactive solving
+        if result.get("captcha_required"):
+            captcha_needed.append({
+                "doi": doi, "title": title,
+                "captcha_img_b64": result.get("captcha_img_b64", ""),
+                "mirror": result.get("mirror", ""),
+                "form_action": result.get("form_action", ""),
+                "cookies": result.get("cookies", {}),
+            })
             continue
 
         failed.append({"doi": doi, "title": title, "error": result.get("error", "Download failed")})
         time.sleep(0.5)
 
     return {"ok": True, "acquired": acquired, "failed": failed,
+            "captcha_needed": captcha_needed,
             "acquired_count": len(acquired), "failed_count": len(failed)}
 
 
@@ -1119,7 +1315,10 @@ def run_pipeline_phase(args):
     brave_api_key = args.get("brave_api_key", "")
     firecrawl_api_key = args.get("firecrawl_api_key", "")
 
-    if not api_key:
+    # Phases that need LLM access require an API key
+    LLM_PHASES = {"validate", "generate_queries", "triage", "draft", "smooth",
+                  "verify_citations", "novelty_check"}
+    if phase in LLM_PHASES and not api_key:
         return {"error": "API key required."}
 
     if phase == "validate":

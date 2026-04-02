@@ -167,41 +167,62 @@ The **Zenith Generative Editor** is a full-window AI image creation and editing 
 
 ## &#128300; Zenith Research Window
 
-> *Click Research. Ask a question. Get papers, citations, novelty scores, and full paper sections — all in one chat.*
+> *Click Research. Ask a question — or launch a full autonomous pipeline. Get papers, citations, manuscripts, and bibliographies.*
 
-The **Zenith Research Window** is an AI-powered autonomous research assistant that opens as a dedicated window. Inspired by [AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw).
+The **Zenith Research Window** is a PhD-level autonomous research assistant with dual-mode operation: interactive chat and a fully automated systematic review pipeline (v5.6). Inspired by [AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw).
 
 ### How to Open
 
-- Click the **🔬 Research** button in the main panel header
+- Click the **Research** button in the main panel header
+
+### Dual-Mode Operation
+
+#### Chat Mode (Interactive)
+Conversational AI with LLM-driven tool dispatch. Ask questions, search literature, verify citations, and draft sections interactively.
+
+#### Pipeline Mode (Autonomous v5.6)
+Launch a full systematic literature review pipeline that runs end-to-end:
+
+| Phase | Agent | Description |
+|-------|-------|-------------|
+| 1.1 | **Gatekeeper** | Validates research question for specificity, scope, and feasibility |
+| 1.2 | **Query Architect** | Generates optimized MeSH/Boolean search strings for PubMed, Semantic Scholar, arXiv, web |
+| 1.3 | **Harvester** | Searches across all databases, deduplicates by title, enriches via CrossRef |
+| 1.4 | **Triage Agent** | Screens papers for relevance in batches of 10 with inclusion/exclusion criteria |
+| 1.5 | **Acquisition Engine** | Downloads full-text PDFs via Sci-Hub (with interactive CAPTCHA solving) |
+| 2.1 | **Extractor** | Extracts text from acquired PDFs |
+| 3.1 | **Lead Author** | Drafts Introduction, Methods, Results, Discussion with inline citations |
+| 3.2 | **Quality Swarm** | Verifies citation integrity, checks for hallucinated references |
+| 4.1 | **Smoothing Pass** | Polishes manuscript, unifies voice, generates structured abstract |
+| 4.2 | **Compiler** | Generates Vancouver + BibTeX bibliography |
+
+Supports 4 study designs: Systematic Review, Meta-Analysis, Narrative Review, Scoping Review.
 
 ### Key Features
 
-- **Multi-turn research chat** — conversational AI with LLM-driven tool dispatch; supports all 5 LLM providers
-- **Literature search** — searches arXiv, Semantic Scholar, and OpenAlex simultaneously with deduplication and citation-count sorting
-- **Web search** — aggregated multi-source search: Brave Search, Tavily AI, Firecrawl deep scraping, and DuckDuckGo fallback — all deduplicated by URL and title
-- **PDF text extraction** — extract and analyze PDF content for research context
-- **Novelty scoring** — LLM-based assessment of research idea novelty against existing literature (1-10 scale)
-- **Citation verification** — verify references exist via Semantic Scholar API
-- **Experiment sandbox** — run Python code in isolated subprocess with 60s timeout
-- **Section generation** — generate paper sections (abstract, introduction, related work, methodology, results, conclusion)
-- **Thread management** — create, switch, delete, search, and rename threads; grouped by date (Today/Yesterday/Older)
-- **Export (5 formats)** — Markdown, PDF, LaTeX, BibTeX, JSON; exported files auto-staged in Bubble, auto-opened on export, with Open File / Show in Explorer buttons
-- **Rich message types** — expandable paper cards with abstract/DOI/citations, syntax-highlighted code blocks, data tables, full markdown rendering (headers, lists, code blocks, bold/italic, links)
-- **Full parameter control** — provider/model picker, temperature slider, max tokens (up to 128k), editable system prompt, 6 toggleable research tools
-- **Session cost tracking** — per-thread and total cost; syncs to Settings token usage
-- **Persistent threads** — localStorage persistence; max 50 threads × 200 messages; survives window close
-- **Message actions** — copy, retry, edit & retry on every message; selectable text throughout chat
-- **Smart response ordering** — tool results (papers, web results) appear before the assistant's synthesis for easy scanning
-- **Inline link detection** — bare URLs and markdown links rendered as clickable, styled links
+- **12 research tools** — 8 primary (PubMed, Literature, Web, Sci-Hub, Gatekeeper, Query Architect, Triage, Lead Author) + 4 auxiliary (PDF Extract, Novelty, Citation Verify, Experiment)
+- **PubMed E-utilities** — direct MEDLINE search with MeSH terms, PMID retrieval, and XML metadata parsing
+- **Multi-database harvest** — PubMed, Semantic Scholar, OpenAlex, arXiv searched simultaneously with deduplication and CrossRef citation enrichment
+- **Sci-Hub integration** — automatic PDF acquisition with interactive CAPTCHA dialog when blocked; tries `scihub.py` package first, falls back to direct URL approach across 6 mirrors
+- **Unpaywall OA** — legal open-access PDF fetching (when available)
+- **Web search** — Brave, Tavily, Firecrawl, DuckDuckGo — all deduplicated
+- **PRISMA/STROBE compliance** — pipeline drafts follow reporting guidelines
+- **Multi-turn chat** — conversational AI with tool dispatch; supports all 5 LLM providers
+- **Thread management** — create, switch, delete, search, rename; grouped by date
+- **Export (5 formats)** — Markdown, PDF, LaTeX, BibTeX, JSON; auto-staged in Bubble
+- **Rich messages** — expandable paper cards, code blocks, tables, full markdown
+- **Full parameter control** — provider/model picker, temperature, max tokens, editable system prompt, tool toggles
+- **Session cost tracking** — per-thread and total; syncs to Settings token usage
+- **Pipeline progress UI** — real-time phase cards, progress bar, status messages, results summary with manuscript preview and copy
+- **Interactive CAPTCHA solving** — when Sci-Hub shows a CAPTCHA, a dialog appears for the user to solve it manually; pipeline pauses and resumes after solving
 
 ### 3-Column Layout
 
 | Panel | Width | Contents |
 |-------|-------|----------|
 | **Thread Sidebar** | 250px (collapsible) | Search, date-grouped thread list, total cost |
-| **Chat Area** | flex | Messages, paper cards, code blocks, typing indicator |
-| **Parameter Panel** | 280px (collapsible) | Model config, tool toggles, export format, system prompt |
+| **Main Area** | flex | Chat messages + pipeline UI (toggle via header buttons) |
+| **Parameter Panel** | 280px (collapsible) | Model config, primary/auxiliary tool toggles, export format, system prompt |
 
 ---
 

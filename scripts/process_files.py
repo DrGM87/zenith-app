@@ -3294,6 +3294,9 @@ from research_engine import (
     research_chat, search_papers, web_search_action,
     extract_pdf_text, check_novelty, verify_citations,
     run_experiment_action, export_chat, generate_section,
+    validate_research_query, generate_search_queries,
+    triage_papers, acquire_papers, draft_research_section,
+    smooth_manuscript, compile_references, run_pipeline_phase,
 )
 
 ACTIONS = {
@@ -3347,6 +3350,14 @@ ACTIONS = {
     "run_experiment": run_experiment_action,
     "export_chat": export_chat,
     "generate_section": generate_section,
+    "validate_research_query": validate_research_query,
+    "generate_search_queries": generate_search_queries,
+    "triage_papers": triage_papers,
+    "acquire_papers": acquire_papers,
+    "draft_research_section": draft_research_section,
+    "smooth_manuscript": smooth_manuscript,
+    "compile_references": compile_references,
+    "run_pipeline_phase": run_pipeline_phase,
 }
 
 if __name__ == "__main__":

@@ -44,6 +44,49 @@ export interface PaperResult {
   citations: number;
   url: string;
   source: string;
+  pmid?: string;
+  mesh_terms?: string[];
+  journal?: string;
+  is_relevant?: boolean;
+  relevance_score?: number;
+  pdf_path?: string;
+}
+
+/* ── Pipeline Types (v5.6) ── */
+
+export type PipelinePhase =
+  | "idle"
+  | "validating"
+  | "generating_queries"
+  | "harvesting"
+  | "triaging"
+  | "acquiring"
+  | "extracting"
+  | "drafting"
+  | "verifying"
+  | "smoothing"
+  | "compiling"
+  | "complete"
+  | "error";
+
+export type StudyDesign = "systematic_review" | "meta_analysis" | "narrative_review" | "scoping_review";
+
+export interface PipelineState {
+  active: boolean;
+  phase: PipelinePhase;
+  progress: number;          // 0-100
+  statusMessage: string;
+  query: string;
+  studyDesign: StudyDesign;
+  papers: PaperResult[];
+  relevantPapers: PaperResult[];
+  acquiredPdfs: { doi: string; path: string; title: string }[];
+  extractedTexts: { path: string; text: string; pages: number }[];
+  searchQueries: { db: string; query_string: string; description: string }[];
+  draftSections: { type: string; text: string }[];
+  manuscript: string;
+  bibliography: string;
+  error: string | null;
 }
 
 /* ── Constants ── */
@@ -56,10 +99,11 @@ const LS_ACTIVE = "zenith_research_active_thread";
 const LS_PARAMS = "zenith_research_params";
 
 const DEFAULT_SYSTEM_PROMPT =
-  "You are Zenith Research Assistant — an expert AI researcher. " +
-  "You help users discover papers, analyze literature, verify citations, assess novelty, " +
-  "run experiments, and generate research sections. Be thorough, cite sources, and provide " +
-  "structured outputs when appropriate. When you use a research tool, explain what you found clearly.";
+  "You are Zenith Research Assistant — a PhD-level autonomous research agent. " +
+  "You orchestrate multi-phase research pipelines: validate queries, generate MeSH/Boolean search strings, " +
+  "harvest papers from PubMed/Semantic Scholar/OpenAlex/arXiv, triage for relevance, acquire full-text via " +
+  "Sci-Hub/Unpaywall, extract PDF content, draft sections with proper citations, verify citation integrity, " +
+  "and compile publication-ready manuscripts. Be thorough, cite every claim, and provide structured outputs.";
 
 const DEFAULT_PARAMS: ResearchParams = {
   provider: "",
@@ -67,10 +111,34 @@ const DEFAULT_PARAMS: ResearchParams = {
   api_key: "",
   temperature: 0.7,
   max_tokens: 16384,
-  enabled_tools: ["literature", "web_search", "pdf_extract", "novelty", "citation_verify", "experiment"],
+  enabled_tools: [
+    "pubmed", "literature", "web_search", "scihub",
+    "validate_query", "mesh_queries", "triage", "draft_section",
+    "pdf_extract", "novelty", "citation_verify", "experiment",
+  ],
   export_format: "markdown",
   system_prompt: DEFAULT_SYSTEM_PROMPT,
 };
+
+const DEFAULT_PIPELINE: PipelineState = {
+  active: false,
+  phase: "idle",
+  progress: 0,
+  statusMessage: "",
+  query: "",
+  studyDesign: "systematic_review",
+  papers: [],
+  relevantPapers: [],
+  acquiredPdfs: [],
+  extractedTexts: [],
+  searchQueries: [],
+  draftSections: [],
+  manuscript: "",
+  bibliography: "",
+  error: null,
+};
+
+const LS_PIPELINE = "zenith_research_pipeline";
 
 /* ── Helpers ── */
 
@@ -103,6 +171,8 @@ interface ResearchState {
   params: ResearchParams;
   isGenerating: boolean;
   abortController: AbortController | null;
+  pipeline: PipelineState;
+  viewMode: "chat" | "pipeline";
 
   // Thread CRUD
   createThread: () => string;
@@ -123,6 +193,11 @@ interface ResearchState {
   setGenerating: (v: boolean) => void;
   setAbortController: (c: AbortController | null) => void;
 
+  // Pipeline
+  setPipeline: (partial: Partial<PipelineState>) => void;
+  resetPipeline: () => void;
+  setViewMode: (mode: "chat" | "pipeline") => void;
+
   // Persistence
   loadThreads: () => void;
   saveThreads: () => void;
@@ -139,6 +214,8 @@ export const useResearchStore = create<ResearchState>((set, get) => ({
   params: DEFAULT_PARAMS,
   isGenerating: false,
   abortController: null,
+  pipeline: DEFAULT_PIPELINE,
+  viewMode: "chat" as const,
 
   /* ── Thread CRUD ── */
 
@@ -252,6 +329,23 @@ export const useResearchStore = create<ResearchState>((set, get) => ({
   setGenerating: (v) => set({ isGenerating: v }),
   setAbortController: (c) => set({ abortController: c }),
 
+  /* ── Pipeline ── */
+
+  setPipeline: (partial) => {
+    set((s) => {
+      const pipeline = { ...s.pipeline, ...partial };
+      saveToLS(LS_PIPELINE, pipeline);
+      return { pipeline };
+    });
+  },
+
+  resetPipeline: () => {
+    set({ pipeline: { ...DEFAULT_PIPELINE } });
+    saveToLS(LS_PIPELINE, DEFAULT_PIPELINE);
+  },
+
+  setViewMode: (mode) => set({ viewMode: mode }),
+
   /* ── Persistence ── */
 
   loadThreads: () => {
@@ -259,7 +353,8 @@ export const useResearchStore = create<ResearchState>((set, get) => ({
     const activeThreadId = loadFromLS<string | null>(LS_ACTIVE, threads[0]?.id ?? null);
     const savedParams = loadFromLS<Partial<ResearchParams>>(LS_PARAMS, {});
     const params = { ...DEFAULT_PARAMS, ...savedParams };
-    set({ threads, activeThreadId, params });
+    const pipeline = loadFromLS<PipelineState>(LS_PIPELINE, DEFAULT_PIPELINE);
+    set({ threads, activeThreadId, params, pipeline });
   },
 
   saveThreads: () => {

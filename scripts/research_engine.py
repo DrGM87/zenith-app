@@ -440,6 +440,823 @@ def _web_search_duckduckgo(query, max_results=5):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ██  V5.6 PIPELINE — PubMed, CrossRef, Sci-Hub, Unpaywall
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _search_pubmed(query, max_results=20):
+    """Search PubMed via NCBI E-utilities API.
+    Returns list of paper dicts with title, authors, year, abstract, doi, pmid."""
+    try:
+        # Step 1: ESearch → get PMIDs
+        encoded = urllib.parse.quote_plus(query)
+        search_url = (
+            f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+            f"?db=pubmed&term={encoded}&retmax={max_results}&retmode=json&sort=relevance"
+        )
+        req = urllib.request.Request(search_url, headers={"User-Agent": "Zenith/2.0 (mailto:zenith@example.com)"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode())
+
+        pmids = data.get("esearchresult", {}).get("idlist", [])
+        if not pmids:
+            return []
+
+        time.sleep(0.4)  # NCBI rate limit: 3 req/sec without key
+
+        # Step 2: EFetch → get full metadata as XML
+        ids_str = ",".join(pmids)
+        fetch_url = (
+            f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+            f"?db=pubmed&id={ids_str}&retmode=xml"
+        )
+        req2 = urllib.request.Request(fetch_url, headers={"User-Agent": "Zenith/2.0"})
+        with urllib.request.urlopen(req2, timeout=30) as resp2:
+            xml_data = resp2.read().decode("utf-8", errors="replace")
+
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(xml_data)
+
+        papers = []
+        for article in root.findall(".//PubmedArticle"):
+            medline = article.find(".//MedlineCitation")
+            if medline is None:
+                continue
+            art = medline.find("Article")
+            if art is None:
+                continue
+
+            # Title
+            title_el = art.find("ArticleTitle")
+            title = "".join(title_el.itertext()).strip() if title_el is not None else ""
+
+            # Abstract
+            abstract_parts = []
+            abstract_el = art.find("Abstract")
+            if abstract_el is not None:
+                for at in abstract_el.findall("AbstractText"):
+                    label = at.get("Label", "")
+                    text = "".join(at.itertext()).strip()
+                    if label:
+                        abstract_parts.append(f"{label}: {text}")
+                    else:
+                        abstract_parts.append(text)
+            abstract = " ".join(abstract_parts)[:600]
+
+            # Authors
+            authors = []
+            author_list = art.find("AuthorList")
+            if author_list is not None:
+                for au in author_list.findall("Author"):
+                    last = au.findtext("LastName", "")
+                    fore = au.findtext("ForeName", "")
+                    if last:
+                        authors.append(f"{last} {fore}".strip())
+
+            # Year
+            pub_date = art.find(".//PubDate")
+            year = ""
+            if pub_date is not None:
+                year = pub_date.findtext("Year", "")
+                if not year:
+                    medline_date = pub_date.findtext("MedlineDate", "")
+                    if medline_date:
+                        ym = re.match(r'(\d{4})', medline_date)
+                        year = ym.group(1) if ym else ""
+
+            # DOI
+            doi = ""
+            for eid in art.findall(".//ELocationID"):
+                if eid.get("EIdType") == "doi":
+                    doi = (eid.text or "").strip()
+                    break
+            if not doi:
+                article_ids = article.find(".//PubmedData/ArticleIdList")
+                if article_ids is not None:
+                    for aid in article_ids.findall("ArticleId"):
+                        if aid.get("IdType") == "doi":
+                            doi = (aid.text or "").strip()
+                            break
+
+            # PMID
+            pmid = medline.findtext("PMID", "")
+
+            # MeSH terms
+            mesh_terms = []
+            mesh_list = medline.find("MeshHeadingList")
+            if mesh_list is not None:
+                for mh in mesh_list.findall("MeshHeading"):
+                    desc = mh.find("DescriptorName")
+                    if desc is not None:
+                        mesh_terms.append(desc.text or "")
+
+            papers.append({
+                "title": title,
+                "authors": authors,
+                "year": year,
+                "abstract": abstract,
+                "doi": doi,
+                "citations": 0,
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else "",
+                "source": "PubMed",
+                "pmid": pmid,
+                "mesh_terms": mesh_terms[:10],
+            })
+
+        return papers
+    except Exception as e:
+        return []
+
+
+def _enrich_crossref(doi):
+    """Enrich a paper record with CrossRef metadata (citation count, full metadata).
+    Returns dict with enriched fields or empty dict on failure."""
+    if not doi:
+        return {}
+    try:
+        encoded = urllib.parse.quote(doi, safe='')
+        url = f"https://api.crossref.org/works/{encoded}"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Zenith/2.0 (mailto:zenith@example.com)",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+
+        msg = data.get("message", {})
+        citations = msg.get("is-referenced-by-count", 0)
+        titles = msg.get("title", [])
+        title = titles[0] if titles else ""
+
+        authors = []
+        for a in msg.get("author", []):
+            name = f"{a.get('family', '')} {a.get('given', '')}".strip()
+            if name:
+                authors.append(name)
+
+        year = ""
+        pub_date = msg.get("published-print", msg.get("published-online", {}))
+        date_parts = pub_date.get("date-parts", [[]])
+        if date_parts and date_parts[0]:
+            year = str(date_parts[0][0])
+
+        journal = ""
+        containers = msg.get("container-title", [])
+        if containers:
+            journal = containers[0]
+
+        return {
+            "citations": citations,
+            "title": title,
+            "authors": authors,
+            "year": year,
+            "journal": journal,
+            "type": msg.get("type", ""),
+            "subject": msg.get("subject", []),
+        }
+    except Exception:
+        return {}
+
+
+def _fetch_scihub(doi, output_dir=None):
+    """Attempt to fetch a paper PDF from Sci-Hub mirrors.
+    Returns {ok, path, url} or {ok: False, error}."""
+    if not doi:
+        return {"ok": False, "error": "No DOI provided"}
+
+    if output_dir is None:
+        output_dir = PAPERS_DIR
+    os.makedirs(output_dir, exist_ok=True)
+
+    mirrors = [
+        "https://sci-hub.se",
+        "https://sci-hub.st",
+        "https://sci-hub.ru",
+        "https://sci-hub.ren",
+    ]
+
+    for mirror in mirrors:
+        try:
+            page_url = f"{mirror}/{doi}"
+            req = urllib.request.Request(page_url, headers={
+                "User-Agent": _USER_AGENT,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            })
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+
+            # Parse for PDF URL — look for <embed>, <iframe>, or direct link
+            pdf_url = None
+
+            # Pattern 1: <embed src="..." or <iframe src="..."
+            embed_match = re.search(r'<(?:embed|iframe)[^>]+src=["\']([^"\']+\.pdf[^"\']*)["\']', html, re.IGNORECASE)
+            if embed_match:
+                pdf_url = embed_match.group(1)
+
+            # Pattern 2: <a ... onclick="location.href='...pdf...'"
+            if not pdf_url:
+                onclick_match = re.search(r"location\.href\s*=\s*['\"]([^'\"]+\.pdf[^'\"]*)['\"]", html)
+                if onclick_match:
+                    pdf_url = onclick_match.group(1)
+
+            # Pattern 3: <button onclick="location.href='...'"  (Sci-Hub save button)
+            if not pdf_url:
+                btn_match = re.search(r'<button[^>]*onclick="[^"]*location\.href=\'([^\']+)\'', html)
+                if btn_match:
+                    pdf_url = btn_match.group(1)
+
+            # Pattern 4: Direct PDF URL in page
+            if not pdf_url:
+                direct_match = re.search(r'(https?://[^\s"\'<>]+\.pdf)', html)
+                if direct_match:
+                    pdf_url = direct_match.group(1)
+
+            if not pdf_url:
+                continue
+
+            # Fix relative URLs
+            if pdf_url.startswith("//"):
+                pdf_url = "https:" + pdf_url
+            elif pdf_url.startswith("/"):
+                pdf_url = mirror + pdf_url
+
+            # Download the PDF
+            pdf_req = urllib.request.Request(pdf_url, headers={"User-Agent": _USER_AGENT})
+            with urllib.request.urlopen(pdf_req, timeout=45) as pdf_resp:
+                pdf_bytes = pdf_resp.read()
+
+            # Validate PDF (check magic bytes)
+            if len(pdf_bytes) < 1024 or not pdf_bytes[:5] == b'%PDF-':
+                continue
+
+            # Save to file
+            safe_doi = re.sub(r'[^a-zA-Z0-9_.-]', '_', doi)
+            filename = f"scihub_{safe_doi}.pdf"
+            out_path = os.path.join(output_dir, filename)
+            with open(out_path, "wb") as f:
+                f.write(pdf_bytes)
+
+            return {"ok": True, "path": out_path, "url": pdf_url, "mirror": mirror, "size": len(pdf_bytes)}
+
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+            continue
+        except Exception:
+            continue
+
+    return {"ok": False, "error": f"Could not fetch DOI {doi} from any Sci-Hub mirror"}
+
+
+def _fetch_unpaywall(doi, output_dir=None):
+    """Attempt to fetch open-access PDF via Unpaywall API.
+    Returns {ok, path, url} or {ok: False, error}."""
+    if not doi:
+        return {"ok": False, "error": "No DOI provided"}
+
+    if output_dir is None:
+        output_dir = PAPERS_DIR
+    os.makedirs(output_dir, exist_ok=True)
+
+    try:
+        encoded = urllib.parse.quote(doi, safe='')
+        url = f"https://api.unpaywall.org/v2/{encoded}?email=zenith@example.com"
+        req = urllib.request.Request(url, headers={"User-Agent": "Zenith/2.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+
+        # Find best OA location with PDF
+        best_loc = data.get("best_oa_location") or {}
+        pdf_url = best_loc.get("url_for_pdf", "")
+
+        if not pdf_url:
+            # Try all OA locations
+            for loc in data.get("oa_locations", []):
+                if loc.get("url_for_pdf"):
+                    pdf_url = loc["url_for_pdf"]
+                    break
+
+        if not pdf_url:
+            return {"ok": False, "error": "No open-access PDF available via Unpaywall"}
+
+        # Download PDF
+        pdf_req = urllib.request.Request(pdf_url, headers={"User-Agent": _USER_AGENT})
+        with urllib.request.urlopen(pdf_req, timeout=45) as pdf_resp:
+            pdf_bytes = pdf_resp.read()
+
+        if len(pdf_bytes) < 1024:
+            return {"ok": False, "error": "Downloaded file too small, likely not a valid PDF"}
+
+        safe_doi = re.sub(r'[^a-zA-Z0-9_.-]', '_', doi)
+        filename = f"oa_{safe_doi}.pdf"
+        out_path = os.path.join(output_dir, filename)
+        with open(out_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        return {"ok": True, "path": out_path, "url": pdf_url, "source": "unpaywall", "size": len(pdf_bytes)}
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  V5.6 PIPELINE — Gatekeeper, Query Architect, Triage, Acquire
+# ══════════════════════════════════════════════════════════════════════════════
+
+def validate_research_query(args):
+    """Phase 1.1 — The Gatekeeper: Validate if a research question is answerable.
+    Args: {query, api_key, provider, model}
+    Returns: {ok, is_valid, reason, domain, suggested_refinement}"""
+    query = args.get("query", "")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "google")
+    model = args.get("model", "")
+
+    if not api_key:
+        return {"error": "API key required."}
+    if not query.strip():
+        return {"error": "Research question is required."}
+
+    system = (
+        "You are a research methodology expert. Evaluate whether the given research question "
+        "is suitable for systematic academic literature review. Consider: specificity, scope, "
+        "feasibility, and whether peer-reviewed literature likely exists on this topic.\n\n"
+        "Respond ONLY with valid JSON:\n"
+        '{"is_valid": true/false, "reason": "explanation", "domain": "field", '
+        '"suggested_refinement": "improved question or empty string", '
+        '"keywords": ["key1", "key2"], "study_designs": ["Systematic Review", "Meta-Analysis"]}'
+    )
+
+    result = _llm_chat(provider, api_key, model,
+                       [{"role": "system", "content": system},
+                        {"role": "user", "content": f"Research question: {query}"}],
+                       temperature=0.2, max_tokens=1024)
+    if "error" in result:
+        return result
+
+    text = result["text"]
+    try:
+        parsed = json.loads(re.search(r'\{.*\}', text, re.DOTALL).group())
+        return {"ok": True, **parsed, "tokens": result.get("usage")}
+    except Exception:
+        return {"ok": True, "is_valid": True, "reason": text[:500], "domain": "general",
+                "suggested_refinement": "", "keywords": [], "tokens": result.get("usage")}
+
+
+def generate_search_queries(args):
+    """Phase 1.2 — The Query Architect: Generate MeSH/Boolean search strings.
+    Args: {query, domain, api_key, provider, model}
+    Returns: {ok, queries: [{db, query_string, description}]}"""
+    query = args.get("query", "")
+    domain = args.get("domain", "biomedical")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "google")
+    model = args.get("model", "")
+
+    if not api_key:
+        return {"error": "API key required."}
+
+    system = (
+        "You are a medical librarian expert in MeSH terminology and Boolean search strategy. "
+        "Given a research question, generate optimized search queries for:\n"
+        "1. PubMed (using MeSH terms and Boolean operators AND/OR/NOT)\n"
+        "2. Semantic Scholar / OpenAlex (natural language, key concepts)\n"
+        "3. arXiv (for computational/AI-related aspects)\n"
+        "4. Web search (for grey literature, preprints)\n\n"
+        "Respond ONLY with valid JSON array:\n"
+        '[{"db": "pubmed", "query_string": "...", "description": "..."}, ...]'
+    )
+
+    result = _llm_chat(provider, api_key, model,
+                       [{"role": "system", "content": system},
+                        {"role": "user", "content": f"Research question: {query}\nDomain: {domain}"}],
+                       temperature=0.3, max_tokens=2048)
+    if "error" in result:
+        return result
+
+    text = result["text"]
+    try:
+        arr = json.loads(re.search(r'\[.*\]', text, re.DOTALL).group())
+        return {"ok": True, "queries": arr, "tokens": result.get("usage")}
+    except Exception:
+        return {"ok": True, "queries": [{"db": "pubmed", "query_string": query, "description": "Direct search"}],
+                "tokens": result.get("usage")}
+
+
+def triage_papers(args):
+    """Phase 1.4 — The Triage Agent: Screen papers for relevance.
+    Args: {papers: [{title, abstract, doi}], query, api_key, provider, model}
+    Returns: {ok, results: [{doi, is_relevant, justification, relevance_score}]}"""
+    papers = args.get("papers", [])
+    query = args.get("query", "")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "google")
+    model = args.get("model", "")
+
+    if not api_key:
+        return {"error": "API key required."}
+    if not papers:
+        return {"ok": True, "results": [], "relevant_count": 0}
+
+    # Process in batches of 10 (as per v5.6 spec)
+    all_results = []
+    batch_size = 10
+
+    for batch_start in range(0, len(papers), batch_size):
+        batch = papers[batch_start:batch_start + batch_size]
+        papers_text = ""
+        for idx, p in enumerate(batch):
+            papers_text += (
+                f"\n--- Paper {idx + 1} ---\n"
+                f"Title: {p.get('title', 'N/A')}\n"
+                f"Abstract: {p.get('abstract', 'N/A')[:400]}\n"
+                f"DOI: {p.get('doi', 'N/A')}\n"
+            )
+
+        system = (
+            "You are an expert research screener. Evaluate each paper's relevance to the "
+            "research question. For each paper, provide:\n"
+            "- is_relevant (boolean)\n"
+            "- relevance_score (0.0-1.0)\n"
+            "- justification (1-2 sentences)\n\n"
+            "Respond ONLY with valid JSON array:\n"
+            '[{"paper_index": 1, "is_relevant": true, "relevance_score": 0.85, "justification": "..."}]'
+        )
+
+        result = _llm_chat(provider, api_key, model,
+                           [{"role": "system", "content": system},
+                            {"role": "user", "content": f"Research question: {query}\n\nPapers to screen:{papers_text}"}],
+                           temperature=0.1, max_tokens=2048)
+        if "error" in result:
+            # On error, mark all as relevant to avoid data loss
+            for p in batch:
+                all_results.append({"doi": p.get("doi", ""), "title": p.get("title", ""),
+                                    "is_relevant": True, "relevance_score": 0.5,
+                                    "justification": "Screening failed, included by default"})
+            continue
+
+        try:
+            arr = json.loads(re.search(r'\[.*\]', result["text"], re.DOTALL).group())
+            for item in arr:
+                pi = item.get("paper_index", 1) - 1
+                if 0 <= pi < len(batch):
+                    all_results.append({
+                        "doi": batch[pi].get("doi", ""),
+                        "title": batch[pi].get("title", ""),
+                        "is_relevant": item.get("is_relevant", True),
+                        "relevance_score": item.get("relevance_score", 0.5),
+                        "justification": item.get("justification", ""),
+                    })
+        except Exception:
+            for p in batch:
+                all_results.append({"doi": p.get("doi", ""), "title": p.get("title", ""),
+                                    "is_relevant": True, "relevance_score": 0.5,
+                                    "justification": "Could not parse screening result"})
+
+        if batch_start + batch_size < len(papers):
+            time.sleep(0.5)
+
+    relevant_count = sum(1 for r in all_results if r.get("is_relevant"))
+    return {"ok": True, "results": all_results, "relevant_count": relevant_count,
+            "total_screened": len(all_results)}
+
+
+def acquire_papers(args):
+    """Phase 1.5 — The Acquisition Engine: Download papers via Sci-Hub + Unpaywall.
+    Args: {papers: [{doi, title}], output_dir (optional)}
+    Returns: {ok, acquired: [{doi, path, source}], failed: [{doi, error}]}"""
+    papers = args.get("papers", [])
+    output_dir = args.get("output_dir", PAPERS_DIR)
+    os.makedirs(output_dir, exist_ok=True)
+
+    acquired = []
+    failed = []
+
+    for p in papers[:50]:  # limit to 50 papers
+        doi = p.get("doi", "")
+        title = p.get("title", "unknown")
+
+        if not doi:
+            failed.append({"doi": "", "title": title, "error": "No DOI available"})
+            continue
+
+        # Try Unpaywall first (legal, open access)
+        result = _fetch_unpaywall(doi, output_dir)
+        if result.get("ok"):
+            acquired.append({"doi": doi, "title": title, "path": result["path"],
+                             "source": "unpaywall", "size": result.get("size", 0)})
+            time.sleep(0.3)
+            continue
+
+        # Fallback to Sci-Hub
+        time.sleep(0.5)
+        result = _fetch_scihub(doi, output_dir)
+        if result.get("ok"):
+            acquired.append({"doi": doi, "title": title, "path": result["path"],
+                             "source": "scihub", "size": result.get("size", 0)})
+            time.sleep(1.0)  # Be respectful with Sci-Hub
+            continue
+
+        failed.append({"doi": doi, "title": title, "error": result.get("error", "Download failed")})
+        time.sleep(0.5)
+
+    return {"ok": True, "acquired": acquired, "failed": failed,
+            "acquired_count": len(acquired), "failed_count": len(failed)}
+
+
+def draft_research_section(args):
+    """Phase 3.2 — Lead Author Agent: Draft a research section with citations.
+    Args: {section_type, query, papers_context, api_key, provider, model, guidelines}
+    Returns: {ok, text, citations_used, tokens}"""
+    section_type = args.get("section_type", "introduction")
+    query = args.get("query", "")
+    papers_context = args.get("papers_context", "")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "google")
+    model = args.get("model", "")
+    guidelines = args.get("guidelines", "PRISMA")
+
+    if not api_key:
+        return {"error": "API key required."}
+
+    system = (
+        f"You are an expert academic researcher writing a {guidelines}-compliant "
+        f"research paper. You are drafting the '{section_type}' section.\n\n"
+        "Rules:\n"
+        "- Cite every factual claim using [Author, Year] format\n"
+        "- Use formal academic tone\n"
+        "- Be thorough and evidence-based\n"
+        "- Include specific data points, p-values, sample sizes when available\n"
+        "- Structure with clear subheadings where appropriate\n"
+        "- End with a transition to the next section"
+    )
+
+    prompt = (
+        f"Research question: {query}\n\n"
+        f"Available literature:\n{papers_context[:8000]}\n\n"
+        f"Write the {section_type} section. Be comprehensive and cite all sources."
+    )
+
+    result = _llm_chat(provider, api_key, model,
+                       [{"role": "system", "content": system},
+                        {"role": "user", "content": prompt}],
+                       temperature=0.4, max_tokens=8192)
+    if "error" in result:
+        return result
+
+    # Count citations used
+    citations = re.findall(r'\[([^\]]+)\]', result["text"])
+    return {"ok": True, "text": result["text"], "section_type": section_type,
+            "citations_used": len(citations), "tokens": result.get("usage")}
+
+
+def smooth_manuscript(args):
+    """Phase 4.1 — The Smoothing Pass: Polish and harmonize the full manuscript.
+    Args: {sections: [{type, text}], query, api_key, provider, model}
+    Returns: {ok, manuscript, abstract, tokens}"""
+    sections = args.get("sections", [])
+    query = args.get("query", "")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "google")
+    model = args.get("model", "")
+
+    if not api_key:
+        return {"error": "API key required."}
+    if not sections:
+        return {"error": "No sections provided."}
+
+    combined = ""
+    for s in sections:
+        combined += f"\n\n## {s.get('type', 'Section').title()}\n\n{s.get('text', '')}"
+
+    system = (
+        "You are a senior research editor performing a final smoothing pass on an academic manuscript. "
+        "Your tasks:\n"
+        "1. Fix tonal inconsistencies between sections\n"
+        "2. Harmonize transitions between sections\n"
+        "3. Write a concise Abstract (150-250 words)\n"
+        "4. Write a Conclusion section\n"
+        "5. Ensure all citations are consistent in format\n"
+        "6. Fix any grammatical or stylistic issues\n\n"
+        "Return the COMPLETE polished manuscript with Abstract at the beginning."
+    )
+
+    result = _llm_chat(provider, api_key, model,
+                       [{"role": "system", "content": system},
+                        {"role": "user", "content": f"Research question: {query}\n\nDraft manuscript:{combined}"}],
+                       temperature=0.3, max_tokens=16384)
+    if "error" in result:
+        return result
+
+    # Extract abstract
+    abstract = ""
+    abs_match = re.search(r'(?:^|\n)##?\s*Abstract\s*\n+(.*?)(?=\n##?\s|\Z)', result["text"], re.DOTALL | re.IGNORECASE)
+    if abs_match:
+        abstract = abs_match.group(1).strip()
+
+    return {"ok": True, "manuscript": result["text"], "abstract": abstract,
+            "tokens": result.get("usage")}
+
+
+def compile_references(args):
+    """Phase 4.2 — Reference Compilation: Generate bibliography from papers.
+    Args: {papers: [{title, authors, year, doi, journal}], format: "vancouver"|"ama"|"bibtex"}
+    Returns: {ok, bibliography, bibtex}"""
+    papers = args.get("papers", [])
+    fmt = args.get("format", "vancouver")
+
+    if not papers:
+        return {"error": "No papers to compile."}
+
+    bib_entries = []
+    bibtex_entries = []
+
+    for i, p in enumerate(papers, 1):
+        title = p.get("title", "")
+        authors = p.get("authors", [])
+        year = str(p.get("year", ""))
+        doi = p.get("doi", "")
+        journal = p.get("journal", "")
+
+        # Vancouver format
+        auth_str = ", ".join(authors[:6])
+        if len(authors) > 6:
+            auth_str += ", et al"
+        vancouver = f"{i}. {auth_str}. {title}. {journal}. {year}"
+        if doi:
+            vancouver += f". doi:{doi}"
+        bib_entries.append(vancouver)
+
+        # BibTeX
+        key = re.sub(r'[^a-zA-Z0-9]', '', (authors[0].split()[0] if authors else "unknown")) + year
+        bib = f"@article{{{key}{i},\n"
+        bib += f"  title = {{{title}}},\n"
+        if authors:
+            bib += f"  author = {{{' and '.join(authors[:5])}}},\n"
+        bib += f"  year = {{{year}}},\n"
+        if journal:
+            bib += f"  journal = {{{journal}}},\n"
+        if doi:
+            bib += f"  doi = {{{doi}}},\n"
+        bib += "}\n"
+        bibtex_entries.append(bib)
+
+    return {
+        "ok": True,
+        "bibliography": "\n".join(bib_entries),
+        "bibtex": "\n".join(bibtex_entries),
+        "count": len(papers),
+    }
+
+
+def run_pipeline_phase(args):
+    """Run a specific phase of the v5.6 research pipeline.
+    Args: {phase, query, study_design, papers, api_key, provider, model, ...}
+    Returns: phase-specific results"""
+    phase = args.get("phase", "")
+    query = args.get("query", "")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "google")
+    model = args.get("model", "")
+    tavily_api_key = args.get("tavily_api_key", "")
+    brave_api_key = args.get("brave_api_key", "")
+    firecrawl_api_key = args.get("firecrawl_api_key", "")
+
+    if not api_key:
+        return {"error": "API key required."}
+
+    if phase == "validate":
+        return validate_research_query(args)
+
+    elif phase == "generate_queries":
+        return generate_search_queries(args)
+
+    elif phase == "harvest":
+        # Run all search queries across multiple databases
+        search_queries = args.get("search_queries", [])
+        if not search_queries:
+            search_queries = [{"db": "pubmed", "query_string": query},
+                              {"db": "semantic_scholar", "query_string": query},
+                              {"db": "openalex", "query_string": query}]
+
+        all_papers = []
+        sources_used = []
+
+        for sq in search_queries:
+            db = sq.get("db", "").lower()
+            q = sq.get("query_string", query)
+            max_r = sq.get("max_results", 15)
+
+            if db == "pubmed":
+                papers = _search_pubmed(q, max_r)
+                all_papers.extend(papers)
+                if papers:
+                    sources_used.append("PubMed")
+                time.sleep(0.5)
+            elif db in ("semantic_scholar", "s2"):
+                papers = _search_semantic_scholar(q, max_r)
+                all_papers.extend(papers)
+                if papers:
+                    sources_used.append("Semantic Scholar")
+                time.sleep(1.0)
+            elif db == "openalex":
+                papers = _search_openalex(q, max_r)
+                all_papers.extend(papers)
+                if papers:
+                    sources_used.append("OpenAlex")
+                time.sleep(0.5)
+            elif db == "arxiv":
+                papers = _search_arxiv(q, max_r)
+                all_papers.extend(papers)
+                if papers:
+                    sources_used.append("arXiv")
+                time.sleep(1.0)
+            elif db == "web":
+                # Also search web for grey literature
+                web_results = []
+                if brave_api_key:
+                    br = _web_search_brave(q, brave_api_key, 5)
+                    web_results.extend(br.get("results", []))
+                if tavily_api_key:
+                    tv = _web_search_tavily(q, tavily_api_key, 5)
+                    web_results.extend(tv.get("results", []))
+                if not web_results:
+                    ddg = _web_search_duckduckgo(q, 5)
+                    web_results.extend(ddg.get("results", []))
+                # Convert web results to paper-like format
+                for wr in web_results:
+                    all_papers.append({
+                        "title": wr.get("title", ""), "authors": [],
+                        "year": "", "abstract": wr.get("snippet", ""),
+                        "doi": "", "citations": 0,
+                        "url": wr.get("url", ""), "source": f"Web ({wr.get('source', 'search')})",
+                    })
+                if web_results:
+                    sources_used.append("Web Search")
+
+        # Deduplicate by title
+        seen = set()
+        unique = []
+        for p in all_papers:
+            key = re.sub(r'[^a-z0-9]+', ' ', p.get("title", "").lower()).strip()[:80]
+            if key and key not in seen:
+                seen.add(key)
+                unique.append(p)
+
+        # Enrich top papers with CrossRef citation counts
+        for p in unique[:30]:
+            if p.get("doi") and p.get("citations", 0) == 0:
+                enriched = _enrich_crossref(p["doi"])
+                if enriched.get("citations"):
+                    p["citations"] = enriched["citations"]
+                if enriched.get("journal"):
+                    p["journal"] = enriched["journal"]
+                time.sleep(0.2)
+
+        unique.sort(key=lambda x: x.get("citations", 0), reverse=True)
+
+        return {"ok": True, "papers": unique, "total": len(unique),
+                "sources": sources_used}
+
+    elif phase == "triage":
+        return triage_papers(args)
+
+    elif phase == "acquire":
+        return acquire_papers(args)
+
+    elif phase == "extract":
+        # Extract text from downloaded PDFs
+        paths = args.get("paths", [])
+        results = []
+        for path in paths[:30]:
+            ext_result = extract_pdf_text({"path": path})
+            results.append({
+                "path": path,
+                "ok": "error" not in ext_result,
+                "text": ext_result.get("text", "")[:5000],
+                "pages": ext_result.get("pages", 0),
+                "error": ext_result.get("error"),
+            })
+        return {"ok": True, "results": results,
+                "extracted_count": sum(1 for r in results if r["ok"])}
+
+    elif phase == "draft":
+        return draft_research_section(args)
+
+    elif phase == "verify_citations":
+        return verify_citations(args)
+
+    elif phase == "novelty_check":
+        return check_novelty(args)
+
+    elif phase == "smooth":
+        return smooth_manuscript(args)
+
+    elif phase == "compile_refs":
+        return compile_references(args)
+
+    else:
+        return {"error": f"Unknown pipeline phase: {phase}"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ██  PUBLIC ACTIONS (registered in process_files.py ACTIONS dict)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -470,10 +1287,24 @@ def research_chat(args):
     tool_desc = ""
     if enabled_tools:
         tools = []
+        # ── Primary tools (v5.6 pipeline) ──
+        if "pubmed" in enabled_tools:
+            tools.append("- PUBMED_SEARCH: Search PubMed/MEDLINE for biomedical literature with MeSH terms")
         if "literature" in enabled_tools:
             tools.append("- LITERATURE_SEARCH: Search academic papers on arXiv, Semantic Scholar, and OpenAlex")
         if "web_search" in enabled_tools:
             tools.append("- WEB_SEARCH: Search the web for information (uses Brave, Tavily, Firecrawl, DuckDuckGo — aggregated & deduplicated)")
+        if "scihub" in enabled_tools:
+            tools.append("- SCIHUB_FETCH: Download a paper PDF via Sci-Hub/Unpaywall given a DOI")
+        if "validate_query" in enabled_tools:
+            tools.append("- VALIDATE_QUERY: Validate if a research question is suitable for systematic review")
+        if "mesh_queries" in enabled_tools:
+            tools.append("- MESH_QUERIES: Generate optimized MeSH/Boolean search strings for a research question")
+        if "triage" in enabled_tools:
+            tools.append("- TRIAGE: Screen papers for relevance to the research question")
+        if "draft_section" in enabled_tools:
+            tools.append("- DRAFT_SECTION: Draft a specific section of a research paper with citations")
+        # ── Auxiliary tools ──
         if "pdf_extract" in enabled_tools:
             tools.append("- PDF_EXTRACT: Extract text from PDF files")
         if "novelty" in enabled_tools:
@@ -488,13 +1319,19 @@ def research_chat(args):
                 "\n".join(tools) +
                 "\n\nWhen you need to use a tool, include a tool call tag in your response like: "
                 "[TOOL:TOOL_NAME]{\"param\": \"value\"}[/TOOL]\n"
+                "For PUBMED_SEARCH: {\"query\": \"...\", \"max_results\": 20}\n"
                 "For LITERATURE_SEARCH: {\"query\": \"...\", \"max_results\": 5}\n"
                 "For WEB_SEARCH: {\"query\": \"...\"}\n"
+                "For SCIHUB_FETCH: {\"doi\": \"10.1234/example\"}\n"
+                "For VALIDATE_QUERY: {\"query\": \"your research question\"}\n"
+                "For MESH_QUERIES: {\"query\": \"research question\", \"domain\": \"biomedical\"}\n"
+                "For TRIAGE: {\"papers\": [{\"title\":\"...\",\"abstract\":\"...\"}], \"query\": \"...\"}\n"
+                "For DRAFT_SECTION: {\"section_type\": \"introduction\", \"query\": \"...\", \"papers_context\": \"...\"}\n"
                 "For PDF_EXTRACT: {\"path\": \"...\"}\n"
                 "For NOVELTY_CHECK: {\"idea\": \"...\"}\n"
                 "For CITATION_VERIFY: {\"citations\": [\"title1\", \"title2\"]}\n"
                 "For EXPERIMENT: {\"code\": \"print('hello')\", \"timeout_sec\": 30}\n"
-                "Always explain what you found after using a tool."
+                "You can use multiple tools in a single response. Always explain what you found after using a tool."
             )
 
     full_system = system_prompt + tool_desc
@@ -784,6 +1621,69 @@ def _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key
         else:
             summary = f"Experiment failed: {exp_result.get('stderr', exp_result.get('error', 'Unknown error'))}"
         return {"tool_name": "EXPERIMENT", "type": "code", "data": exp_result, "summary": summary}
+
+    # ── V5.6 Pipeline Tools ──
+
+    elif tool_name == "PUBMED_SEARCH":
+        query = tool_args.get("query", "")
+        max_results = tool_args.get("max_results", 20)
+        papers = _search_pubmed(query, max_results)
+        summary = f"PubMed: Found {len(papers)} papers for '{query}'."
+        if papers:
+            summary += " Top: " + "; ".join([f"\"{p['title'][:60]}\" ({p.get('year','?')})" for p in papers[:3]])
+        return {"tool_name": "PUBMED_SEARCH", "type": "papers", "data": papers, "summary": summary}
+
+    elif tool_name == "SCIHUB_FETCH":
+        doi = tool_args.get("doi", "")
+        if not doi:
+            return {"tool_name": "SCIHUB_FETCH", "type": "text", "data": None, "summary": "No DOI provided."}
+        # Try Unpaywall first (legal OA), then Sci-Hub
+        result = _fetch_unpaywall(doi)
+        if not result.get("ok"):
+            result = _fetch_scihub(doi)
+        if result.get("ok"):
+            summary = f"Downloaded paper (DOI: {doi}) → {result['path']} ({result.get('size', 0) // 1024}KB)"
+        else:
+            summary = f"Could not download DOI {doi}: {result.get('error', 'unknown')}"
+        return {"tool_name": "SCIHUB_FETCH", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "VALIDATE_QUERY":
+        vq = validate_research_query({**tool_args, "api_key": api_key, "provider": provider, "model": model})
+        if vq.get("ok"):
+            valid = "VALID" if vq.get("is_valid") else "INVALID"
+            summary = f"Query validation: {valid}. {vq.get('reason', '')[:200]}"
+            if vq.get("keywords"):
+                summary += f"\nKeywords: {', '.join(vq['keywords'][:8])}"
+        else:
+            summary = vq.get("error", "Validation failed")
+        return {"tool_name": "VALIDATE_QUERY", "type": "text", "data": vq, "summary": summary}
+
+    elif tool_name == "MESH_QUERIES":
+        mq = generate_search_queries({**tool_args, "api_key": api_key, "provider": provider, "model": model})
+        if mq.get("ok"):
+            queries = mq.get("queries", [])
+            summary = f"Generated {len(queries)} search queries:\n"
+            for q in queries[:5]:
+                summary += f"  [{q.get('db','')}] {q.get('query_string','')[:80]}\n"
+        else:
+            summary = mq.get("error", "Query generation failed")
+        return {"tool_name": "MESH_QUERIES", "type": "text", "data": mq, "summary": summary}
+
+    elif tool_name == "TRIAGE":
+        tr = triage_papers({**tool_args, "api_key": api_key, "provider": provider, "model": model})
+        if tr.get("ok"):
+            summary = f"Screened {tr.get('total_screened', 0)} papers: {tr.get('relevant_count', 0)} relevant."
+        else:
+            summary = tr.get("error", "Triage failed")
+        return {"tool_name": "TRIAGE", "type": "text", "data": tr, "summary": summary}
+
+    elif tool_name == "DRAFT_SECTION":
+        ds = draft_research_section({**tool_args, "api_key": api_key, "provider": provider, "model": model})
+        if ds.get("ok"):
+            summary = f"Drafted '{ds.get('section_type', 'section')}' ({len(ds.get('text', ''))} chars, {ds.get('citations_used', 0)} citations)"
+        else:
+            summary = ds.get("error", "Drafting failed")
+        return {"tool_name": "DRAFT_SECTION", "type": "text", "data": ds, "summary": summary}
 
     else:
         return {"tool_name": tool_name, "type": "text", "data": None, "summary": f"Unknown tool: {tool_name}"}

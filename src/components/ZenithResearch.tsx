@@ -7,7 +7,10 @@ import {
   type ResearchMessage,
   type PaperResult,
   type PipelinePhase,
+  type PipelineState,
   type StudyDesign,
+  type PipelineStepConfig,
+  type PipelineConfig,
 } from "../stores/useResearchStore";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -22,6 +25,7 @@ interface ZenithSettings {
   tavily_api_key?: string;
   brave_api_key?: string;
   firecrawl_api_key?: string;
+  pipeline_config?: PipelineConfig;
   [key: string]: unknown;
 }
 
@@ -48,7 +52,7 @@ const PROVIDER_MODELS: Record<string, { id: string; label: string }[]> = {
     { id: "claude-opus-4-6-20260310", label: "Claude Opus 4.6" },
   ],
   google: [
-    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+    { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash" },
     { id: "gemini-3-flash-preview", label: "Gemini 3 Flash" },
     { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
     { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
@@ -79,6 +83,8 @@ const RESEARCH_TOOLS = [
   { id: "novelty", label: "Novelty Check", icon: "fa-lightbulb", desc: "Score idea novelty", group: "auxiliary" },
   { id: "citation_verify", label: "Citation Verify", icon: "fa-check-double", desc: "3-layer verification", group: "auxiliary" },
   { id: "experiment", label: "Experiment", icon: "fa-flask", desc: "Run sandboxed code", group: "auxiliary" },
+  { id: "generate_chart", label: "Chart Gen", icon: "fa-chart-bar", desc: "Generate charts (bar, line, pie)", group: "auxiliary" },
+  { id: "generate_table", label: "Table Gen", icon: "fa-table", desc: "Generate formatted tables", group: "auxiliary" },
 ];
 
 const EXPORT_FORMATS = [
@@ -91,21 +97,18 @@ const EXPORT_FORMATS = [
 
 const PRICING: Record<string, Record<string, { input: number; output: number }>> = {
   openai: {
-    "gpt-4.1-nano": { input: 0.10, output: 0.40 }, "gpt-4o-mini": { input: 0.15, output: 0.60 },
-    "gpt-4.1-mini": { input: 0.40, output: 1.60 }, "o3-mini": { input: 1.10, output: 4.40 },
-    "o4-mini": { input: 1.10, output: 4.40 }, "gpt-4.1": { input: 2.00, output: 8.00 },
-    "gpt-4o": { input: 2.50, output: 10.00 },
-    "gpt-5.4-nano": { input: 0.20, output: 1.25 }, "gpt-5.4-mini": { input: 0.40, output: 2.50 },
-    "gpt-5.4": { input: 3.00, output: 12.00 },
+    "gpt-4.1-mini": { input: 0.15, output: 0.60 },
+    "gpt-4.1": { input: 2.50, output: 10.00 },
+    "gpt-5.4-nano": { input: 5.00, output: 15.00 },
   },
   anthropic: {
-    "claude-haiku-4-5-20250514": { input: 1.00, output: 5.00 }, "claude-sonnet-4-20250514": { input: 3.00, output: 15.00 },
-    "claude-sonnet-4-5-20260115": { input: 3.00, output: 15.00 }, "claude-opus-4-20250918": { input: 5.00, output: 25.00 },
+    "claude-haiku-4-5-20250514": { input: 0.25, output: 1.25 },
+    "claude-sonnet-4-5-20260115": { input: 3.00, output: 15.00 },
     "claude-opus-4-6-20260310": { input: 5.00, output: 25.00 },
   },
   google: {
-    "gemini-2.5-flash": { input: 0.15, output: 0.60 }, "gemini-3-flash-preview": { input: 0.50, output: 3.00 },
-    "gemini-2.5-pro": { input: 1.25, output: 10.00 }, "gemini-3.1-pro-preview": { input: 2.00, output: 12.00 },
+    "gemini-3.1-flash-lite-preview": { input: 0.075, output: 0.30 }, "gemini-3.0-flash": { input: 0.15, output: 0.60 },
+    "gemini-3.1-pro-preview": { input: 1.25, output: 5.00 }, "gemini-3.0-pro": { input: 1.25, output: 5.00 },
   },
   deepseek: { "deepseek-chat": { input: 0.27, output: 1.10 }, "deepseek-reasoner": { input: 0.55, output: 2.19 } },
   groq: { "llama-3.3-70b-versatile": { input: 0.59, output: 0.79 }, "llama-3.1-8b-instant": { input: 0.05, output: 0.08 }, "gemma2-9b-it": { input: 0.20, output: 0.20 } },
@@ -118,8 +121,12 @@ const PIPELINE_PHASES: { id: PipelinePhase; label: string; icon: string; desc: s
   { id: "triaging", label: "Triage Agent", icon: "fa-filter", desc: "Screen for relevance" },
   { id: "acquiring", label: "Acquisition", icon: "fa-download", desc: "Download via Sci-Hub/OA" },
   { id: "extracting", label: "PDF Parser", icon: "fa-file-pdf", desc: "Extract text from PDFs" },
-  { id: "drafting", label: "Lead Author", icon: "fa-pen-nib", desc: "Draft sections" },
-  { id: "verifying", label: "Quality Swarm", icon: "fa-check-double", desc: "Verify citations" },
+  { id: "ingesting", label: "Vector DB", icon: "fa-database", desc: "Build semantic search index" },
+  { id: "blueprinting", label: "Blueprint Agent", icon: "fa-sitemap", desc: "Plan paper structure" },
+  { id: "drafting", label: "Lead Author", icon: "fa-pen-nib", desc: "Draft sections with figures/tables" },
+  { id: "generating_figures", label: "Data Analyst", icon: "fa-chart-bar", desc: "Generate charts & tables" },
+  { id: "citation_verifying", label: "Citation Verifier", icon: "fa-check-double", desc: "Verify citation integrity" },
+  { id: "guidelines_checking", label: "Guidelines Check", icon: "fa-clipboard-check", desc: "Check reporting compliance" },
   { id: "smoothing", label: "Smoothing Pass", icon: "fa-wand-magic-sparkles", desc: "Polish manuscript" },
   { id: "compiling", label: "Compiler", icon: "fa-file-export", desc: "Compile references" },
 ];
@@ -129,6 +136,11 @@ const STUDY_DESIGNS: { id: StudyDesign; label: string }[] = [
   { id: "meta_analysis", label: "Meta-Analysis" },
   { id: "narrative_review", label: "Narrative Review" },
   { id: "scoping_review", label: "Scoping Review" },
+  { id: "subject_review", label: "Subject Review" },
+  { id: "educational", label: "Educational" },
+  { id: "case_study", label: "Case Study" },
+  { id: "comparative", label: "Comparative Analysis" },
+  { id: "exploratory", label: "Exploratory Research" },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -180,6 +192,7 @@ export function ZenithResearch() {
     addMessage, removeMessagesFrom, setParams, setGenerating,
     setPipeline, resetPipeline, setViewMode,
     loadThreads, activeThread, totalCost,
+    addPipelineLog, addPipelineTokens,
   } = useResearchStore();
 
   // ── Local UI state
@@ -195,12 +208,14 @@ export function ZenithResearch() {
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [pipelineQuery, setPipelineQuery] = useState("");
   const [pipelineDesign, setPipelineDesign] = useState<StudyDesign>("systematic_review");
+  const [showLogs, setShowLogs] = useState(false);
   const [captchaDialog, setCaptchaDialog] = useState<{
     show: boolean; imgB64: string; doi: string; mirror: string;
     formAction: string; cookies: Record<string, string>;
     resolve: ((solution: string) => void) | null;
   }>({ show: false, imgB64: "", doi: "", mirror: "", formAction: "", cookies: {}, resolve: null });
   const [captchaSolution, setCaptchaSolution] = useState("");
+  const [expandedPipelineStep, setExpandedPipelineStep] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -352,8 +367,20 @@ export function ZenithResearch() {
       }
 
       if (isFirst && inputText.trim().length > 0) {
-        const title = inputText.trim().length > 50 ? inputText.trim().slice(0, 47) + "..." : inputText.trim();
-        renameThread(currentThread.id, title);
+        // Use LLM to generate a smart title
+        try {
+          const renameResult = JSON.parse(await invoke<string>("process_file", {
+            action: "run_pipeline_phase",
+            argsJson: JSON.stringify({ phase: "auto_rename", content: inputText.trim(), api_key: params.api_key, provider: params.provider, model: params.model }),
+          }));
+          if (renameResult?.ok && renameResult.title) {
+            renameThread(currentThread.id, renameResult.title);
+          } else {
+            renameThread(currentThread.id, inputText.trim().length > 50 ? inputText.trim().slice(0, 47) + "..." : inputText.trim());
+          }
+        } catch {
+          renameThread(currentThread.id, inputText.trim().length > 50 ? inputText.trim().slice(0, 47) + "..." : inputText.trim());
+        }
       }
     } catch (e) {
       addMessage(currentThread.id, {
@@ -373,12 +400,35 @@ export function ZenithResearch() {
     }
 
     pipelineAbortRef.current = false;
-    setPipeline({ active: true, phase: "validating", progress: 0, query: pipelineQuery, studyDesign: pipelineDesign, error: null, papers: [], relevantPapers: [], acquiredPdfs: [], extractedTexts: [], searchQueries: [], draftSections: [], manuscript: "", bibliography: "" });
+    setPipeline({ active: true, phase: "validating", progress: 0, query: pipelineQuery, studyDesign: pipelineDesign, error: null, papers: [], relevantPapers: [], acquiredPdfs: [], extractedTexts: [], searchQueries: [], blueprint: null, draftSections: [], citationIssues: [], guidelinesIssues: [], manuscript: "", bibliography: "", logs: [], totalTokens: { input: 0, output: 0, cost: 0 } });
+    const log = (phase: string, message: string, level: "info" | "warn" | "error" | "success" = "info") => addPipelineLog(phase, message, level);
+    const trackPipelineTokens = (result: Record<string, unknown>) => {
+      const tokens = result?.tokens as { input_tokens?: number; output_tokens?: number } | undefined;
+      if (tokens) {
+        const inp = tokens.input_tokens || 0;
+        const out = tokens.output_tokens || 0;
+        const cost = estimateCost(params.provider, params.model, inp, out);
+        addPipelineTokens(inp, out, cost);
+        trackTokenUsage(params.provider, params.model, inp, out, cost);
+      }
+    };
 
-    const pipelinePrompt = settings?.ai_prompts?.research_pipeline ?? "";
+    // Select the contextual prompt based on the chosen study design
+    const designPromptMap: Record<string, string> = {
+      systematic_review: "research_pipeline", meta_analysis: "research_pipeline",
+      narrative_review: "research_pipeline", scoping_review: "research_pipeline",
+      subject_review: "subject_review", educational: "educational",
+      case_study: "case_study", comparative: "comparative", exploratory: "exploratory",
+    };
+    const promptKey = designPromptMap[pipelineDesign] || "research_pipeline";
+    const prompts = settings?.ai_prompts as Record<string, string> | undefined;
+    const pipelinePrompt = prompts?.[promptKey] ?? prompts?.research_pipeline ?? "";
+    const pc = settings?.pipeline_config;
+    const stepConfig = (key: keyof PipelineConfig): PipelineStepConfig | undefined => pc?.[key];
     const baseArgs = {
       api_key: params.api_key, provider: params.provider, model: params.model,
       system_prompt: pipelinePrompt,
+      study_design: pipelineDesign,
       tavily_api_key: settings?.tavily_api_key ?? "",
       brave_api_key: (settings?.brave_api_key as string) ?? "",
       firecrawl_api_key: (settings?.firecrawl_api_key as string) ?? "",
@@ -386,29 +436,38 @@ export function ZenithResearch() {
 
     try {
       // Phase 1.1 — Gatekeeper
+      log("validate", "Validating research question...");
       setPipeline({ phase: "validating", progress: 5, statusMessage: "Validating research question..." });
       const validateResult = JSON.parse(await invoke<string>("process_file", {
         action: "run_pipeline_phase",
-        argsJson: JSON.stringify({ phase: "validate", query: pipelineQuery, ...baseArgs }),
+        argsJson: JSON.stringify({ phase: "validate", query: pipelineQuery, step_config: stepConfig("gatekeeper"), ...baseArgs }),
       }));
+      trackPipelineTokens(validateResult);
       if (pipelineAbortRef.current) return;
       if (!validateResult.ok || validateResult.is_valid === false) {
+        log("validate", `Query INVALID: ${validateResult.reason || validateResult.error || "Unknown"}`, "error");
         setPipeline({ phase: "error", error: `Query invalid: ${validateResult.reason || validateResult.error || "Unknown"}`, active: false });
         return;
       }
+      log("validate", `Query VALID. Domain: ${validateResult.domain || "general"}. Keywords: ${(validateResult.keywords || []).join(", ")}`, "success");
       setPipeline({ progress: 10, statusMessage: `Valid query. Domain: ${validateResult.domain || "general"}` });
 
       // Phase 1.2 — Query Architect
+      log("queries", "Generating optimized MeSH/Boolean search queries...");
       setPipeline({ phase: "generating_queries", progress: 15, statusMessage: "Generating optimized search queries..." });
       const queriesResult = JSON.parse(await invoke<string>("process_file", {
         action: "run_pipeline_phase",
-        argsJson: JSON.stringify({ phase: "generate_queries", query: pipelineQuery, domain: validateResult.domain, ...baseArgs }),
+        argsJson: JSON.stringify({ phase: "generate_queries", query: pipelineQuery, domain: validateResult.domain, step_config: stepConfig("query_architect"), ...baseArgs }),
       }));
+      trackPipelineTokens(queriesResult);
       if (pipelineAbortRef.current) return;
       const searchQueries = Array.isArray(queriesResult?.queries) ? queriesResult.queries : [{ db: "pubmed", query_string: pipelineQuery, description: "Direct search" }];
+      for (const sq of searchQueries) { log("queries", `[${sq.db}] ${sq.query_string?.slice(0, 80)}`); }
+      log("queries", `Generated ${searchQueries.length} search queries`, "success");
       setPipeline({ searchQueries, progress: 20, statusMessage: `Generated ${searchQueries.length} search queries` });
 
       // Phase 1.3 — Harvester
+      log("harvest", "Searching PubMed, Semantic Scholar, OpenAlex, arXiv...");
       setPipeline({ phase: "harvesting", progress: 25, statusMessage: "Searching PubMed, Semantic Scholar, OpenAlex, arXiv..." });
       const harvestResult = JSON.parse(await invoke<string>("process_file", {
         action: "run_pipeline_phase",
@@ -416,33 +475,40 @@ export function ZenithResearch() {
       }));
       if (pipelineAbortRef.current) return;
       const allPapers: PaperResult[] = Array.isArray(harvestResult?.papers) ? harvestResult.papers : [];
-      setPipeline({ papers: allPapers, progress: 40, statusMessage: `Found ${allPapers.length} papers from ${(harvestResult?.sources || []).join(", ")}` });
+      const sources = (harvestResult?.sources || []).join(", ");
+      log("harvest", `Found ${allPapers.length} unique papers from: ${sources}`, allPapers.length > 0 ? "success" : "warn");
+      setPipeline({ papers: allPapers, progress: 40, statusMessage: `Found ${allPapers.length} papers from ${sources}` });
 
       if (allPapers.length === 0) {
+        log("harvest", "No papers found. Pipeline halted.", "error");
         setPipeline({ phase: "error", error: "No papers found. Try broadening your query.", active: false });
         return;
       }
 
       // Phase 1.4 — Triage
+      log("triage", `Screening ${allPapers.length} papers for relevance...`);
       setPipeline({ phase: "triaging", progress: 45, statusMessage: `Screening ${allPapers.length} papers for relevance...` });
       const triageResult = JSON.parse(await invoke<string>("process_file", {
         action: "run_pipeline_phase",
-        argsJson: JSON.stringify({ phase: "triage", papers: allPapers.slice(0, 40), query: pipelineQuery, ...baseArgs }),
+        argsJson: JSON.stringify({ phase: "triage", papers: allPapers.slice(0, 40), query: pipelineQuery, step_config: stepConfig("triage_agent"), ...baseArgs }),
       }));
+      trackPipelineTokens(triageResult);
       if (pipelineAbortRef.current) return;
       const relevant = triageResult.ok
         ? allPapers.filter((_: PaperResult, i: number) => triageResult.results?.[i]?.is_relevant !== false)
         : allPapers;
+      log("triage", `${relevant.length}/${allPapers.length} papers deemed relevant`, "success");
       setPipeline({ relevantPapers: relevant, progress: 55, statusMessage: `${relevant.length}/${allPapers.length} papers relevant` });
 
       // Phase 1.5 — Acquisition
       const papersWithDoi = relevant.filter((p: PaperResult) => p.doi).slice(0, 15);
       let acquired: { doi: string; path: string; title: string }[] = [];
       if (papersWithDoi.length > 0) {
-        setPipeline({ phase: "acquiring", progress: 58, statusMessage: `Acquiring ${papersWithDoi.length} papers via Sci-Hub/Unpaywall...` });
+        log("acquire", `Acquiring ${papersWithDoi.length} papers with DOIs (Unpaywall → Sci-Hub)...`);
+        setPipeline({ phase: "acquiring", progress: 58, statusMessage: `Acquiring ${papersWithDoi.length} papers via Unpaywall/Sci-Hub...` });
         const acquireResult = JSON.parse(await invoke<string>("process_file", {
           action: "run_pipeline_phase",
-          argsJson: JSON.stringify({ phase: "acquire", papers: papersWithDoi, skip_unpaywall: true, ...baseArgs }),
+          argsJson: JSON.stringify({ phase: "acquire", papers: papersWithDoi, skip_unpaywall: false, ...baseArgs }),
         }));
         if (pipelineAbortRef.current) return;
         acquired = Array.isArray(acquireResult?.acquired) ? acquireResult.acquired : [];
@@ -476,10 +542,17 @@ export function ZenithResearch() {
           } catch { /* CAPTCHA solve failed, skip this paper */ }
         }
 
+        // Log acquisition failures
+        const failedPapers = acquireResult?.failed ?? [];
+        for (const fp of failedPapers) {
+          log("acquire", `FAILED: "${(fp.title || fp.doi || "unknown").slice(0, 50)}" — ${fp.error || "unknown error"}`, "warn");
+        }
+        log("acquire", `Acquired ${acquired.length}/${papersWithDoi.length} full-text PDFs (${failedPapers.length} failed)`, acquired.length > 0 ? "success" : "warn");
         setPipeline({ acquiredPdfs: acquired, progress: 65, statusMessage: `Acquired ${acquired.length}/${papersWithDoi.length} full-text PDFs` });
 
         // Phase 2.1 — Extract text
         if (acquired.length > 0) {
+          log("extract", `Extracting text from ${acquired.length} PDFs...`);
           setPipeline({ phase: "extracting", progress: 68, statusMessage: "Extracting text from PDFs..." });
           const paths = acquired.map((a) => a.path);
           const extractResult = JSON.parse(await invoke<string>("process_file", {
@@ -488,75 +561,371 @@ export function ZenithResearch() {
           }));
           if (pipelineAbortRef.current) return;
           const extracted = Array.isArray(extractResult?.results) ? extractResult.results.filter((r: { ok: boolean }) => r.ok) : [];
+          const extractFailed = Array.isArray(extractResult?.results) ? extractResult.results.filter((r: { ok: boolean }) => !r.ok) : [];
+          for (const ef of extractFailed) { log("extract", `PDF extract failed: ${ef.path} — ${ef.error || "unknown"}`, "warn"); }
+          log("extract", `Extracted text from ${extracted.length}/${acquired.length} PDFs`, "success");
           setPipeline({ extractedTexts: extracted, progress: 72, statusMessage: `Extracted text from ${extracted.length} PDFs` });
         }
       } else {
         setPipeline({ progress: 72, statusMessage: "No DOIs available for full-text acquisition — using abstracts" });
       }
 
-      // Phase 3 — Drafting
+      // Phase 2.2 — Vector DB Ingestion (GraphRAG)
+      if (pipelineAbortRef.current) return;
+      const currentExtracted = useResearchStore.getState().pipeline.extractedTexts;
+      const projectId = currentThread?.id || "default";
+      if (currentExtracted.length > 0) {
+        log("vectordb", "Ingesting texts into vector database for semantic retrieval...");
+        setPipeline({ progress: 73, statusMessage: "Building vector database..." });
+        const vdbPapers = currentExtracted.map((e, i) => ({
+          title: acquired[i]?.title || `Paper ${i + 1}`,
+          doi: acquired[i]?.doi || "",
+          text: e.text || "",
+        }));
+        const vdbResult = JSON.parse(await invoke<string>("process_file", {
+          action: "run_pipeline_phase",
+          argsJson: JSON.stringify({ phase: "ingest_vectordb", project_id: projectId, papers: vdbPapers, query: pipelineQuery }),
+        }));
+        if (vdbResult.warning) {
+          log("vectordb", vdbResult.warning, "warn");
+        } else {
+          log("vectordb", `Stored ${vdbResult.chunks_stored} chunks in vector DB (${vdbResult.collection_size} total)`, "success");
+        }
+      }
+
+      // Phase 3.1 — Blueprint Agent
+      if (pipelineAbortRef.current) return;
+      log("blueprint", "Generating paper blueprint (structure, figures, tables)...");
+      setPipeline({ phase: "blueprinting", progress: 74, statusMessage: "Generating paper blueprint..." });
+
       const papersContext = relevant.slice(0, 20).map((p: PaperResult, i: number) =>
         `[${i + 1}] "${p.title}" (${p.authors?.slice(0, 3).join(", ") || "Unknown"}, ${p.year || "n.d."}). ${p.abstract?.slice(0, 300) || ""}`
       ).join("\n");
 
-      const sectionTypes = ["introduction", "methodology", "results", "discussion"];
-      const draftSections: { type: string; text: string }[] = [];
+      // Include extracted full-text for richer context
+      const extractedContext = useResearchStore.getState().pipeline.extractedTexts
+        .slice(0, 10).map((e) => e.text?.slice(0, 2000) || "").filter(Boolean).join("\n---\n");
+
+      const blueprintResult = JSON.parse(await invoke<string>("process_file", {
+        action: "run_pipeline_phase",
+        argsJson: JSON.stringify({
+          phase: "blueprint", query: pipelineQuery,
+          papers_context: papersContext, extracted_texts: extractedContext,
+          step_config: stepConfig("blueprint_agent"), ...baseArgs,
+        }),
+      }));
+      trackPipelineTokens(blueprintResult);
+      if (pipelineAbortRef.current) return;
+
+      let blueprint: PipelineState["blueprint"] = null;
+      if (blueprintResult.ok) {
+        blueprint = {
+          sections: blueprintResult.sections || [],
+          figure_plan: blueprintResult.figure_plan || [],
+          table_plan: blueprintResult.table_plan || [],
+          guidelines_map: blueprintResult.guidelines_map || {},
+        };
+        setPipeline({ blueprint, progress: 78 });
+        log("blueprint", `Blueprint: ${blueprint.sections.length} sections, ${blueprint.figure_plan.length} figures, ${blueprint.table_plan.length} tables`, "success");
+      } else {
+        log("blueprint", `Blueprint generation failed: ${blueprintResult.error || "unknown"} — using default structure`, "warn");
+      }
+
+      // Phase 3.2 — Lead Author: draft each section
+      const sectionTypes = blueprint?.sections?.length
+        ? blueprint.sections.map((s) => s.id || s.title.toLowerCase().replace(/\s+/g, "_"))
+        : ["introduction", "methodology", "results", "discussion"];
+      const sectionTitles = blueprint?.sections?.length
+        ? blueprint.sections.map((s) => s.title)
+        : ["Introduction", "Methodology", "Results", "Discussion"];
+      const draftSections: { type: string; text: string; figures?: string[]; tables?: string[] }[] = [];
 
       for (let si = 0; si < sectionTypes.length; si++) {
         if (pipelineAbortRef.current) return;
         const sType = sectionTypes[si];
-        const pct = 75 + (si / sectionTypes.length) * 15;
-        setPipeline({ phase: "drafting", progress: Math.round(pct), statusMessage: `Drafting ${sType}...` });
+        const sTitle = sectionTitles[si];
+        const pct = 78 + (si / sectionTypes.length) * 10;
+        log("draft", `Drafting "${sTitle}" (${si + 1}/${sectionTypes.length})...`);
+        setPipeline({ phase: "drafting", progress: Math.round(pct), statusMessage: `Drafting ${sTitle}...` });
+
+        const blueprintReqs = blueprint?.sections?.[si]
+          ? `Section: ${blueprint.sections[si].title}\nDescription: ${blueprint.sections[si].description}\nRequirements: ${blueprint.sections[si].requirements}`
+          : "";
 
         const draftResult = JSON.parse(await invoke<string>("process_file", {
           action: "run_pipeline_phase",
           argsJson: JSON.stringify({
             phase: "draft", section_type: sType, query: pipelineQuery,
-            papers_context: papersContext, guidelines: pipelineDesign === "meta_analysis" ? "PRISMA-MA" : "PRISMA",
-            ...baseArgs,
+            papers_context: papersContext, extracted_texts: extractedContext,
+            blueprint_requirements: blueprintReqs, project_id: projectId,
+            step_config: stepConfig("lead_author"), ...baseArgs,
           }),
         }));
+        trackPipelineTokens(draftResult);
         if (draftResult.ok) {
-          draftSections.push({ type: sType, text: draftResult.text });
+          draftSections.push({
+            type: sType, text: draftResult.text,
+            figures: draftResult.figures || [],
+            tables: draftResult.tables || [],
+          });
+          log("draft", `${sTitle}: ${draftResult.text.length} chars, ${draftResult.citations_used || 0} citations`, "success");
+        } else {
+          log("draft", `${sTitle}: FAILED — ${draftResult.error || "unknown error"}`, "error");
         }
       }
-      setPipeline({ draftSections, progress: 90, statusMessage: `Drafted ${draftSections.length} sections` });
+      setPipeline({ draftSections, progress: 85, statusMessage: `Drafted ${draftSections.length} sections` });
 
-      // Phase 3.3 — Verification (citation check)
+      // Phase 3.2b — Data Analyst: Generate figures & tables from blueprint plan
+      let genFigures: { description: string; caption: string; path: string; chart_type: string; size: number; index: number }[] = [];
+      let genTables: { description: string; caption: string; markdown: string; path: string; size: number; index: number }[] = [];
+      const figurePlan = blueprint?.figure_plan || [];
+      const tablePlan = blueprint?.table_plan || [];
+      if (figurePlan.length > 0 || tablePlan.length > 0 || draftSections.some(s => (s.figures?.length ?? 0) > 0)) {
+        if (pipelineAbortRef.current) return;
+        log("figures", `Generating ${figurePlan.length} figures + ${tablePlan.length} tables...`);
+        setPipeline({ phase: "generating_figures", progress: 86, statusMessage: "Generating charts & tables..." });
+        try {
+          const figResult = JSON.parse(await invoke<string>("process_file", {
+            action: "run_pipeline_phase",
+            argsJson: JSON.stringify({
+              phase: "generate_figures",
+              figure_plan: figurePlan,
+              table_plan: tablePlan,
+              draft_sections: draftSections,
+              papers_context: papersContext,
+              query: pipelineQuery,
+              ...baseArgs,
+            }),
+          }));
+          trackPipelineTokens(figResult);
+          if (figResult.ok) {
+            genFigures = figResult.figures || [];
+            genTables = figResult.tables || [];
+            setPipeline({ generatedFigures: genFigures, generatedTables: genTables });
+            const errCount = (figResult.errors || []).length;
+            log("figures", `Generated ${genFigures.length} figures, ${genTables.length} tables${errCount > 0 ? ` (${errCount} errors)` : ""}`, genFigures.length > 0 || genTables.length > 0 ? "success" : "warn");
+            if (errCount > 0) {
+              for (const err of (figResult.errors || []).slice(0, 5)) {
+                log("figures", err, "warn");
+              }
+            }
+          } else {
+            log("figures", `Figure generation failed: ${figResult.error || "unknown"}`, "error");
+          }
+        } catch (e) {
+          log("figures", `Figure generation error: ${String(e)}`, "error");
+        }
+      }
+      setPipeline({ progress: 87 });
+
+      // Phase 3.2c — Scientific Illustrator Agent: generate illustrations via Nano Banana Pro
       if (pipelineAbortRef.current) return;
-      setPipeline({ phase: "verifying", progress: 92, statusMessage: "Verifying citations..." });
+      {
+        log("illustrator", "Scientific Illustrator: generating illustrations via Nano Banana Pro...");
+        setPipeline({ phase: "generating_figures", progress: 87, statusMessage: "Generating scientific illustrations..." });
+        try {
+          const illResult = JSON.parse(await invoke<string>("process_file", {
+            action: "run_pipeline_phase",
+            argsJson: JSON.stringify({
+              phase: "illustrate",
+              draft_sections: draftSections,
+              figure_plan: figurePlan,
+              generated_figures: genFigures,
+              query: pipelineQuery,
+              ...baseArgs,
+            }),
+          }));
+          trackPipelineTokens(illResult);
+          if (illResult.ok) {
+            const newIllustrations = illResult.illustrations || [];
+            if (newIllustrations.length > 0) {
+              genFigures = [...genFigures, ...newIllustrations];
+              setPipeline({ generatedFigures: genFigures });
+              log("illustrator", `Generated ${newIllustrations.length} scientific illustration(s)`, "success");
+            } else {
+              log("illustrator", "No additional illustrations needed", "info");
+            }
+            const illErrors = illResult.errors || [];
+            for (const err of illErrors.slice(0, 5)) {
+              log("illustrator", err, "warn");
+            }
+          } else {
+            log("illustrator", `Illustrator failed: ${illResult.error || "unknown"}`, "error");
+          }
+        } catch (e) {
+          log("illustrator", `Illustrator error: ${String(e)}`, "error");
+        }
+      }
+      setPipeline({ progress: 88 });
+
+      // Phase 3.3 — Quality Swarm (Citation Verify + Guidelines Check) with retry loop
+      const MAX_SWARM_RETRIES = 2;
+      if (draftSections.length > 0) {
+        for (let swarmRound = 0; swarmRound <= MAX_SWARM_RETRIES; swarmRound++) {
+          if (pipelineAbortRef.current) return;
+          const isRetry = swarmRound > 0;
+          if (isRetry) log("quality_swarm", `Quality swarm retry ${swarmRound}/${MAX_SWARM_RETRIES}...`, "warn");
+
+          // 3.3a — Citation Verifier
+          log("citation_verify", `${isRetry ? "Re-v" : "V"}erifying citation integrity...`);
+          setPipeline({ phase: "citation_verifying", progress: 89, statusMessage: `${isRetry ? "Re-v" : "V"}erifying citations...` });
+          const cvResult = JSON.parse(await invoke<string>("process_file", {
+            action: "run_pipeline_phase",
+            argsJson: JSON.stringify({
+              phase: "citation_verify_swarm", sections: draftSections,
+              papers: relevant.slice(0, 30), query: pipelineQuery,
+              step_config: stepConfig("citation_verifier"), ...baseArgs,
+            }),
+          }));
+          trackPipelineTokens(cvResult);
+          const citIssues = cvResult.ok ? (cvResult.issues || []) : [];
+          setPipeline({ citationIssues: citIssues });
+          const criticalCitations = citIssues.filter((i: { severity: string }) => i.severity === "critical");
+          log("citation_verify", `Citation check: ${citIssues.length} issue(s), ${criticalCitations.length} critical`, criticalCitations.length > 0 ? "warn" : "success");
+
+          // 3.3b — Guidelines Compliance
+          if (pipelineAbortRef.current) return;
+          log("guidelines", `${isRetry ? "Re-c" : "C"}hecking reporting guidelines compliance...`);
+          setPipeline({ phase: "guidelines_checking", progress: 91, statusMessage: "Checking guidelines compliance..." });
+          const gcResult = JSON.parse(await invoke<string>("process_file", {
+            action: "run_pipeline_phase",
+            argsJson: JSON.stringify({
+              phase: "guidelines_check", sections: draftSections,
+              query: pipelineQuery,
+              guidelines_map: blueprint?.guidelines_map || {},
+              step_config: stepConfig("guidelines_compliance"), ...baseArgs,
+            }),
+          }));
+          trackPipelineTokens(gcResult);
+          const glItems = gcResult.ok ? (gcResult.checklist || []) : [];
+          const glIssues = glItems.filter((it: { status: string }) => it.status !== "met");
+          setPipeline({ guidelinesIssues: glIssues });
+          const met = glItems.length - glIssues.length;
+          log("guidelines", `Guidelines: ${met}/${glItems.length} items met`, glIssues.length === 0 ? "success" : "warn");
+
+          // If no critical issues, break the retry loop
+          if (criticalCitations.length === 0 && glIssues.length <= 2) {
+            log("quality_swarm", "Quality swarm passed — proceeding to smoothing", "success");
+            break;
+          }
+
+          // If at max retries, mark sections with [MANUAL REVIEW REQUIRED]
+          if (swarmRound === MAX_SWARM_RETRIES) {
+            log("quality_swarm", `Max retries reached — inserting [MANUAL REVIEW REQUIRED] tags`, "warn");
+            for (const ds of draftSections) {
+              if (!ds.text.includes("[MANUAL REVIEW REQUIRED]")) {
+                ds.text += "\n\n> [MANUAL REVIEW REQUIRED] — Quality swarm flagged issues that could not be auto-resolved.\n";
+              }
+            }
+            setPipeline({ draftSections: [...draftSections] });
+            break;
+          }
+
+          // Redraft sections with critical issues (route back to Lead Author)
+          log("quality_swarm", `Redrafting sections to fix ${criticalCitations.length} citation + ${glIssues.length} guideline issues...`, "warn");
+          setPipeline({ phase: "drafting", progress: 87, statusMessage: "Redrafting to fix quality issues..." });
+          for (let si = 0; si < draftSections.length; si++) {
+            if (pipelineAbortRef.current) return;
+            const sType = draftSections[si].type;
+            const fixInstructions = [
+              ...criticalCitations.filter((c: { section: string }) => c.section.toLowerCase().includes(sType)).map((c: { issue: string }) => `Fix citation: ${c.issue}`),
+              ...glIssues.slice(0, 3).map((g: { item: string; fix: string }) => `Fix guideline: ${g.item} — ${g.fix}`),
+            ];
+            if (fixInstructions.length === 0) continue;
+
+            const redraftResult = JSON.parse(await invoke<string>("process_file", {
+              action: "run_pipeline_phase",
+              argsJson: JSON.stringify({
+                phase: "draft", section_type: sType, query: pipelineQuery,
+                papers_context: papersContext, extracted_texts: extractedContext,
+                guidelines: pipelineDesign === "meta_analysis" ? "PRISMA-MA" : "PRISMA",
+                blueprint_requirements: `REVISION — fix these issues:\n${fixInstructions.join("\n")}\n\nOriginal draft:\n${draftSections[si].text.slice(0, 4000)}`,
+                project_id: projectId, step_config: stepConfig("lead_author"), ...baseArgs,
+              }),
+            }));
+            trackPipelineTokens(redraftResult);
+            if (redraftResult.ok) {
+              draftSections[si] = { ...draftSections[si], text: redraftResult.text };
+              log("quality_swarm", `Redrafted ${sType}`, "info");
+            }
+          }
+          setPipeline({ draftSections: [...draftSections] });
+        }
+      }
 
       // Phase 4.1 — Smoothing
       if (draftSections.length > 0) {
-        setPipeline({ phase: "smoothing", progress: 94, statusMessage: "Polishing manuscript..." });
+        log("smooth", "Polishing manuscript — preserving all citations, tables, figures...");
+        setPipeline({ phase: "smoothing", progress: 93, statusMessage: "Polishing manuscript..." });
         const smoothResult = JSON.parse(await invoke<string>("process_file", {
           action: "run_pipeline_phase",
-          argsJson: JSON.stringify({ phase: "smooth", sections: draftSections, query: pipelineQuery, ...baseArgs }),
+          argsJson: JSON.stringify({
+            phase: "smooth", sections: draftSections, query: pipelineQuery,
+            papers: relevant.slice(0, 30), project_id: projectId,
+            generated_figures: genFigures,
+            generated_tables: genTables,
+            citation_issues: useResearchStore.getState().pipeline.citationIssues,
+            guidelines_issues: useResearchStore.getState().pipeline.guidelinesIssues,
+            step_config: stepConfig("smoothing_pass"), ...baseArgs,
+          }),
         }));
+        trackPipelineTokens(smoothResult);
         if (pipelineAbortRef.current) return;
         if (smoothResult.ok) {
+          log("smooth", `Manuscript polished: ${smoothResult.manuscript.length} chars`, "success");
           setPipeline({ manuscript: smoothResult.manuscript, progress: 97 });
+        } else {
+          log("smooth", `Smoothing failed: ${smoothResult.error || "unknown"}`, "error");
         }
       }
 
       // Phase 4.2 — Compile references
+      log("compile", "Compiling bibliography...");
       setPipeline({ phase: "compiling", progress: 98, statusMessage: "Compiling bibliography..." });
       const refsResult = JSON.parse(await invoke<string>("process_file", {
         action: "run_pipeline_phase",
         argsJson: JSON.stringify({ phase: "compile_refs", papers: relevant.slice(0, 30), ...baseArgs }),
       }));
       if (refsResult?.ok && refsResult.bibtex) {
+        log("compile", `Bibliography compiled: ${refsResult.count || 0} references`, "success");
         setPipeline({ bibliography: refsResult.bibtex });
       }
 
+      // Auto-rename thread
+      try {
+        const renameResult = JSON.parse(await invoke<string>("process_file", {
+          action: "run_pipeline_phase",
+          argsJson: JSON.stringify({ phase: "auto_rename", content: pipelineQuery, api_key: params.api_key, provider: params.provider, model: params.model }),
+        }));
+        if (renameResult?.ok && renameResult.title && currentThread) {
+          renameThread(currentThread.id, renameResult.title);
+        }
+      } catch { /* rename failed, keep default */ }
+
+      // Store pipeline results as messages in the chat thread for post-pipeline chatting
+      if (currentThread) {
+        addMessage(currentThread.id, {
+          id: uid(), role: "system", content: `Research pipeline completed for: "${pipelineQuery}"`,
+          type: "text", timestamp: Date.now(),
+        });
+        if (relevant.length > 0) {
+          addMessage(currentThread.id, {
+            id: uid(), role: "tool", content: `Found ${allPapers.length} papers, ${relevant.length} relevant, ${acquired.length} acquired`,
+            type: "papers", data: relevant.slice(0, 15), timestamp: Date.now(), tool_used: "Pipeline",
+          });
+        }
+      }
+
+      log("complete", `Pipeline complete! ${allPapers.length} papers → ${relevant.length} relevant → ${acquired.length} acquired. Manuscript: ${useResearchStore.getState().pipeline.manuscript.length} chars`, "success");
       setPipeline({ phase: "complete", progress: 100, active: false, statusMessage: "Research pipeline complete!" });
-      showToast("Pipeline complete! Review your manuscript in the results panel.");
+      showToast("Pipeline complete! Switch to Chat mode to discuss results, or export.");
 
     } catch (e) {
       setPipeline({ phase: "error", error: String(e), active: false });
       showToast(`Pipeline error: ${String(e)}`);
     }
-  }, [pipelineQuery, pipelineDesign, params, settings, setPipeline, showToast]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineQuery, pipelineDesign, params, settings, setPipeline, showToast, addPipelineLog, addPipelineTokens, addMessage, renameThread, currentThread]);
 
   // ── Cancel pipeline
   const handleCancelPipeline = useCallback(() => {
@@ -564,11 +933,51 @@ export function ZenithResearch() {
     setPipeline({ active: false, phase: "idle", statusMessage: "Cancelled by user" });
   }, [setPipeline]);
 
-  // ── Export chat
+  // ── Export chat or pipeline
   const handleExport = useCallback(async (format: string) => {
-    if (!currentThread || messages.length === 0) { showToast("Nothing to export"); return; }
+    if (!currentThread) { showToast("No active thread"); return; }
     setShowExportMenu(false);
+
+    const hasPipelineData = pipeline.manuscript || (pipeline.papers?.length ?? 0) > 0;
+    const hasMessages = messages.length > 0;
+
+    if (!hasPipelineData && !hasMessages) { showToast("Nothing to export"); return; }
+
     try {
+      // If we have pipeline data, use the snapshot export for comprehensive output
+      if (hasPipelineData) {
+        const argsJson = JSON.stringify({
+          manuscript: pipeline.manuscript,
+          papers: pipeline.relevantPapers || pipeline.papers || [],
+          bibliography: pipeline.bibliography,
+          query: pipeline.query,
+          study_design: pipeline.studyDesign,
+          logs: pipeline.logs,
+          thread_title: currentThread.title,
+          draft_sections: pipeline.draftSections,
+          generated_figures: pipeline.generatedFigures || [],
+          generated_tables: pipeline.generatedTables || [],
+          acquired_pdfs: pipeline.acquiredPdfs || [],
+          messages: messages.map((m) => ({ role: m.role, content: m.content, type: m.type, tool_used: m.tool_used })),
+          format,
+        });
+        const resultStr = await invoke<string>("process_file", { action: "export_research_snapshot", argsJson });
+        const result = JSON.parse(resultStr);
+        if (result.ok && result.folder) {
+          try { await invoke("reveal_in_folder", { path: result.folder }); } catch { /* */ }
+          addMessage(currentThread.id, {
+            id: uid(), role: "assistant", content: `Research exported: ${result.file_count} files`,
+            type: "export", data: { path: result.folder, format: "folder", size: 0, files: result.files }, timestamp: Date.now(),
+          });
+          showToast(`Exported ${result.file_count} files → ${result.folder.split(/[/\\]/).pop()}`);
+          return;
+        } else {
+          showToast(result.error || "Export failed");
+          return;
+        }
+      }
+
+      // Regular chat export
       const argsJson = JSON.stringify({
         messages: messages.map((m) => ({ role: m.role, content: m.content, type: m.type, data: m.data })),
         format, thread_title: currentThread.title,
@@ -578,7 +987,7 @@ export function ZenithResearch() {
       if (result.ok && result.path) {
         try { await invoke("stage_file", { path: result.path }); await emit("items-changed"); } catch { /* main window may be closed */ }
         addMessage(currentThread.id, {
-          id: crypto.randomUUID(), role: "assistant", content: `Exported as ${format.toUpperCase()}`,
+          id: uid(), role: "assistant", content: `Exported as ${format.toUpperCase()}`,
           type: "export", data: { path: result.path, format, size: result.size }, timestamp: Date.now(),
         });
         try { await invoke("open_file", { path: result.path }); } catch { /* silent */ }
@@ -589,7 +998,7 @@ export function ZenithResearch() {
     } catch (e) {
       showToast(`Export error: ${String(e)}`);
     }
-  }, [currentThread, messages, showToast, addMessage]);
+  }, [currentThread, messages, pipeline, showToast, addMessage]);
 
   // ── Retry
   const handleRetry = useCallback(() => {
@@ -739,7 +1148,7 @@ export function ZenithResearch() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* ══ LEFT PANEL — THREADS ══ */}
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {!leftCollapsed && (
             <motion.div initial={{ width: 0, opacity: 0 }} animate={{ width: 240, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
@@ -769,7 +1178,7 @@ export function ZenithResearch() {
                             : "hover:bg-white/[0.03] border border-transparent"
                         }`}>
                         <div className="flex items-center gap-2">
-                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${t.id === activeThreadId ? "bg-cyan-400" : "bg-white/15"}`} />
+                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${t.id === activeThreadId ? "bg-cyan-400" : "bg-white/15"}`} />
                           <span className="text-[12px] text-white/75 truncate flex-1">{t.title}</span>
                           <button onClick={(e) => { e.stopPropagation(); deleteThread(t.id); }}
                             className="opacity-0 group-hover:opacity-100 w-5 h-5 rounded flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
@@ -803,11 +1212,10 @@ export function ZenithResearch() {
         </AnimatePresence>
 
         {/* ══ CENTER — CHAT / PIPELINE AREA ══ */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden" style={{ background: "rgba(8,8,16,0.95)" }}>
 
-          {viewMode === "pipeline" ? (
-            /* ═══ PIPELINE MODE ═══ */
-            <div className="flex-1 overflow-y-auto px-6 py-4" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}>
+          {/* ═══ PIPELINE MODE ═══ */}
+          <div className={`flex-1 overflow-y-auto px-6 py-4 ${viewMode !== "pipeline" ? "hidden" : ""}`} style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}>
 
               {/* Pipeline input */}
               {!pipeline.active && pipeline.phase !== "complete" && (
@@ -908,7 +1316,88 @@ export function ZenithResearch() {
                         animate={{ width: `${pipeline.progress}%` }}
                         transition={{ duration: 0.5 }} />
                     </div>
+                    {/* Token cost + log toggle */}
+                    <div className="flex items-center justify-between mt-2">
+                      <div className="flex items-center gap-3 text-[10px]">
+                        <span className="text-white/30">
+                          <i className="fa-solid fa-coins text-[8px] mr-1 text-amber-400/40" />
+                          {fmtCost(pipeline.totalTokens.cost)}
+                        </span>
+                        <span className="text-white/20">
+                          <i className="fa-solid fa-arrow-down text-[7px] mr-0.5 text-cyan-400/30" />
+                          {pipeline.totalTokens.input.toLocaleString()} in
+                        </span>
+                        <span className="text-white/20">
+                          <i className="fa-solid fa-arrow-up text-[7px] mr-0.5 text-emerald-400/30" />
+                          {pipeline.totalTokens.output.toLocaleString()} out
+                        </span>
+                      </div>
+                      <button onClick={() => setShowLogs(!showLogs)}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] text-white/35 hover:text-white/70 hover:bg-white/5 transition-colors cursor-pointer"
+                        title="Toggle pipeline logs">
+                        <i className={`fa-solid ${showLogs ? "fa-chevron-up" : "fa-terminal"} text-[8px]`} />
+                        Logs{pipeline.logs.length > 0 && <span className="text-white/20 font-mono">({pipeline.logs.length})</span>}
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Pipeline Log Panel */}
+                  <AnimatePresence>
+                    {showLogs && pipeline.logs.length > 0 && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="rounded-xl mb-4 overflow-hidden"
+                        style={{ background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-white/4">
+                          <div className="flex items-center gap-1.5">
+                            <i className="fa-solid fa-terminal text-[9px] text-emerald-400/50" />
+                            <span className="text-[10px] font-medium text-white/40">Pipeline Log</span>
+                          </div>
+                          <button onClick={() => {
+                            const logText = pipeline.logs.map(l => `[${l.time}] [${l.phase}] [${l.level.toUpperCase()}] ${l.message}`).join("\n");
+                            navigator.clipboard.writeText(logText);
+                            showToast("Logs copied to clipboard");
+                          }}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[9px] text-white/25 hover:text-white/60 hover:bg-white/5 transition-colors cursor-pointer">
+                            <i className="fa-solid fa-copy text-[7px]" /> Copy All
+                          </button>
+                        </div>
+                        <div className="max-h-48 overflow-y-auto px-3 py-2 space-y-0.5 font-mono" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}>
+                          {pipeline.logs.map((log, i) => (
+                            <div key={i} className="flex items-start gap-2 text-[10px] leading-relaxed">
+                              <span className="text-white/15 shrink-0 w-[52px]">{log.time}</span>
+                              <span className={`shrink-0 w-[60px] truncate ${
+                                log.level === "success" ? "text-emerald-400/60" :
+                                log.level === "error" ? "text-red-400/70" :
+                                log.level === "warn" ? "text-amber-400/60" :
+                                "text-cyan-400/40"
+                              }`}>{log.phase}</span>
+                              <span className={`shrink-0 w-3 text-center ${
+                                log.level === "success" ? "text-emerald-400/50" :
+                                log.level === "error" ? "text-red-400/60" :
+                                log.level === "warn" ? "text-amber-400/50" :
+                                "text-white/15"
+                              }`}>
+                                <i className={`fa-solid ${
+                                  log.level === "success" ? "fa-check" :
+                                  log.level === "error" ? "fa-xmark" :
+                                  log.level === "warn" ? "fa-exclamation" :
+                                  "fa-circle"
+                                } text-[7px]`} />
+                              </span>
+                              <span className={`flex-1 wrap-break-word ${
+                                log.level === "success" ? "text-emerald-300/50" :
+                                log.level === "error" ? "text-red-300/60" :
+                                log.level === "warn" ? "text-amber-300/50" :
+                                "text-white/40"
+                              }`}>{log.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
                   {/* Error display */}
                   {pipeline.phase === "error" && pipeline.error && (
@@ -933,13 +1422,66 @@ export function ZenithResearch() {
                               Papers: {pipeline.papers?.length ?? 0} found → {pipeline.relevantPapers?.length ?? 0} relevant → {pipeline.acquiredPdfs?.length ?? 0} acquired
                             </span>
                           </div>
-                          <div className="space-y-1 max-h-40 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-                            {(pipeline.relevantPapers ?? []).slice(0, 10).map((p, i) => (
-                              <div key={i} className="text-[11px] text-white/50 truncate pl-2 border-l border-white/[0.06]">
-                                {p.title} <span className="text-white/25">({p.year})</span>
-                              </div>
-                            ))}
+                          <div className="space-y-1 max-h-52 overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}>
+                            {(pipeline.relevantPapers ?? []).slice(0, 20).map((p, i) => {
+                              const isAcquired = (pipeline.acquiredPdfs ?? []).some(a => a.doi === p.doi);
+                              return (
+                                <div key={i} className="flex items-start gap-1.5 text-[11px] text-white/50 pl-2 border-l-2 transition-colors"
+                                  style={{ borderColor: isAcquired ? "rgba(16,185,129,0.3)" : p.doi ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.04)" }}>
+                                  <i className={`fa-solid ${isAcquired ? "fa-file-pdf text-emerald-400/50" : p.doi ? "fa-circle-xmark text-red-400/30" : "fa-minus text-white/15"} text-[8px] mt-[3px] flex-shrink-0`} />
+                                  <span className="truncate flex-1">{p.title}</span>
+                                  <span className="text-white/20 flex-shrink-0">({p.year})</span>
+                                </div>
+                              );
+                            })}
                           </div>
+                          {(pipeline.relevantPapers?.length ?? 0) > 20 && (
+                            <div className="text-[9px] text-white/20 mt-1 pl-2">+{(pipeline.relevantPapers?.length ?? 0) - 20} more papers</div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Generated Figures & Tables */}
+                      {((pipeline.generatedFigures?.length ?? 0) > 0 || (pipeline.generatedTables?.length ?? 0) > 0) && (
+                        <div className="rounded-xl px-4 py-3" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                          <div className="flex items-center gap-2 mb-3">
+                            <i className="fa-solid fa-chart-bar text-amber-400/60 text-[11px]" />
+                            <span className="text-[11px] font-medium text-white/60">
+                              Generated Assets: {pipeline.generatedFigures?.length ?? 0} figures, {pipeline.generatedTables?.length ?? 0} tables
+                            </span>
+                          </div>
+                          {/* Figures grid */}
+                          {(pipeline.generatedFigures?.length ?? 0) > 0 && (
+                            <div className="grid grid-cols-2 gap-2 mb-2">
+                              {(pipeline.generatedFigures ?? []).map((fig, i) => (
+                                <div key={i} className="rounded-lg overflow-hidden" style={{ background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.04)" }}>
+                                  <div className="px-2 py-1.5" style={{ background: "rgba(255,255,255,0.03)" }}>
+                                    <div className="text-[10px] text-amber-400/60 font-medium">Figure {fig.index || i + 1}</div>
+                                    <div className="text-[9px] text-white/40 truncate">{fig.caption || fig.description}</div>
+                                  </div>
+                                  <div className="px-2 py-1 flex items-center gap-2">
+                                    <i className={`fa-solid ${fig.chart_type === "pie" ? "fa-chart-pie" : fig.chart_type === "line" ? "fa-chart-line" : fig.chart_type === "scatter" ? "fa-braille" : "fa-chart-bar"} text-[14px] text-cyan-400/40`} />
+                                    <div className="flex-1">
+                                      <div className="text-[9px] text-white/30">{fig.chart_type} chart</div>
+                                      <div className="text-[8px] text-white/15">{((fig.size || 0) / 1024).toFixed(0)} KB</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {/* Tables list */}
+                          {(pipeline.generatedTables?.length ?? 0) > 0 && (
+                            <div className="space-y-1">
+                              {(pipeline.generatedTables ?? []).map((tbl, i) => (
+                                <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded-lg" style={{ background: "rgba(255,255,255,0.02)" }}>
+                                  <i className="fa-solid fa-table text-[10px] text-emerald-400/40" />
+                                  <span className="text-[10px] text-white/50 flex-1 truncate">Table {tbl.index || i + 1}: {tbl.caption || tbl.description}</span>
+                                  <span className="text-[8px] text-white/20">{((tbl.size || 0) / 1024).toFixed(0)} KB</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -956,8 +1498,11 @@ export function ZenithResearch() {
                               <i className="fa-solid fa-copy mr-1" />Copy
                             </button>
                           </div>
-                          <div className="select-text max-h-64 overflow-y-auto text-[12px] text-white/60 leading-relaxed whitespace-pre-wrap" style={{ scrollbarWidth: "thin" }}>
-                            {pipeline.manuscript.slice(0, 3000)}{pipeline.manuscript.length > 3000 ? "\n\n[...truncated — copy full text]" : ""}
+                          <div className="select-text max-h-[500px] overflow-y-auto text-[12px] text-white/60 leading-relaxed whitespace-pre-wrap" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}>
+                            {pipeline.manuscript}
+                          </div>
+                          <div className="text-[9px] text-white/20 mt-2 pt-2 border-t border-white/4">
+                            {pipeline.manuscript.length.toLocaleString()} characters
                           </div>
                         </div>
                       )}
@@ -966,27 +1511,45 @@ export function ZenithResearch() {
 
                   {/* Controls */}
                   <div className="flex items-center gap-2 mt-4">
-                    {pipeline.active && (
+                    {pipeline.active ? (
                       <button onClick={handleCancelPipeline}
-                        className="px-4 py-2 rounded-xl text-[12px] font-medium text-red-400/70 hover:text-red-400 transition-colors cursor-pointer"
-                        style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)" }}>
-                        <i className="fa-solid fa-stop text-[9px] mr-1.5" /> Cancel
+                        className="px-4 py-2 rounded-xl text-[12px] font-medium text-red-400/70 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20 transition-all cursor-pointer"
+                        title="Stop Research">
+                        <i className="fa-solid fa-stop text-[10px] mr-1.5" />Stop Research
                       </button>
-                    )}
+                    ) : pipeline.phase === "error" || pipeline.phase === "complete" ? (
+                      <button onClick={handleRunPipeline}
+                        className="px-4 py-2 rounded-xl text-[12px] font-medium text-cyan-400 hover:text-cyan-300 hover:bg-cyan-400/10 border border-cyan-400/30 transition-all cursor-pointer"
+                        title="Retry Research">
+                        <i className="fa-solid fa-rotate-right text-[10px] mr-1.5" />Retry
+                      </button>
+                    ) : null}
                     {(pipeline.phase === "complete" || pipeline.phase === "error") && (
-                      <button onClick={() => resetPipeline()}
-                        className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/50 hover:text-white/80 transition-colors cursor-pointer"
-                        style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                        <i className="fa-solid fa-rotate-right text-[9px] mr-1.5" /> New Pipeline
-                      </button>
+                      <>
+                        <button onClick={() => { setViewMode("chat"); }}
+                          className="px-4 py-2 rounded-xl text-[12px] font-medium transition-colors cursor-pointer"
+                          style={{ background: "rgba(34,211,238,0.12)", border: "1px solid rgba(34,211,238,0.25)", color: "#67e8f9" }}>
+                          <i className="fa-solid fa-comments text-[9px] mr-1.5" /> Chat About Results
+                        </button>
+                        <button onClick={() => setShowExportMenu(true)}
+                          className="px-4 py-2 rounded-xl text-[12px] font-medium text-emerald-400/70 hover:text-emerald-400 transition-colors cursor-pointer"
+                          style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.15)" }}>
+                          <i className="fa-solid fa-download text-[9px] mr-1.5" /> Export
+                        </button>
+                        <button onClick={() => resetPipeline()}
+                          className="px-4 py-2 rounded-xl text-[12px] font-medium text-white/50 hover:text-white/80 transition-colors cursor-pointer"
+                          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                          <i className="fa-solid fa-rotate-right text-[9px] mr-1.5" /> New Pipeline
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
               )}
             </div>
-          ) : (
-            /* ═══ CHAT MODE ═══ */
-            <>
+
+            {/* ═══ CHAT MODE ═══ */}
+            <div className={`flex-1 flex flex-col min-h-0 ${viewMode !== "chat" ? "hidden" : ""}`}>
               {/* Messages */}
               <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4"
                 style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}>
@@ -1055,7 +1618,7 @@ export function ZenithResearch() {
               </div>
 
               {/* ── INPUT BAR ── */}
-              <div className="px-4 py-3 border-t border-white/[0.06] select-none"
+              <div className="px-4 py-3 border-t border-white/6 select-none"
                 style={{ background: "rgba(12,12,22,0.8)" }}>
                 {attachedFiles.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-2 max-w-4xl mx-auto">
@@ -1158,12 +1721,11 @@ export function ZenithResearch() {
                   <span className="text-[9px] text-white/15">Shift+Enter for new line</span>
                 </div>
               </div>
-            </>
-          )}
+            </div>
         </div>
 
         {/* ══ RIGHT PANEL — PARAMETERS ══ */}
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {!rightCollapsed && (
             <motion.div initial={{ width: 0, opacity: 0 }} animate={{ width: 270, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
@@ -1321,7 +1883,7 @@ export function ZenithResearch() {
               </div>
 
               {/* System Prompt */}
-              <div className="p-3">
+              <div className="p-3 border-b border-white/[0.04]">
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <div className="w-4 h-4 rounded flex items-center justify-center" style={{ background: "rgba(245,158,11,0.12)" }}>
                     <i className="fa-solid fa-terminal text-[7px] text-amber-400" />
@@ -1331,6 +1893,177 @@ export function ZenithResearch() {
                 <p className="text-[10px] text-white/25 leading-relaxed">
                   <i className="fa-solid fa-gear text-[8px] mr-1 text-white/15" />
                   Managed in <span className="text-cyan-400/50">Settings &rarr; AI Prompts &rarr; Research</span>
+                </p>
+              </div>
+
+              {/* Pipeline Step Config */}
+              <div className="p-3">
+                <div className="flex items-center gap-1.5 mb-2.5">
+                  <div className="w-4 h-4 rounded flex items-center justify-center" style={{ background: "rgba(251,113,133,0.12)" }}>
+                    <i className="fa-solid fa-sliders text-[7px] text-rose-400" />
+                  </div>
+                  <span className="text-[10px] font-semibold text-white/35 uppercase tracking-wider">Pipeline Agents</span>
+                </div>
+                <div className="space-y-1">
+                  {([
+                    { key: "gatekeeper", label: "Gatekeeper", icon: "fa-shield-halved", color: "cyan" },
+                    { key: "query_architect", label: "Query Architect", icon: "fa-diagram-project", color: "cyan" },
+                    { key: "triage_agent", label: "Triage Agent", icon: "fa-filter", color: "amber" },
+                    { key: "blueprint_agent", label: "Blueprint Agent", icon: "fa-sitemap", color: "violet" },
+                    { key: "lead_author", label: "Lead Author", icon: "fa-pen-nib", color: "emerald" },
+                    { key: "citation_verifier", label: "Citation Verifier", icon: "fa-check-double", color: "rose" },
+                    { key: "guidelines_compliance", label: "Guidelines Check", icon: "fa-clipboard-check", color: "amber" },
+                    { key: "smoothing_pass", label: "Smoothing Pass", icon: "fa-wand-magic-sparkles", color: "violet" },
+                  ] as { key: keyof PipelineConfig; label: string; icon: string; color: string }[]).map((step) => {
+                    const isExpanded = expandedPipelineStep === step.key;
+                    const cfg = settings?.pipeline_config?.[step.key];
+                    return (
+                      <div key={step.key}>
+                        <button
+                          onClick={() => setExpandedPipelineStep(isExpanded ? null : step.key)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-all cursor-pointer hover:bg-white/[0.02]"
+                        >
+                          <i className={`fa-solid ${step.icon} text-[8px] text-${step.color}-400/60 w-3 text-center`} />
+                          <span className="text-[10px] text-white/50 flex-1">{step.label}</span>
+                          <span className="text-[8px] text-white/20 font-mono">{cfg?.model_tier === "fast" ? "⚡" : "🧠"}</span>
+                          <i className={`fa-solid fa-chevron-${isExpanded ? "up" : "down"} text-[7px] text-white/20`} />
+                        </button>
+                        {isExpanded && cfg && (
+                          <div className="ml-5 mt-1 mb-2 space-y-2 p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
+                            <div className="flex items-center gap-2">
+                              <label className="text-[9px] text-white/30 w-12">Tier</label>
+                              <select
+                                value={cfg.model_tier}
+                                onChange={async (e) => {
+                                  const newCfg = { ...cfg, model_tier: e.target.value as "strong" | "fast" };
+                                  const newPc = { ...settings?.pipeline_config, [step.key]: newCfg };
+                                  const newSettings = { ...settings, pipeline_config: newPc };
+                                  await invoke("save_settings", { newSettings });
+                                  setSettings(newSettings as ZenithSettings);
+                                }}
+                                className="flex-1 px-2 py-1 rounded text-[10px] text-white/70 outline-none appearance-none cursor-pointer"
+                                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+                              >
+                                <option value="strong" style={{ background: "#151520" }}>🧠 Strong (Pro)</option>
+                                <option value="fast" style={{ background: "#151520" }}>⚡ Fast (Flash)</option>
+                              </select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-[9px] text-white/30 w-12">Tokens</label>
+                              <input
+                                type="number"
+                                value={cfg.max_tokens}
+                                onChange={async (e) => {
+                                  const newCfg = { ...cfg, max_tokens: parseInt(e.target.value) || 8192 };
+                                  const newPc = { ...settings?.pipeline_config, [step.key]: newCfg };
+                                  const newSettings = { ...settings, pipeline_config: newPc };
+                                  await invoke("save_settings", { newSettings });
+                                  setSettings(newSettings as ZenithSettings);
+                                }}
+                                className="flex-1 px-2 py-1 rounded text-[10px] text-white/70 outline-none font-mono"
+                                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <label className="text-[9px] text-white/30 w-12">Temp</label>
+                              <input
+                                type="range" min={0} max={2} step={0.1}
+                                value={cfg.temperature}
+                                onChange={async (e) => {
+                                  const newCfg = { ...cfg, temperature: parseFloat(e.target.value) };
+                                  const newPc = { ...settings?.pipeline_config, [step.key]: newCfg };
+                                  const newSettings = { ...settings, pipeline_config: newPc };
+                                  await invoke("save_settings", { newSettings });
+                                  setSettings(newSettings as ZenithSettings);
+                                }}
+                                className="flex-1 accent-cyan-400 h-1"
+                              />
+                              <span className="text-[9px] text-white/40 font-mono w-6 text-right">{cfg.temperature.toFixed(1)}</span>
+                            </div>
+                            <div className="mt-3 pt-3 border-t border-white/10 flex gap-4">
+                              <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
+                                <input
+                                  type="checkbox" checked={cfg.use_thinking}
+                                  onChange={async (e) => {
+                                    const newCfg = { ...cfg, use_thinking: e.target.checked };
+                                    const newPc = { ...settings?.pipeline_config, [step.key]: newCfg };
+                                    const newSettings = { ...settings, pipeline_config: newPc };
+                                    await invoke("save_settings", { newSettings });
+                                    setSettings(newSettings as ZenithSettings);
+                                  }}
+                                  className="rounded border-white/20 bg-white/5"
+                                />
+                                Use Thinking
+                              </label>
+                              {cfg.use_thinking && (
+                                <label className="flex items-center gap-2 text-xs text-white/70">
+                                  Budget:
+                                  <input
+                                    type="number"
+                                    className="w-16 bg-white/5 border border-white/10 rounded px-1 py-0.5 text-white/90 text-xs"
+                                    value={cfg.thinking_budget}
+                                    onChange={async (e) => {
+                                      const newCfg = { ...cfg, thinking_budget: parseInt(e.target.value) || 8192 };
+                                      const newPc = { ...settings?.pipeline_config, [step.key]: newCfg };
+                                      const newSettings = { ...settings, pipeline_config: newPc };
+                                      await invoke("save_settings", { newSettings });
+                                      setSettings(newSettings as ZenithSettings);
+                                    }}
+                                  />
+                                </label>
+                              )}
+                              <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
+                                <input
+                                  type="checkbox" checked={cfg.use_structured_output}
+                                  onChange={async (e) => {
+                                    const newCfg = { ...cfg, use_structured_output: e.target.checked };
+                                    const newPc = { ...settings?.pipeline_config, [step.key]: newCfg };
+                                    const newSettings = { ...settings, pipeline_config: newPc };
+                                    await invoke("save_settings", { newSettings });
+                                    setSettings(newSettings as ZenithSettings);
+                                  }}
+                                  className="accent-cyan-400 w-3 h-3"
+                                />
+                                <span className="text-[9px] text-white/40">Structured</span>
+                              </label>
+                              <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
+                                <input
+                                  type="checkbox" checked={cfg.use_google_search}
+                                  onChange={async (e) => {
+                                    const newCfg = { ...cfg, use_google_search: e.target.checked };
+                                    const newPc = { ...settings?.pipeline_config, [step.key]: newCfg };
+                                    const newSettings = { ...settings, pipeline_config: newPc };
+                                    await invoke("save_settings", { newSettings });
+                                    setSettings(newSettings as ZenithSettings);
+                                  }}
+                                  className="accent-emerald-400 w-3 h-3"
+                                />
+                                <span className="text-[9px] text-white/40">Google Search Grounding</span>
+                              </label>
+                              <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
+                                <input
+                                  type="checkbox" checked={cfg.use_code_execution}
+                                  onChange={async (e) => {
+                                    const newCfg = { ...cfg, use_code_execution: e.target.checked };
+                                    const newPc = { ...settings?.pipeline_config, [step.key]: newCfg };
+                                    const newSettings = { ...settings, pipeline_config: newPc };
+                                    await invoke("save_settings", { newSettings });
+                                    setSettings(newSettings as ZenithSettings);
+                                  }}
+                                  className="accent-violet-400 w-3 h-3"
+                                />
+                                <span className="text-[9px] text-white/40">Code Exec</span>
+                              </label>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[9px] text-white/15 mt-2 px-1">
+                  <i className="fa-solid fa-info-circle text-[7px] mr-1" />
+                  Per-step prompts editable in Settings → Pipeline
                 </p>
               </div>
             </motion.div>

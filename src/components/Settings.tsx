@@ -76,6 +76,32 @@ interface AiPrompts {
   super_summary: string;
   dashboard: string;
   research: string;
+  research_pipeline: string;
+  subject_review: string;
+  educational: string;
+  case_study: string;
+  comparative: string;
+  exploratory: string;
+}
+
+interface PipelineStepConfig {
+  system_prompt: string;
+  model_tier: string;
+  max_tokens: number;
+  temperature: number;
+  use_structured_output: boolean;
+  use_thinking: boolean;
+}
+
+interface PipelineConfig {
+  gatekeeper: PipelineStepConfig;
+  query_architect: PipelineStepConfig;
+  triage_agent: PipelineStepConfig;
+  blueprint_agent: PipelineStepConfig;
+  lead_author: PipelineStepConfig;
+  citation_verifier: PipelineStepConfig;
+  guidelines_compliance: PipelineStepConfig;
+  smoothing_pass: PipelineStepConfig;
 }
 
 interface TokenUsageEntry {
@@ -101,6 +127,7 @@ interface ZenithSettings {
   api_keys: ApiKeyEntry[];
   processing: ProcessingDefaults;
   ai_prompts: AiPrompts;
+  pipeline_config: PipelineConfig;
   token_usage: TokenUsage;
   vt_api_key: string;
   omdb_api_key: string;
@@ -118,7 +145,7 @@ interface PluginInfo {
   loaded: boolean;
 }
 
-type TabId = "general" | "appearance" | "behavior" | "shortcuts" | "processing" | "api_keys" | "ai_tools" | "token_usage" | "scripts";
+type TabId = "general" | "appearance" | "behavior" | "shortcuts" | "processing" | "api_keys" | "ai_tools" | "research_agents" | "token_usage" | "scripts";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "general", label: "General", icon: "fa-solid fa-sliders" },
@@ -127,6 +154,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "processing", label: "Processing", icon: "fa-solid fa-compress" },
   { id: "api_keys", label: "API Keys", icon: "fa-solid fa-key" },
   { id: "ai_tools", label: "AI Prompts", icon: "fa-solid fa-wand-magic-sparkles" },
+  { id: "research_agents", label: "Research Agents", icon: "fa-solid fa-microscope" },
   { id: "token_usage", label: "Token Usage", icon: "fa-solid fa-chart-line" },
   { id: "shortcuts", label: "Shortcuts", icon: "fa-solid fa-keyboard" },
   { id: "scripts", label: "Scripts", icon: "fa-solid fa-puzzle-piece" },
@@ -166,7 +194,7 @@ const PROVIDER_MODELS: Record<string, { id: string; label: string; input: number
     { id: "claude-opus-4-20250918", label: "Claude Opus 4", input: 5.00, output: 25.00 },
   ],
   google: [
-    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", input: 0.15, output: 0.60 },
+    { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash", input: 0.15, output: 0.60 },
     { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", input: 0.50, output: 3.00 },
     { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", input: 1.25, output: 10.00 },
     { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", input: 2.00, output: 12.00 },
@@ -280,6 +308,14 @@ export function Settings() {
   const updateAiPrompt = (key: keyof AiPrompts, value: string) => {
     if (!settings) return;
     const updated = { ...settings, ai_prompts: { ...settings.ai_prompts, [key]: value } };
+    save(updated);
+  };
+
+  const updatePipelineStep = (step: keyof PipelineConfig, field: keyof PipelineStepConfig, value: unknown) => {
+    if (!settings) return;
+    const pc = settings.pipeline_config || {} as PipelineConfig;
+    const current = pc[step] || {} as PipelineStepConfig;
+    const updated = { ...settings, pipeline_config: { ...pc, [step]: { ...current, [field]: value } } };
     save(updated);
   };
 
@@ -970,9 +1006,9 @@ export function Settings() {
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <i className="fa-solid fa-microscope text-[10px] text-cyan-400" />
-                    <span className="text-[12px] font-medium text-white/70">Research Assistant</span>
+                    <span className="text-[12px] font-medium text-white/70">Research Chat Assistant</span>
                   </div>
-                  <p className="text-[10px] text-white/25 mb-1.5">System prompt for the Zenith Research Window. Controls how the AI researcher behaves, including tool usage and citation style.</p>
+                  <p className="text-[10px] text-white/25 mb-1.5">System prompt for the Research chat mode. For pipeline agent prompts, see the <button onClick={() => setActiveTab("research_agents")} className="text-cyan-400/60 hover:text-cyan-400 underline cursor-pointer">Research Agents</button> tab.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.research ?? ""} onChange={(v) => updateAiPrompt("research", v)} rows={4} />
                 </div>
               </div>
@@ -992,6 +1028,103 @@ export function Settings() {
                 </button>
               </div>
             )}
+          </TabPanel>
+        )}
+
+        {activeTab === "research_agents" && (
+          <TabPanel title="Research Agents" description="Configure each pipeline agent's behavior, model tier, and system prompts for the autonomous research pipeline">
+            {/* Study Design Prompts */}
+            <SettingGroup title="Study Design Prompts">
+              <p className="text-[10px] text-white/25 mb-3 -mt-1">Each study design has a tailored system prompt. These are used as the top-level pipeline instruction when running that specific design type.</p>
+              <div className="space-y-4">
+                {([
+                  { key: "research_pipeline" as const, label: "Systematic Review / Meta-Analysis", icon: "fa-list-check", desc: "PRISMA-guided pipeline for systematic reviews and meta-analyses. Focuses on exhaustive search, strict inclusion/exclusion criteria, and quantitative synthesis." },
+                  { key: "subject_review" as const, label: "Subject Review", icon: "fa-book-open", desc: "Comprehensive literature survey of a field. Covers historical evolution, theoretical frameworks, current debates, and future directions." },
+                  { key: "educational" as const, label: "Educational", icon: "fa-graduation-cap", desc: "Pedagogically structured learning resource. Includes objectives, prerequisites, worked examples, practice questions, and progressive complexity." },
+                  { key: "case_study" as const, label: "Case Study", icon: "fa-magnifying-glass-chart", desc: "Structured case analysis with problem framing, stakeholder analysis, evidence-based findings, and actionable recommendations." },
+                  { key: "comparative" as const, label: "Comparative Analysis", icon: "fa-code-compare", desc: "Systematic comparison of methods, approaches, or technologies. Uses structured criteria, comparison tables, and contextual recommendations." },
+                  { key: "exploratory" as const, label: "Exploratory Research", icon: "fa-compass", desc: "Open-ended, hypothesis-generating investigation. Maps the topic landscape, identifies knowledge gaps, and proposes methodologies." },
+                ]).map(({ key, label, icon, desc }) => (
+                  <div key={key}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <i className={`fa-solid ${icon} text-[10px] text-cyan-400`} />
+                      <span className="text-[12px] font-medium text-white/70">{label}</span>
+                    </div>
+                    <p className="text-[10px] text-white/25 mb-1.5">{desc}</p>
+                    <TextArea label="" description="" value={settings.ai_prompts?.[key] ?? ""} onChange={(v) => updateAiPrompt(key, v)} rows={3} />
+                  </div>
+                ))}
+              </div>
+            </SettingGroup>
+
+            {/* Pipeline Agent Configs */}
+            <SettingGroup title="Pipeline Agent Configuration">
+              <p className="text-[10px] text-white/25 mb-3 -mt-1">Configure each agent in the autonomous research pipeline. Each agent has its own system prompt, model tier, token budget, and behavior settings.</p>
+              <div className="space-y-5">
+                {([
+                  { key: "gatekeeper" as const, label: "Gatekeeper", icon: "fa-shield-halved", desc: "Validates research questions for specificity, scope, and feasibility before the pipeline begins." },
+                  { key: "query_architect" as const, label: "Query Architect", icon: "fa-diagram-project", desc: "Generates optimized MeSH/Boolean search strings for PubMed, Semantic Scholar, OpenAlex, and arXiv." },
+                  { key: "triage_agent" as const, label: "Triage Agent", icon: "fa-filter", desc: "Screens papers for relevance using title/abstract analysis against inclusion/exclusion criteria." },
+                  { key: "blueprint_agent" as const, label: "Blueprint Agent", icon: "fa-sitemap", desc: "Plans the paper structure — sections, requirements, figure/table placements per reporting guidelines." },
+                  { key: "lead_author" as const, label: "Lead Author", icon: "fa-pen-nib", desc: "Drafts publication-ready sections with inline citations, data tables, and figure placeholders." },
+                  { key: "citation_verifier" as const, label: "Citation Verifier", icon: "fa-check-double", desc: "Cross-references every citation against the paper list. Flags hallucinated or misattributed references." },
+                  { key: "guidelines_compliance" as const, label: "Guidelines Compliance", icon: "fa-clipboard-check", desc: "Checks manuscript against PRISMA, STROBE, CONSORT, or other reporting guidelines." },
+                  { key: "smoothing_pass" as const, label: "Smoothing Pass", icon: "fa-wand-magic-sparkles", desc: "Final editorial polish — harmonizes voice, adds transitions, writes Abstract and Conclusion." },
+                ]).map(({ key, label, icon, desc }) => {
+                  const step = settings.pipeline_config?.[key];
+                  return (
+                    <div key={key} className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <i className={`fa-solid ${icon} text-[11px] text-cyan-400/70`} />
+                        <span className="text-[12px] font-semibold text-white/75">{label}</span>
+                      </div>
+                      <p className="text-[10px] text-white/25 mb-2">{desc}</p>
+                      <TextArea label="System Prompt" description="" value={step?.system_prompt ?? ""} onChange={(v) => updatePipelineStep(key, "system_prompt", v)} rows={3} />
+                      <div className="grid grid-cols-2 gap-3 mt-2">
+                        <div>
+                          <label className="text-[10px] text-white/35 block mb-1">Model Tier</label>
+                          <select value={step?.model_tier ?? "strong"}
+                            onChange={(e) => updatePipelineStep(key, "model_tier", e.target.value)}
+                            className="w-full px-2 py-1.5 rounded-lg text-[11px] text-white/80 outline-none appearance-none cursor-pointer"
+                            style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                            <option value="strong" style={{ background: "#151520" }}>Strong (Pro/Opus)</option>
+                            <option value="fast" style={{ background: "#151520" }}>Fast (Flash/Haiku)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-white/35 block mb-1">Max Tokens</label>
+                          <input type="number" value={step?.max_tokens ?? 4096}
+                            onChange={(e) => updatePipelineStep(key, "max_tokens", parseInt(e.target.value) || 4096)}
+                            className="w-full px-2 py-1.5 rounded-lg text-[11px] text-white/80 outline-none"
+                            style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-white/35 block mb-1">Temperature ({(step?.temperature ?? 0.3).toFixed(1)})</label>
+                          <input type="range" min="0" max="1" step="0.1" value={step?.temperature ?? 0.3}
+                            onChange={(e) => updatePipelineStep(key, "temperature", parseFloat(e.target.value))}
+                            className="w-full h-1 rounded-full appearance-none cursor-pointer"
+                            style={{ background: "rgba(255,255,255,0.1)" }} />
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input type="checkbox" checked={step?.use_thinking ?? false}
+                              onChange={(e) => updatePipelineStep(key, "use_thinking", e.target.checked)}
+                              className="rounded accent-cyan-500" />
+                            <span className="text-[10px] text-white/40">Thinking</span>
+                          </label>
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input type="checkbox" checked={step?.use_structured_output ?? false}
+                              onChange={(e) => updatePipelineStep(key, "use_structured_output", e.target.checked)}
+                              className="rounded accent-cyan-500" />
+                            <span className="text-[10px] text-white/40">Structured</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </SettingGroup>
           </TabPanel>
         )}
 

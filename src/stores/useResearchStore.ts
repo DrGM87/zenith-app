@@ -62,14 +62,50 @@ export type PipelinePhase =
   | "triaging"
   | "acquiring"
   | "extracting"
+  | "ingesting"
+  | "blueprinting"
   | "drafting"
-  | "verifying"
+  | "generating_figures"
+  | "citation_verifying"
+  | "guidelines_checking"
   | "smoothing"
   | "compiling"
   | "complete"
   | "error";
 
-export type StudyDesign = "systematic_review" | "meta_analysis" | "narrative_review" | "scoping_review";
+/* ── Per-step pipeline config (mirrors settings.rs PipelineStepConfig) ── */
+
+export interface PipelineStepConfig {
+  system_prompt: string;
+  model_tier: "strong" | "fast";
+  max_tokens: number;
+  temperature: number;
+  use_structured_output: boolean;
+  use_thinking: boolean;
+  thinking_budget: number;
+  use_google_search: boolean;
+  use_code_execution: boolean;
+}
+
+export interface PipelineConfig {
+  gatekeeper: PipelineStepConfig;
+  query_architect: PipelineStepConfig;
+  triage_agent: PipelineStepConfig;
+  blueprint_agent: PipelineStepConfig;
+  lead_author: PipelineStepConfig;
+  citation_verifier: PipelineStepConfig;
+  guidelines_compliance: PipelineStepConfig;
+  smoothing_pass: PipelineStepConfig;
+}
+
+export type StudyDesign = "systematic_review" | "meta_analysis" | "narrative_review" | "scoping_review" | "subject_review" | "educational" | "case_study" | "comparative" | "exploratory";
+
+export interface PipelineLog {
+  time: string;
+  phase: string;
+  message: string;
+  level: "info" | "warn" | "error" | "success";
+}
 
 export interface PipelineState {
   active: boolean;
@@ -83,10 +119,22 @@ export interface PipelineState {
   acquiredPdfs: { doi: string; path: string; title: string }[];
   extractedTexts: { path: string; text: string; pages: number }[];
   searchQueries: { db: string; query_string: string; description: string }[];
-  draftSections: { type: string; text: string }[];
+  blueprint: {
+    sections: { id: string; title: string; description: string; requirements: string }[];
+    figure_plan: string[];
+    table_plan: string[];
+    guidelines_map: Record<string, string>;
+  } | null;
+  draftSections: { type: string; text: string; figures?: string[]; tables?: string[] }[];
+  generatedFigures: { description: string; caption: string; path: string; chart_type: string; size: number; index: number }[];
+  generatedTables: { description: string; caption: string; markdown: string; path: string; size: number; index: number }[];
+  citationIssues: { section: string; issue: string; severity: string }[];
+  guidelinesIssues: { item: string; status: string; fix: string }[];
   manuscript: string;
   bibliography: string;
   error: string | null;
+  logs: PipelineLog[];
+  totalTokens: { input: number; output: number; cost: number };
 }
 
 /* ── Constants ── */
@@ -132,10 +180,17 @@ const DEFAULT_PIPELINE: PipelineState = {
   acquiredPdfs: [],
   extractedTexts: [],
   searchQueries: [],
+  blueprint: null,
   draftSections: [],
+  generatedFigures: [],
+  generatedTables: [],
+  citationIssues: [],
+  guidelinesIssues: [],
   manuscript: "",
   bibliography: "",
   error: null,
+  logs: [],
+  totalTokens: { input: 0, output: 0, cost: 0 },
 };
 
 const LS_PIPELINE = "zenith_research_pipeline";
@@ -197,6 +252,8 @@ interface ResearchState {
   setPipeline: (partial: Partial<PipelineState>) => void;
   resetPipeline: () => void;
   setViewMode: (mode: "chat" | "pipeline") => void;
+  addPipelineLog: (phase: string, message: string, level?: "info" | "warn" | "error" | "success") => void;
+  addPipelineTokens: (input: number, output: number, cost: number) => void;
 
   // Persistence
   loadThreads: () => void;
@@ -346,6 +403,22 @@ export const useResearchStore = create<ResearchState>((set, get) => ({
 
   setViewMode: (mode) => set({ viewMode: mode }),
 
+  addPipelineLog: (phase, message, level = "info") => {
+    set((s) => {
+      const log: PipelineLog = { time: new Date().toLocaleTimeString(), phase, message, level };
+      const pipeline = { ...s.pipeline, logs: [...s.pipeline.logs, log] };
+      return { pipeline };
+    });
+  },
+
+  addPipelineTokens: (input, output, cost) => {
+    set((s) => {
+      const t = s.pipeline.totalTokens;
+      const pipeline = { ...s.pipeline, totalTokens: { input: t.input + input, output: t.output + output, cost: t.cost + cost } };
+      return { pipeline };
+    });
+  },
+
   /* ── Persistence ── */
 
   loadThreads: () => {
@@ -353,7 +426,8 @@ export const useResearchStore = create<ResearchState>((set, get) => ({
     const activeThreadId = loadFromLS<string | null>(LS_ACTIVE, threads[0]?.id ?? null);
     const savedParams = loadFromLS<Partial<ResearchParams>>(LS_PARAMS, {});
     const params = { ...DEFAULT_PARAMS, ...savedParams };
-    const pipeline = loadFromLS<PipelineState>(LS_PIPELINE, DEFAULT_PIPELINE);
+    const savedPipeline = loadFromLS<Partial<PipelineState>>(LS_PIPELINE, {});
+    const pipeline = { ...DEFAULT_PIPELINE, ...savedPipeline };
     set({ threads, activeThreadId, params, pipeline });
   },
 

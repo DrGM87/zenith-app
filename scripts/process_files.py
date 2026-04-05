@@ -804,7 +804,7 @@ def _call_llm(provider, api_key, model, prompt, system_prompt=""):
             "x-api-key": api_key, "Content-Type": "application/json",
             "anthropic-version": "2023-06-01"})
     elif provider == "google":
-        mdl = model or "gemini-2.5-flash"
+        mdl = model or "gemini-3.1-flash-lite-preview"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={api_key}"
         contents = []
         if system_prompt:
@@ -1410,7 +1410,7 @@ def _call_llm_vision(provider, api_key, model, prompt, img_b64, mime):
             "x-api-key": api_key, "Content-Type": "application/json",
             "anthropic-version": "2023-06-01"})
     elif provider == "google":
-        mdl = model or "gemini-2.5-flash"
+        mdl = model or "gemini-3.1-flash-lite-preview"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={api_key}"
         payload = json.dumps({"contents": [{"parts": [
             {"text": prompt},
@@ -3297,7 +3297,8 @@ from research_engine import (
     validate_research_query, generate_search_queries,
     triage_papers, acquire_papers, draft_research_section,
     smooth_manuscript, compile_references, run_pipeline_phase,
-    solve_scihub_captcha,
+    solve_scihub_captcha, auto_rename_thread,
+    export_research_snapshot, generate_chart, generate_table,
 )
 
 ACTIONS = {
@@ -3360,6 +3361,10 @@ ACTIONS = {
     "compile_references": compile_references,
     "run_pipeline_phase": run_pipeline_phase,
     "solve_scihub_captcha": solve_scihub_captcha,
+    "auto_rename_thread": auto_rename_thread,
+    "export_research_snapshot": export_research_snapshot,
+    "generate_chart": generate_chart,
+    "generate_table": generate_table,
 }
 
 if __name__ == "__main__":

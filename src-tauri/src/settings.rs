@@ -14,14 +14,16 @@ pub struct ScriptEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiKeyEntry {
-    pub provider: String,
+    pub provider: String, // "openai", "anthropic", "google", "deepseek", "groq"
     pub label: String,
     pub key: String,
-    #[serde(default)]
+    #[serde(default = "default_model")]
     pub model: String,
     #[serde(default)]
     pub is_default: bool,
 }
+
+fn default_model() -> String { "gemini-3.1-flash-lite-preview".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessingDefaults {
@@ -68,6 +70,16 @@ pub struct AiPrompts {
     pub research: String,
     #[serde(default = "default_research_pipeline")]
     pub research_pipeline: String,
+    #[serde(default = "default_subject_review")]
+    pub subject_review: String,
+    #[serde(default = "default_educational")]
+    pub educational: String,
+    #[serde(default = "default_case_study")]
+    pub case_study: String,
+    #[serde(default = "default_comparative")]
+    pub comparative: String,
+    #[serde(default = "default_exploratory")]
+    pub exploratory: String,
 }
 
 /*
@@ -124,9 +136,29 @@ fn default_research() -> String {
 }
 
 fn default_research_pipeline() -> String {
-    r#"You are Zenith v5.6, an autonomous medical/scientific research pipeline engine. You execute multi-phase systematic literature reviews following PRISMA/STROBE/CONSORT guidelines. Your pipeline phases are: (1) Gatekeeper — validate research questions for specificity, scope, and feasibility; (2) Query Architect — generate optimized MeSH/Boolean search strings for PubMed, Semantic Scholar, OpenAlex, and arXiv; (3) Harvester — search across all databases and deduplicate results by DOI; (4) Triage Agent — screen papers for relevance using title/abstract analysis with inclusion/exclusion criteria; (5) Acquisition Engine — obtain full-text PDFs via Unpaywall (legal OA) and Sci-Hub fallback; (6) Lead Author — draft publication-ready sections (Introduction, Methods, Results, Discussion) with inline numbered citations; (7) Quality Swarm — verify every citation maps to a real paper, check for hallucinated references, validate DOIs; (8) Smoothing Pass — unify voice, eliminate redundancy, add transition sentences, extract a structured abstract. You must be exhaustive, cite every claim with bracketed references [1][2], never fabricate citations, and produce output suitable for peer-reviewed journal submission. When responding with JSON, output ONLY valid JSON with no markdown fences or commentary."#.to_string()
+    r#"You are Zenith v5.6, an autonomous research pipeline engine. You execute multi-phase {study_design}s following {guidelines} guidelines. Your pipeline phases are: (1) Gatekeeper — validate research questions for specificity, scope, and feasibility; (2) Query Architect — generate optimized search strings for PubMed, Semantic Scholar, OpenAlex, and arXiv; (3) Harvester — search across all databases and deduplicate results by DOI; (4) Triage Agent — screen papers for relevance using title/abstract analysis with inclusion/exclusion criteria; (5) Acquisition Engine — obtain full-text PDFs via Unpaywall (legal OA) and Sci-Hub fallback; (6) Lead Author — draft publication-ready sections with inline numbered citations; (7) Quality Swarm — verify every citation maps to a real paper, check for hallucinated references, validate DOIs; (8) Smoothing Pass — unify voice, eliminate redundancy, add transition sentences, extract a structured abstract. You must be exhaustive, cite every claim with bracketed references [1][2], never fabricate citations, and produce output suitable for peer-reviewed journal submission. When responding with JSON, output ONLY valid JSON with no markdown fences or commentary."#.to_string()
 }
 
+
+fn default_subject_review() -> String {
+    r#"You are Zenith, a specialist academic subject-matter reviewer. Your task is to produce a comprehensive subject review (also known as a literature review or state-of-the-art survey) on the given topic. Structure your output with: (1) an executive overview of the field's current state, (2) historical evolution and key milestones, (3) major theoretical frameworks, (4) current debates and open questions, (5) methodological trends, and (6) future research directions. Cite every claim using [Author, Year] format. Provide a structured bibliography at the end. Be exhaustive, balanced, and avoid promotional language."#.to_string()
+}
+
+fn default_educational() -> String {
+    r#"You are Zenith, an expert educational content architect. Your task is to produce a clear, pedagogically structured educational resource on the given topic. Structure your output as a learning guide with: (1) Learning Objectives, (2) Prerequisites and foundational concepts, (3) Core Content broken into digestible sections with examples and analogies, (4) Key Definitions and terminology, (5) Worked Examples or case illustrations, (6) Common Misconceptions and pitfalls, (7) Practice Questions with answers, (8) Further Reading and references. Adapt complexity to the specified audience level. Cite authoritative sources throughout."#.to_string()
+}
+
+fn default_case_study() -> String {
+    r#"You are Zenith, a rigorous case study analyst. Your task is to produce a structured case study analysis following academic standards. Structure your output with: (1) Case Background and context, (2) Problem Statement, (3) Stakeholder Analysis, (4) Methodology and data sources used, (5) Findings and Analysis with evidence, (6) Discussion of implications, (7) Lessons Learned, (8) Recommendations, (9) Limitations and generalizability assessment. Support every analytical claim with evidence from the case data or published literature using [Author, Year] citations. Maintain objectivity throughout."#.to_string()
+}
+
+fn default_comparative() -> String {
+    r#"You are Zenith, a systematic comparative analysis specialist. Your task is to produce a rigorous comparative study between the specified subjects, methods, or approaches. Structure your output with: (1) Introduction and rationale for comparison, (2) Comparison Framework and criteria definition, (3) Individual Analysis of each subject, (4) Systematic Comparison Table with key dimensions, (5) Strengths and Weaknesses analysis, (6) Contextual Recommendations (which approach suits which scenario), (7) Conclusion and synthesis. Use evidence-based comparisons citing [Author, Year]. Include quantitative metrics where available."#.to_string()
+}
+
+fn default_exploratory() -> String {
+    r#"You are Zenith, an exploratory research facilitator. Your task is to conduct an open-ended, hypothesis-generating investigation of the given topic. Structure your output with: (1) Topic Landscape mapping, (2) Key Questions and sub-questions identified, (3) Preliminary Literature Scan with emerging themes, (4) Identified Knowledge Gaps, (5) Potential Hypotheses for further investigation, (6) Suggested Methodologies for each hypothesis, (7) Cross-disciplinary Connections, (8) Recommended Next Steps with prioritization. Be creative but grounded in existing evidence. Cite sources where available and clearly mark speculative insights."#.to_string()
+}
 
 impl Default for AiPrompts {
     fn default() -> Self {
@@ -142,9 +174,204 @@ impl Default for AiPrompts {
             dashboard: default_dashboard(),
             research: default_research(),
             research_pipeline: default_research_pipeline(),
+            subject_review: default_subject_review(),
+            educational: default_educational(),
+            case_study: default_case_study(),
+            comparative: default_comparative(),
+            exploratory: default_exploratory(),
         }
     }
 }
+
+// ── Pipeline Per-Step Configuration ─────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineStepConfig {
+    #[serde(default)]
+    pub system_prompt: String,
+    #[serde(default = "default_tier_strong")]
+    pub model_tier: String,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default = "default_temp_mid")]
+    pub temperature: f64,
+    #[serde(default)]
+    pub use_structured_output: bool,
+    #[serde(default)]
+    pub use_thinking: bool,
+    #[serde(default = "default_thinking_budget")]
+    pub thinking_budget: u32,
+    #[serde(default)]
+    pub use_google_search: bool,
+    #[serde(default)]
+    pub use_code_execution: bool,
+}
+
+fn default_thinking_budget() -> u32 { 8192 }
+
+fn default_tier_strong() -> String { "strong".to_string() }
+fn default_max_tokens() -> u32 { 4096 }
+#[allow(dead_code)]
+fn default_tier_fast() -> String { "fast".to_string() }
+fn default_max_tokens_4k() -> u32 { 4096 }
+#[allow(dead_code)]
+fn default_max_tokens_16k() -> u32 { 16384 }
+#[allow(dead_code)]
+fn default_max_tokens_32k() -> u32 { 32768 }
+#[allow(dead_code)]
+fn default_max_tokens_65k() -> u32 { 65536 }
+fn default_temp_low() -> f64 { 0.2 }
+#[allow(dead_code)]
+fn default_temp_mid() -> f64 { 0.5 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineConfig {
+    #[serde(default = "default_gatekeeper_config")]
+    pub gatekeeper: PipelineStepConfig,
+    #[serde(default = "default_query_architect_config")]
+    pub query_architect: PipelineStepConfig,
+    #[serde(default = "default_triage_agent_config")]
+    pub triage_agent: PipelineStepConfig,
+    #[serde(default = "default_blueprint_agent_config")]
+    pub blueprint_agent: PipelineStepConfig,
+    #[serde(default = "default_lead_author_config")]
+    pub lead_author: PipelineStepConfig,
+    #[serde(default = "default_citation_verifier_config")]
+    pub citation_verifier: PipelineStepConfig,
+    #[serde(default = "default_guidelines_compliance_config")]
+    pub guidelines_compliance: PipelineStepConfig,
+    #[serde(default = "default_smoothing_pass_config")]
+    pub smoothing_pass: PipelineStepConfig,
+}
+
+fn default_gatekeeper_config() -> PipelineStepConfig {
+    PipelineStepConfig {
+        system_prompt: "Evaluate whether this research question is answerable via peer-reviewed scientific/medical literature. Assess specificity, scope, feasibility, and ethical appropriateness. Identify the research domain and extract key terms for database searching.".to_string(),
+        model_tier: "strong".to_string(),
+        max_tokens: 2048,
+        temperature: 0.1,
+        use_structured_output: true,
+        use_thinking: false,
+        thinking_budget: 0,
+        use_google_search: false,
+        use_code_execution: false,
+    }
+}
+
+fn default_query_architect_config() -> PipelineStepConfig {
+    PipelineStepConfig {
+        system_prompt: "You are an expert medical librarian and search strategist. Translate the validated research question into multiple robust Boolean/MeSH search strings optimized for PubMed, Semantic Scholar, OpenAlex, and arXiv. Maximize recall while maintaining precision. Include MeSH headings, subheadings, entry terms, and Boolean operators. Generate at least 3 complementary queries targeting different facets of the question.".to_string(),
+        model_tier: "strong".to_string(),
+        max_tokens: 4096,
+        temperature: 0.3,
+        use_structured_output: true,
+        use_thinking: false,
+        thinking_budget: 0,
+        use_google_search: false,
+        use_code_execution: false,
+    }
+}
+
+fn default_triage_agent_config() -> PipelineStepConfig {
+    PipelineStepConfig {
+        system_prompt: "You are a {study_design} screener. For each paper, evaluate title and abstract against the research question. Apply strict inclusion/exclusion criteria: (1) Direct relevance to the research question, (2) Study design appropriateness, (3) Publication in a peer-reviewed venue, (4) Recency and methodological rigor. Score relevance 0.0-1.0. Be selective — only mark papers as relevant if they directly contribute to answering the research question.".to_string(),
+        model_tier: "fast".to_string(),
+        max_tokens: 8192,
+        temperature: 0.1,
+        use_structured_output: true,
+        use_thinking: false,
+        thinking_budget: 0,
+        use_google_search: false,
+        use_code_execution: false,
+    }
+}
+
+fn default_blueprint_agent_config() -> PipelineStepConfig {
+    PipelineStepConfig {
+        system_prompt: "You are a research manuscript architect. Based on the {study_design} study design and research question, generate a detailed section-by-section blueprint for the manuscript. Follow appropriate {guidelines} reporting guidelines. Define requirements for each section including: what content to cover, required tables/figures, citation density expectations, and word count targets.".to_string(),
+        model_tier: "strong".to_string(),
+        max_tokens: 8192,
+        temperature: 0.3,
+        use_structured_output: true,
+        use_thinking: true,
+        thinking_budget: 8192,
+        use_google_search: false,
+        use_code_execution: false,
+    }
+}
+
+fn default_lead_author_config() -> PipelineStepConfig {
+    PipelineStepConfig {
+        system_prompt: "You are a Lead Author agent drafting publication-ready academic manuscript sections for a {study_design} using {guidelines} guidelines. Write in formal academic prose with precise language. Every factual claim MUST be supported by an inline numbered citation [1][2]. Use the provided paper abstracts and full-text excerpts as your evidence base. Include relevant data, statistics, p-values, confidence intervals, and effect sizes when available. Structure content with clear topic sentences, logical flow, and smooth transitions. Generate tables when comparing data across studies. Suggest figure/chart placements for data visualization.".to_string(),
+        model_tier: "strong".to_string(),
+        max_tokens: 32768,
+        temperature: 0.5,
+        use_structured_output: false,
+        use_thinking: true,
+        thinking_budget: 16384,
+        use_google_search: false,
+        use_code_execution: false,
+    }
+}
+
+fn default_citation_verifier_config() -> PipelineStepConfig {
+    PipelineStepConfig {
+        system_prompt: "You are a citation integrity auditor. Cross-reference every numbered citation [N] in the drafted text against the provided paper list. Verify: (1) The citation exists in the reference list, (2) The cited claim accurately reflects the source paper's findings, (3) No hallucinated or fabricated references exist. Flag any discrepancies with specific line references.".to_string(),
+        model_tier: "fast".to_string(),
+        max_tokens: 8192,
+        temperature: 0.0,
+        use_structured_output: true,
+        use_thinking: false,
+        thinking_budget: 0,
+        use_google_search: true,
+        use_code_execution: false,
+    }
+}
+
+fn default_guidelines_compliance_config() -> PipelineStepConfig {
+    PipelineStepConfig {
+        system_prompt: "You are a research methodology compliance checker. Evaluate the drafted {study_design} manuscript section against the {guidelines} reporting guidelines. Check for: completeness of required elements, methodological rigor, proper statistical reporting, bias assessment, and ethical considerations. Flag specific violations with remediation suggestions.".to_string(),
+        model_tier: "strong".to_string(),
+        max_tokens: 8192,
+        temperature: 0.1,
+        use_structured_output: true,
+        use_thinking: false,
+        thinking_budget: 0,
+        use_google_search: false,
+        use_code_execution: false,
+    }
+}
+
+fn default_smoothing_pass_config() -> PipelineStepConfig {
+    PipelineStepConfig {
+        system_prompt: "You are a senior research editor performing a final smoothing pass on an academic manuscript. Fix tonal inconsistencies between sections, add logical transition sentences, eliminate redundancy, and tighten prose. Write a structured Abstract (Background, Methods, Results, Conclusions) and a Conclusion section summarizing main findings. Preserve ALL existing numbered citations [N] exactly as they are. DO NOT REMOVE OR RENUMBER citations. Append a formal References section at the very end using the provided Reference List.".to_string(),
+        model_tier: "strong".to_string(),
+        max_tokens: 65536,
+        temperature: 0.3,
+        use_structured_output: false,
+        use_thinking: true,
+        thinking_budget: 16384,
+        use_google_search: false,
+        use_code_execution: false,
+    }
+}
+
+impl Default for PipelineConfig {
+    fn default() -> Self {
+        Self {
+            gatekeeper: default_gatekeeper_config(),
+            query_architect: default_query_architect_config(),
+            triage_agent: default_triage_agent_config(),
+            blueprint_agent: default_blueprint_agent_config(),
+            lead_author: default_lead_author_config(),
+            citation_verifier: default_citation_verifier_config(),
+            guidelines_compliance: default_guidelines_compliance_config(),
+            smoothing_pass: default_smoothing_pass_config(),
+        }
+    }
+}
+
+// ── Token Usage ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TokenUsageEntry {
@@ -176,6 +403,8 @@ pub struct ZenithSettings {
     pub processing: ProcessingDefaults,
     #[serde(default)]
     pub ai_prompts: AiPrompts,
+    #[serde(default)]
+    pub pipeline_config: PipelineConfig,
     #[serde(default)]
     pub token_usage: TokenUsage,
     #[serde(default)]
@@ -314,6 +543,7 @@ impl Default for ZenithSettings {
             api_keys: Vec::new(),
             processing: ProcessingDefaults::default(),
             ai_prompts: AiPrompts::default(),
+            pipeline_config: PipelineConfig::default(),
             token_usage: TokenUsage::default(),
             vt_api_key: String::new(),
             omdb_api_key: String::new(),

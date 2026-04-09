@@ -91,6 +91,8 @@ interface PipelineStepConfig {
   temperature: number;
   use_structured_output: boolean;
   use_thinking: boolean;
+  thinking_budget?: number;
+  enabled_tools?: string[];
 }
 
 interface PipelineConfig {
@@ -160,6 +162,13 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "scripts", label: "Scripts", icon: "fa-solid fa-puzzle-piece" },
 ];
 
+const RESEARCH_TOOLS = [
+  { id: "web_search", label: "Web Search" },
+  { id: "code_execution", label: "Code Execution" },
+  { id: "generate_chart", label: "Generate Chart" },
+  { id: "generate_table", label: "Generate Table" },
+  { id: "experiment", label: "Experiment Sandbox" },
+];
 const LLM_PROVIDERS = [
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
@@ -171,7 +180,6 @@ const LLM_PROVIDERS = [
 // Note: image generation models use a flat per-image cost stored in `input`.
 // `output` is 0 for image gen models.  The UI shows "per image" for these.
 const IMAGE_GEN_MODEL_IDS = new Set([
-  "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
   "gpt-image-1.5",
 ]);
@@ -194,13 +202,11 @@ const PROVIDER_MODELS: Record<string, { id: string; label: string; input: number
     { id: "claude-opus-4-20250918", label: "Claude Opus 4", input: 5.00, output: 25.00 },
   ],
   google: [
-    { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash", input: 0.15, output: 0.60 },
-    { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", input: 0.50, output: 3.00 },
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", input: 1.25, output: 10.00 },
-    { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", input: 2.00, output: 12.00 },
+    { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", input: 0.075, output: 0.30 },
+    { id: "gemini-3.1-flash-preview", label: "Gemini 3.1 Flash", input: 0.10, output: 0.40 },
+    { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", input: 1.25, output: 5.00 },
     // ── Image Generation ──────────────────────────────────────────────────
-    { id: "gemini-3.1-flash-image-preview", label: "Nano Banana 2 ✦ (Image Gen)", input: 0.067, output: 0 },
-    { id: "gemini-3-pro-image-preview", label: "Nano Banana Pro ✦ (Image Gen)", input: 0.134, output: 0 },
+    { id: "gemini-3-pro-image-preview", label: "Nano Banana Pro ✦ (Image Gen)", input: 0.03, output: 0 },
   ],
   deepseek: [
     { id: "deepseek-chat", label: "DeepSeek V3 (Chat)", input: 0.27, output: 1.10 },
@@ -1118,6 +1124,47 @@ export function Settings() {
                               className="rounded accent-cyan-500" />
                             <span className="text-[10px] text-white/40">Structured</span>
                           </label>
+                        </div>
+                      </div>
+                      
+                      {step?.use_thinking && (
+                        <div className="mt-3 pt-3 border-t border-white/5">
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[10px] text-white/35">Thinking Budget (Tokens)</label>
+                            <span className="text-[10px] text-white/50 font-mono">{step.thinking_budget ?? 8192}</span>
+                          </div>
+                          <input type="range" min="1024" max="32768" step="1024" value={step.thinking_budget ?? 8192}
+                            onChange={(e) => updatePipelineStep(key, "thinking_budget", parseInt(e.target.value))}
+                            className="w-full h-1 rounded-full appearance-none cursor-pointer"
+                            style={{ background: "rgba(255,255,255,0.1)" }} />
+                        </div>
+                      )}
+
+                      <div className="mt-3 pt-3 border-t border-white/5">
+                        <label className="text-[10px] text-white/35 block mb-2">Enabled Tools</label>
+                        <div className="flex flex-wrap gap-2">
+                          {RESEARCH_TOOLS.map((tool) => {
+                            const enabled = (step?.enabled_tools || []).includes(tool.id);
+                            return (
+                              <button
+                                key={tool.id}
+                                onClick={() => {
+                                  const currentTools = step?.enabled_tools || [];
+                                  const newTools = enabled 
+                                    ? currentTools.filter(t => t !== tool.id)
+                                    : [...currentTools, tool.id];
+                                  updatePipelineStep(key, "enabled_tools", newTools);
+                                }}
+                                className={`px-2 py-1 rounded text-[10px] transition-colors border ${
+                                  enabled 
+                                    ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30" 
+                                    : "bg-white/5 text-white/40 border-white/10 hover:bg-white/10 hover:text-white/60"
+                                }`}
+                              >
+                                {tool.label}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>

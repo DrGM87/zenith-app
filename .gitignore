@@ -39,13 +39,16 @@ env/
 *.sw?
 Thumbs.db
 
+# OS
+*.exe
+*.msi
+
+
+
 # PyInstaller / Build Artifacts
 build/
 *.spec
 src-tauri/python_env/
 src-tauri/resources/
 
-# OS
-*.exe
-!Zenith_Setup.exe
-*.msi
+

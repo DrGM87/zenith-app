@@ -83,8 +83,6 @@ export interface PipelineStepConfig {
   use_structured_output: boolean;
   use_thinking: boolean;
   thinking_budget: number;
-  use_google_search: boolean;
-  use_code_execution: boolean;
 }
 
 export interface PipelineConfig {

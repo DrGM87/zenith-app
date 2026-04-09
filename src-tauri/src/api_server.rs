@@ -203,32 +203,18 @@ fn handle_request(
                     let args_str = serde_json::to_string(&req.args).unwrap_or_else(|_| "{}".to_string());
                     let resource = app.path().resource_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-
-                    #[cfg(target_os = "windows")]
-                    let exe_name = "process_files.exe";
-                    #[cfg(not(target_os = "windows"))]
-                    let exe_name = "process_files";
-
-                    let sp1 = resource.join("resources").join("process_files").join(exe_name);
-                    let sp2 = cwd.join("src-tauri").join("resources").join("process_files").join(exe_name);
-                    
+                    let sp1 = resource.join("scripts/process_files.py");
+                    let sp2 = cwd.join("scripts/process_files.py");
                     let script: Option<std::path::PathBuf> = if sp1.exists() { Some(sp1) } else if sp2.exists() { Some(sp2) } else { None };
                     if script.is_none() {
-                        return ("500 Internal Server Error", format!(r#"{{"error":"{} not found"}}"#, exe_name));
+                        return ("500 Internal Server Error", r#"{"error":"process_files.py not found"}"#.to_string());
                     }
                     let sp = script.unwrap();
-                    let mut cmd = std::process::Command::new(&sp);
-                    cmd.arg(&req.action).arg(&args_str)
+                    let cmd_result = std::process::Command::new("python")
+                        .arg("-u").arg(&sp).arg(&req.action).arg(&args_str)
                         .stdout(std::process::Stdio::piped())
-                        .stderr(std::process::Stdio::piped());
-                    
-                    #[cfg(target_os = "windows")]
-                    {
-                        use std::os::windows::process::CommandExt;
-                        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-                    }
-
-                    let cmd_result = cmd.output();
+                        .stderr(std::process::Stdio::piped())
+                        .output();
                     match cmd_result {
                         Ok(out) => {
                             let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();

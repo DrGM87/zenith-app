@@ -3299,7 +3299,29 @@ from research_engine import (
     smooth_manuscript, compile_references, run_pipeline_phase,
     solve_scihub_captcha, auto_rename_thread,
     export_research_snapshot, generate_chart, generate_table,
+    EXPORTS_DIR,
 )
+
+
+def export_content(args):
+    """Write manuscript/bibliography content to a file in the exports directory.
+    Args: {content, format: 'markdown'|'bibtex'|'latex'|'json', title?}
+    Returns: {ok, path}"""
+    import re as _re, time as _time
+    content = args.get("content", "")
+    fmt = args.get("format", "markdown")
+    raw_title = args.get("title", "zenith_export")
+    safe_title = _re.sub(r"[^a-z0-9_]+", "_", raw_title.lower())[:40]
+    ext_map = {"markdown": ".md", "bibtex": ".bib", "latex": ".tex", "json": ".json", "pdf": ".md"}
+    ext = ext_map.get(fmt, ".txt")
+    filename = f"{safe_title}_{int(_time.time())}{ext}"
+    path = os.path.join(EXPORTS_DIR, filename)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return {"ok": True, "path": path, "format": fmt, "filename": filename}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 ACTIONS = {
     "recognize_audio": recognize_audio,
@@ -3365,6 +3387,7 @@ ACTIONS = {
     "export_research_snapshot": export_research_snapshot,
     "generate_chart": generate_chart,
     "generate_table": generate_table,
+    "export_content": export_content,
 }
 
 if __name__ == "__main__":

@@ -241,7 +241,7 @@ def _llm_chat(provider, api_key, model, messages, temperature=0.7, max_tokens=16
       response_schema: JSON Schema dict for structured output (Gemini: native, others: prompt injection)
       thinking_config: {"budget": int} to enable Gemini thinking mode
       code_execution: bool to enable Gemini inline code execution
-      google_search: bool to enable Gemini Google Search Grounding tool
+      google_search: bool to enable native Gemini Google Search grounding
 
     Returns {text, usage: {input_tokens, output_tokens}, structured: dict|None}."""
 
@@ -329,14 +329,16 @@ def _llm_chat(provider, api_key, model, messages, temperature=0.7, max_tokens=16
                 budget = thinking_config.get("budget", 8192)
                 body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": budget}
 
-            # Tools configuration
-            tools = []
+            tools_list = []
+            # Code execution tool
             if code_execution:
-                tools.append({"codeExecution": {}})
+                tools_list.append({"codeExecution": {}})
+            # Google Search tool
             if google_search:
-                tools.append({"googleSearch": {}})
-            if tools:
-                body["tools"] = tools
+                tools_list.append({"googleSearch": {}})
+                
+            if tools_list:
+                body["tools"] = tools_list
 
             payload = json.dumps(body).encode()
             return urllib.request.Request(url, data=payload, headers={
@@ -1348,8 +1350,7 @@ def _get_step_config(args, defaults=None):
         "use_structured_output": sc.get("use_structured_output", d.get("use_structured_output", False)),
         "use_thinking": sc.get("use_thinking", d.get("use_thinking", False)),
         "thinking_budget": sc.get("thinking_budget", d.get("thinking_budget", 8192)),
-        "use_google_search": sc.get("use_google_search", d.get("use_google_search", False)),
-        "use_code_execution": sc.get("use_code_execution", d.get("use_code_execution", False)),
+        "enabled_tools": sc.get("enabled_tools", d.get("enabled_tools", [])),
     }
 
 def _build_system_prompt(args, sc, fallback, **kwargs):
@@ -1417,8 +1418,7 @@ def validate_research_query(args):
                        [{"role": "system", "content": system},
                         {"role": "user", "content": f"Research question: {query}"}],
                        temperature=sc["temperature"], max_tokens=sc["max_tokens"],
-                       response_schema=_SCHEMA_GATEKEEPER if sc["use_structured_output"] else None,
-                       google_search=sc.get("use_google_search", False))
+                       response_schema=_SCHEMA_GATEKEEPER if sc["use_structured_output"] else None)
     if "error" in result:
         return result
 
@@ -1461,8 +1461,7 @@ def generate_search_queries(args):
                        [{"role": "system", "content": system},
                         {"role": "user", "content": f"Research question: {query}\nDomain: {domain}"}],
                        temperature=sc["temperature"], max_tokens=sc["max_tokens"],
-                       response_schema=_SCHEMA_QUERIES if sc["use_structured_output"] else None,
-                       google_search=sc.get("use_google_search", False))
+                       response_schema=_SCHEMA_QUERIES if sc["use_structured_output"] else None)
     if "error" in result:
         return result
 
@@ -1516,10 +1515,9 @@ def triage_papers(args):
 
         result = _llm_chat(provider, api_key, model,
                            [{"role": "system", "content": system},
-                            {"role": "user", "content": f"Research question: {query}\n\nAssess these papers:\n{papers_text}"}],
+                            {"role": "user", "content": f"Research question: {query}\n\nPapers to screen:{papers_text}"}],
                            temperature=sc["temperature"], max_tokens=sc["max_tokens"],
-                           response_schema=_SCHEMA_TRIAGE if sc["use_structured_output"] else None,
-                           google_search=sc.get("use_google_search", False))
+                           response_schema=_SCHEMA_TRIAGE if sc["use_structured_output"] else None)
         if "error" in result:
             for p in batch:
                 all_results.append({"doi": p.get("doi", ""), "title": p.get("title", ""),
@@ -1700,13 +1698,36 @@ def draft_research_section(args):
         f"Write the {section_type} section. Be comprehensive and cite all sources.{reqs_text}"
     )
 
-    thinking = {"budget": sc["thinking_budget"]} if sc["use_thinking"] and provider == "google" else None
+    enabled_tools = sc.get("enabled_tools", [])
+    tool_desc = ""
+    code_execution = False
+    if enabled_tools:
+        tools = []
+        if "experiment" in enabled_tools:
+            tools.append("- EXPERIMENT: Run Python code in a sandboxed environment")
+            code_execution = True
+        if "generate_chart" in enabled_tools:
+            tools.append("- GENERATE_CHART: Generate a chart (bar, line, pie, scatter, heatmap) from data")
+            code_execution = True
+        if "generate_table" in enabled_tools:
+            tools.append("- GENERATE_TABLE: Generate a formatted data table")
+        if tools:
+            tool_desc = (
+                "\n\nYou have access to these research tools:\n" +
+                "\n".join(tools) +
+                "\n\nWhen you need to use a tool, include a tool call tag in your response like: "
+                "[TOOL:TOOL_NAME]{\"param\": \"value\"}[/TOOL]\n"
+                "You can use multiple tools in a single response. Always explain what you found after using a tool."
+            )
+
+    full_system = system + tool_desc
+
+    thinking = {"budget": sc.get("thinking_budget", 8192)} if sc["use_thinking"] and provider == "google" else None
     result = _llm_chat(provider, api_key, model,
-                       [{"role": "system", "content": system},
+                       [{"role": "system", "content": full_system},
                         {"role": "user", "content": prompt}],
                        temperature=sc["temperature"], max_tokens=sc["max_tokens"],
-                       thinking_config=thinking,
-                       google_search=sc.get("use_google_search", False))
+                       thinking_config=thinking, code_execution=code_execution)
     if "error" in result:
         return result
 
@@ -1769,9 +1790,9 @@ def smooth_manuscript(args):
         # Match multiple placeholder formats the LLM might use
         placeholder_patterns = [
             r'\[FIGURE:\s*(.+?)\]',                                          # [FIGURE: desc]
-            r'\((?:Suggest|Insert|Place)\s+(?:placing\s+)?Figure\s*\d*\s*(?:here)?[:\s]*.+?\)',  # (Suggest placing Figure 1 here: ...)
-            r'\[(?:Insert|Place)\s+Figure\s*\d*\s*(?:here)?[:\s]*.+?\]',   # [Insert Figure 1 here: ...]
-            r'\(Placement Suggestion:\s*.+?\)',                             # (Placement Suggestion: ...)
+            r'\((?:Suggest|Insert|Place)\s+(?:placing\s+)?Figure\s*\d*\s*(?:here)?[:\s]*(.+?)\)',  # (Suggest placing Figure 1 here: ...)
+            r'\[(?:Insert|Place)\s+Figure\s*\d*\s*(?:here)?[:\s]*(.+?)\]',   # [Insert Figure 1 here: ...]
+            r'\(Placement Suggestion:\s*(.+?)\)',                             # (Placement Suggestion: ...)
         ]
         for pattern in placeholder_patterns:
             def _replace_to_tag(m, _pat=pattern):
@@ -1837,13 +1858,12 @@ def smooth_manuscript(args):
         for gi in guidelines_issues[:20]:
             quality_context += f"- [{gi.get('status', '?')}] {gi.get('item', '')}: {gi.get('fix', '')}\n"
 
-    thinking = {"budget": sc["thinking_budget"]} if sc["use_thinking"] and provider == "google" else None
+    thinking = {"budget": sc.get("thinking_budget", 16384)} if sc["use_thinking"] and provider == "google" else None
     result = _llm_chat(provider, api_key, model,
                        [{"role": "system", "content": system},
                         {"role": "user", "content": f"Research question: {query}\n\nDraft manuscript:{combined}{refs_context}{vector_context}{quality_context}"}],
                        temperature=sc["temperature"], max_tokens=sc["max_tokens"],
-                       thinking_config=thinking,
-                       google_search=sc.get("use_google_search", False))
+                       thinking_config=thinking)
     if "error" in result:
         return result
 
@@ -1973,6 +1993,17 @@ def generate_blueprint(args):
     query = args.get("query", "")
     study_design = args.get("study_design", "systematic_review")
     papers_summary = args.get("papers_context", args.get("papers_summary", ""))
+    
+    guidelines_map = {
+        "systematic_review": "PRISMA 2020",
+        "meta_analysis": "PRISMA-MA + MOOSE",
+        "narrative_review": "SANRA",
+        "scoping_review": "PRISMA-ScR",
+        "comparative": "Comparative analysis",
+        "exploratory": "Exploratory research",
+    }
+    guidelines = args.get("guidelines", guidelines_map.get(study_design, "academic"))
+    
     extracted_texts = args.get("extracted_texts", "")
     if extracted_texts:
         papers_summary += "\n\n--- Full-text excerpts ---\n" + extracted_texts[:6000]
@@ -1992,14 +2023,13 @@ def generate_blueprint(args):
         "Adapt the blueprint to the specific research question and available literature."
     )
 
-    thinking = {"budget": sc["thinking_budget"]} if sc["use_thinking"] and provider == "google" else None
+    thinking = {"budget": sc.get("thinking_budget", 8192)} if sc["use_thinking"] and provider == "google" else None
     result = _llm_chat(provider, api_key, model,
                        [{"role": "system", "content": system},
                         {"role": "user", "content": f"Research question: {query}\nStudy design: {study_design}\n\nAvailable literature summary:\n{papers_summary[:4000]}"}],
                        temperature=sc["temperature"], max_tokens=sc["max_tokens"],
                        response_schema=_SCHEMA_BLUEPRINT if sc["use_structured_output"] else None,
-                       thinking_config=thinking,
-                       google_search=sc.get("use_google_search", False))
+                       thinking_config=thinking)
     if "error" in result:
         return result
 
@@ -2076,8 +2106,7 @@ def citation_verifier_swarm(args):
                        [{"role": "system", "content": system},
                         {"role": "user", "content": f"Paper reference list:\n{refs}\n\nSection text to verify:\n{section_text[:8000]}"}],
                        temperature=sc["temperature"], max_tokens=sc["max_tokens"],
-                       response_schema=_SCHEMA_CITATION_VERIFY if sc["use_structured_output"] else None,
-                       google_search=sc.get("use_google_search", False))
+                       response_schema=_SCHEMA_CITATION_VERIFY if sc["use_structured_output"] else None)
     if "error" in result:
         return {"ok": True, "pass": True, "verified": [], "hallucinated": [], "issues": ["Verification call failed"], "tokens": result.get("usage")}
 
@@ -2116,12 +2145,18 @@ def guidelines_compliance_check(args):
     if sections and not section_text:
         section_text = "\n\n".join(f"## {s.get('type', 'Section').title()}\n{s.get('text', '')}" for s in sections)
     section_type = args.get("section_type", args.get("study_design", ""))
-    guidelines_map = args.get("guidelines_map", {})
-    guidelines = args.get("guidelines", "")
-    if not guidelines and guidelines_map:
-        guidelines = ", ".join(guidelines_map.values())
-    if not guidelines:
-        guidelines = "PRISMA"
+    
+    study_design = args.get("study_design", "systematic_review")
+    guidelines_map = args.get("guidelines_map", {
+        "systematic_review": "PRISMA 2020",
+        "meta_analysis": "PRISMA-MA + MOOSE",
+        "narrative_review": "SANRA",
+        "scoping_review": "PRISMA-ScR",
+        "comparative": "Comparative analysis",
+        "exploratory": "Exploratory research",
+    })
+    guidelines = args.get("guidelines", guidelines_map.get(study_design, "PRISMA"))
+
     api_key = args.get("api_key", "")
     provider = args.get("provider", "google")
     sc = _get_step_config(args, {"model_tier": "strong", "max_tokens": 8192, "temperature": 0.1, "use_structured_output": True})
@@ -2143,8 +2178,7 @@ def guidelines_compliance_check(args):
                        [{"role": "system", "content": system},
                         {"role": "user", "content": f"Section type: {section_type}\nGuidelines: {guidelines}\n\nSection text:\n{section_text[:8000]}"}],
                        temperature=sc["temperature"], max_tokens=sc["max_tokens"],
-                       response_schema=_SCHEMA_GUIDELINES if sc["use_structured_output"] else None,
-                       google_search=sc.get("use_google_search", False))
+                       response_schema=_SCHEMA_GUIDELINES if sc["use_structured_output"] else None)
     if "error" in result:
         return {"ok": True, "checklist": [], "tokens": result.get("usage")}
 
@@ -2169,6 +2203,849 @@ def guidelines_compliance_check(args):
                 checklist.append({"item": v.get("item", str(v)), "status": "not_met", "fix": v.get("fix", v.get("suggestion", ""))})
 
     return {"ok": True, "checklist": checklist, "tokens": result.get("usage")}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  FREE DATA SOURCE TOOLS (v6.1 atomic agents)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _search_europe_pmc(query: str, max_results: int = 50) -> list:
+    """Search Europe PMC REST API (free, no key required)."""
+    try:
+        url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+        params = {
+            "query": query, "resultType": "core", "format": "json",
+            "pageSize": min(max_results, 100), "sort": "CITED desc",
+        }
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        papers = []
+        for r in data.get("resultList", {}).get("result", []):
+            authors = []
+            auth_list = r.get("authorList", {}).get("author", [])
+            if isinstance(auth_list, list):
+                authors = [f"{a.get('lastName', '')} {a.get('initials', '')}".strip() for a in auth_list[:5]]
+            papers.append({
+                "title": r.get("title", "").rstrip("."),
+                "authors": authors,
+                "year": str(r.get("pubYear", "")),
+                "abstract": r.get("abstractText", ""),
+                "doi": r.get("doi", ""),
+                "pmid": r.get("pmid", ""),
+                "citations": r.get("citedByCount", 0),
+                "url": f"https://europepmc.org/article/{r.get('source','MED')}/{r.get('id','')}",
+                "source": "Europe PMC",
+                "journal": r.get("journalTitle", ""),
+            })
+        return papers
+    except Exception as e:
+        return []
+
+
+def _search_clinical_trials(condition: str, intervention: str = "", status: str = "COMPLETED", max_results: int = 50) -> list:
+    """Search ClinicalTrials.gov v2 API (free)."""
+    try:
+        url = "https://clinicaltrials.gov/api/v2/studies"
+        params = {
+            "query.cond": condition,
+            "query.intr": intervention,
+            "filter.overallStatus": status,
+            "pageSize": min(max_results, 100),
+            "format": "json",
+            "fields": "NCTId,BriefTitle,OfficialTitle,BriefSummary,OverallStatus,Phase,EnrollmentCount,StartDate,CompletionDate,Condition,InterventionName,PrimaryOutcome,StudyType",
+        }
+        params = {k: v for k, v in params.items() if v}
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        trials = []
+        for s in data.get("studies", []):
+            pm = s.get("protocolSection", {})
+            id_m = pm.get("identificationModule", {})
+            desc_m = pm.get("descriptionModule", {})
+            status_m = pm.get("statusModule", {})
+            design_m = pm.get("designModule", {})
+            arms_m = pm.get("armsInterventionsModule", {})
+            outcomes_m = pm.get("outcomesModule", {})
+            interventions = [i.get("interventionName", "") for i in arms_m.get("interventions", [])]
+            primary_outcomes = [o.get("measure", "") for o in outcomes_m.get("primaryOutcomes", [])]
+            trials.append({
+                "nct_id": id_m.get("nctId", ""),
+                "title": id_m.get("briefTitle", id_m.get("officialTitle", "")),
+                "summary": desc_m.get("briefSummary", ""),
+                "status": status_m.get("overallStatus", ""),
+                "phase": design_m.get("phases", []),
+                "enrollment": design_m.get("enrollmentInfo", {}).get("count", 0),
+                "start_date": status_m.get("startDateStruct", {}).get("date", ""),
+                "completion_date": status_m.get("completionDateStruct", {}).get("date", ""),
+                "conditions": pm.get("conditionsModule", {}).get("conditions", []),
+                "interventions": interventions,
+                "primary_outcomes": primary_outcomes,
+                "url": f"https://clinicaltrials.gov/study/{id_m.get('nctId', '')}",
+                "source": "ClinicalTrials.gov",
+            })
+        return trials
+    except Exception as e:
+        return []
+
+
+def _query_openfda_adverse_events(drug_name: str, limit: int = 100) -> dict:
+    """Query OpenFDA drug adverse event reports (free, no key required)."""
+    try:
+        url = "https://api.fda.gov/drug/event.json"
+        params = {
+            "search": f'patient.drug.openfda.generic_name:"{drug_name}" OR patient.drug.openfda.brand_name:"{drug_name}"',
+            "count": "patient.reaction.reactionmeddrapt.exact",
+            "limit": min(limit, 1000),
+        }
+        resp = requests.get(url, params=params, timeout=15)
+        if resp.status_code == 404:
+            return {"ok": True, "drug": drug_name, "adverse_events": [], "total": 0}
+        resp.raise_for_status()
+        data = resp.json()
+        events = [{"reaction": r.get("term", ""), "count": r.get("count", 0)}
+                  for r in data.get("results", [])]
+        return {"ok": True, "drug": drug_name, "adverse_events": events, "total": len(events)}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "drug": drug_name, "adverse_events": []}
+
+
+def _query_openfda_drug_labels(drug_name: str) -> dict:
+    """Query OpenFDA drug label database for prescribing information (free)."""
+    try:
+        url = "https://api.fda.gov/drug/label.json"
+        params = {
+            "search": f'openfda.generic_name:"{drug_name}" OR openfda.brand_name:"{drug_name}"',
+            "limit": 3,
+        }
+        resp = requests.get(url, params=params, timeout=15)
+        if resp.status_code == 404:
+            return {"ok": True, "drug": drug_name, "labels": []}
+        resp.raise_for_status()
+        data = resp.json()
+        labels = []
+        for r in data.get("results", []):
+            openfda = r.get("openfda", {})
+            labels.append({
+                "brand_name": openfda.get("brand_name", []),
+                "generic_name": openfda.get("generic_name", []),
+                "manufacturer": openfda.get("manufacturer_name", []),
+                "route": openfda.get("route", []),
+                "indications": (r.get("indications_and_usage") or [""])[0][:500],
+                "warnings": (r.get("warnings") or [""])[0][:500],
+                "dosage": (r.get("dosage_and_administration") or [""])[0][:500],
+                "contraindications": (r.get("contraindications") or [""])[0][:300],
+            })
+        return {"ok": True, "drug": drug_name, "labels": labels}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "drug": drug_name, "labels": []}
+
+
+def _lookup_mesh_terms(term: str) -> dict:
+    """Look up MeSH terms using NLM E-Utilities (free)."""
+    try:
+        # Step 1: search MeSH for the term
+        search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+        params = {"db": "mesh", "term": term, "retmode": "json", "retmax": 10}
+        resp = requests.get(search_url, params=params, timeout=10)
+        resp.raise_for_status()
+        ids = resp.json().get("esearchresult", {}).get("idlist", [])
+        if not ids:
+            return {"ok": True, "term": term, "mesh_terms": [], "synonyms": []}
+
+        # Step 2: fetch summaries for first few IDs
+        summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+        params = {"db": "mesh", "id": ",".join(ids[:5]), "retmode": "json"}
+        time.sleep(0.4)
+        resp = requests.get(summary_url, params=params, timeout=10)
+        resp.raise_for_status()
+        doc = resp.json().get("result", {})
+
+        mesh_terms = []
+        synonyms = []
+        for uid in ids[:5]:
+            item = doc.get(uid, {})
+            name = item.get("ds_meshterms", [])
+            if isinstance(name, list):
+                mesh_terms.extend(name)
+            scope_note = item.get("ds_scopenote", "")
+            entry_terms = item.get("ds_termsyn", [])
+            if isinstance(entry_terms, list):
+                synonyms.extend(entry_terms)
+
+        return {"ok": True, "term": term, "mesh_terms": list(set(mesh_terms))[:10],
+                "synonyms": list(set(synonyms))[:20]}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "term": term, "mesh_terms": [], "synonyms": []}
+
+
+def _lookup_rxnorm(drug_name: str) -> dict:
+    """Look up drug information from NLM RxNorm API (free)."""
+    try:
+        # Get RxCUI
+        url = f"https://rxnav.nlm.nih.gov/REST/rxcui.json"
+        params = {"name": drug_name, "search": 1}
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        rxcui_group = data.get("idGroup", {})
+        rxcuis = rxcui_group.get("rxnormId", [])
+        if not rxcuis:
+            return {"ok": True, "drug": drug_name, "rxcui": None, "brand_names": [], "drug_classes": []}
+
+        rxcui = rxcuis[0]
+        time.sleep(0.3)
+
+        # Get related terms (brand names, drug classes)
+        rel_url = f"https://rxnav.nlm.nih.gov/REST/rxcui/{rxcui}/allrelated.json"
+        resp = requests.get(rel_url, timeout=10)
+        resp.raise_for_status()
+        all_related = resp.json().get("allRelatedGroup", {}).get("conceptGroup", [])
+
+        brand_names = []
+        drug_classes = []
+        ingredients = []
+        for group in all_related:
+            tty = group.get("tty", "")
+            concepts = group.get("conceptProperties", [])
+            if isinstance(concepts, list):
+                names = [c.get("name", "") for c in concepts if c.get("name")]
+                if tty == "BN":
+                    brand_names.extend(names)
+                elif tty == "IN":
+                    ingredients.extend(names)
+
+        # Get drug classes
+        class_url = f"https://rxnav.nlm.nih.gov/REST/rxclass/class/byRxcui.json"
+        params = {"rxcui": rxcui, "relaSource": "MESHPA"}
+        try:
+            time.sleep(0.3)
+            resp = requests.get(class_url, params=params, timeout=10)
+            for entry in resp.json().get("rxclassDrugInfoList", {}).get("rxclassDrugInfo", []):
+                cls_name = entry.get("rxclassMinConceptItem", {}).get("className", "")
+                if cls_name:
+                    drug_classes.append(cls_name)
+        except Exception:
+            pass
+
+        return {
+            "ok": True, "drug": drug_name, "rxcui": rxcui,
+            "brand_names": list(set(brand_names))[:10],
+            "ingredients": list(set(ingredients))[:5],
+            "drug_classes": list(set(drug_classes))[:10],
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e), "drug": drug_name, "rxcui": None}
+
+
+def _check_retraction_watch(doi: str) -> dict:
+    """Check if a paper has been retracted via CrossRef + Retraction Watch CSV."""
+    result = {"doi": doi, "retracted": False, "reason": None, "source": None, "date": None}
+    try:
+        # 1. CrossRef check
+        if doi:
+            url = f"https://api.crossref.org/works/{requests.utils.quote(doi, safe='')}"
+            resp = requests.get(url, timeout=10, headers={"User-Agent": "ZenithResearch/6.1 (mailto:research@zenith.app)"})
+            if resp.ok:
+                data = resp.json().get("message", {})
+                update_to = data.get("update-to", [])
+                for update in update_to:
+                    if update.get("type", "").lower() in ("retraction", "withdrawal"):
+                        result["retracted"] = True
+                        result["source"] = "CrossRef"
+                        result["date"] = update.get("updated", {}).get("date-parts", [[""]])[0]
+                        break
+
+        # 2. Retraction Watch CSV (cached locally or fetched)
+        if not result["retracted"]:
+            rw_path = os.path.join(os.path.dirname(__file__), "retraction_watch_cache.csv")
+            if os.path.exists(rw_path) and doi:
+                import csv
+                with open(rw_path, "r", encoding="utf-8", errors="ignore") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        row_doi = row.get("OriginalPaperDOI", "").strip().lower()
+                        if row_doi and row_doi == doi.lower():
+                            result["retracted"] = True
+                            result["reason"] = row.get("Reason", "")
+                            result["source"] = "Retraction Watch"
+                            result["date"] = row.get("RetractionDate", "")
+                            break
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
+
+def _check_predatory_journal(journal_name: str) -> dict:
+    """Check if a journal is on the Beall's list (cached local list)."""
+    try:
+        beall_path = os.path.join(os.path.dirname(__file__), "bealls_list_cache.txt")
+        if not os.path.exists(beall_path):
+            # Try to fetch a simple public mirror
+            try:
+                resp = requests.get(
+                    "https://raw.githubusercontent.com/scholarly-comms-product-team/predatory-journals/main/journals.txt",
+                    timeout=10
+                )
+                if resp.ok:
+                    with open(beall_path, "w", encoding="utf-8") as f:
+                        f.write(resp.text)
+            except Exception:
+                return {"ok": True, "journal": journal_name, "is_predatory": None, "note": "Cache not available"}
+
+        if os.path.exists(beall_path):
+            name_lower = journal_name.lower()
+            with open(beall_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if name_lower in line.lower().strip():
+                        return {"ok": True, "journal": journal_name, "is_predatory": True, "matched_entry": line.strip()}
+            return {"ok": True, "journal": journal_name, "is_predatory": False}
+
+        return {"ok": True, "journal": journal_name, "is_predatory": None, "note": "List unavailable"}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "journal": journal_name, "is_predatory": None}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  STATISTICAL ANALYSIS TOOLS (v6.1 meta-analysis & visualization)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_meta_analysis(args: dict) -> dict:
+    """Run fixed-effects or random-effects meta-analysis using scipy/statsmodels.
+    Args: {studies: [{study_id, effect_size, variance|se|ci_lower&ci_upper, n_total}], method: 'fixed'|'random'}
+    Returns: {pooled_effect, ci_lower, ci_upper, i_squared, q_stat, p_q, tau_squared, k}"""
+    try:
+        import numpy as np
+        studies = args.get("studies", [])
+        method = args.get("method", "random").lower()
+
+        if len(studies) < 2:
+            return {"ok": False, "error": "Need at least 2 studies for meta-analysis"}
+
+        effects = []
+        variances = []
+        for s in studies:
+            es = float(s.get("effect_size", 0))
+            if "variance" in s:
+                var = float(s["variance"])
+            elif "se" in s:
+                var = float(s["se"]) ** 2
+            elif "ci_lower" in s and "ci_upper" in s:
+                se = (float(s["ci_upper"]) - float(s["ci_lower"])) / (2 * 1.96)
+                var = se ** 2
+            else:
+                var = 0.01  # fallback
+            effects.append(es)
+            variances.append(var)
+
+        effects = np.array(effects)
+        variances = np.array(variances)
+        weights_fixed = 1.0 / variances
+
+        # Fixed-effect pooled estimate
+        pooled_fe = np.sum(weights_fixed * effects) / np.sum(weights_fixed)
+        var_fe = 1.0 / np.sum(weights_fixed)
+
+        # Q statistic and I²
+        q = np.sum(weights_fixed * (effects - pooled_fe) ** 2)
+        k = len(effects)
+        df = k - 1
+        p_q = 1.0 - float(__import__("scipy.stats", fromlist=["chi2"]).chi2.cdf(q, df))
+        i_squared = max(0.0, (q - df) / q * 100) if q > 0 else 0.0
+
+        # DerSimonian-Laird tau² for random effects
+        c = np.sum(weights_fixed) - np.sum(weights_fixed ** 2) / np.sum(weights_fixed)
+        tau2 = max(0.0, (q - df) / c) if c > 0 else 0.0
+
+        if method == "random":
+            weights = 1.0 / (variances + tau2)
+        else:
+            weights = weights_fixed
+
+        pooled = np.sum(weights * effects) / np.sum(weights)
+        var_pooled = 1.0 / np.sum(weights)
+        se_pooled = float(np.sqrt(var_pooled))
+        z = pooled / se_pooled if se_pooled > 0 else 0.0
+        from scipy.stats import norm
+        p_value = 2 * (1 - norm.cdf(abs(z)))
+
+        return {
+            "ok": True,
+            "method": method,
+            "k": k,
+            "pooled_effect": round(float(pooled), 4),
+            "se": round(se_pooled, 4),
+            "ci_lower": round(float(pooled - 1.96 * se_pooled), 4),
+            "ci_upper": round(float(pooled + 1.96 * se_pooled), 4),
+            "z": round(float(z), 3),
+            "p_value": round(float(p_value), 4),
+            "q_stat": round(float(q), 3),
+            "p_q": round(float(p_q), 4),
+            "i_squared": round(float(i_squared), 1),
+            "tau_squared": round(float(tau2), 4),
+        }
+    except ImportError:
+        return {"ok": False, "error": "scipy not installed. Run: pip install scipy"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def generate_forest_plot(args: dict) -> dict:
+    """Generate a forest plot from meta-analysis data.
+    Args: {studies: [{study_id, effect_size, ci_lower, ci_upper, weight}], pooled_effect, ci_lower, ci_upper, xlabel, title}
+    Returns: {image_base64, path}"""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+        import numpy as np, io, base64
+
+        studies = args.get("studies", [])
+        pooled = args.get("pooled_effect", 0)
+        pooled_lo = args.get("ci_lower", pooled - 0.1)
+        pooled_hi = args.get("ci_upper", pooled + 0.1)
+        xlabel = args.get("xlabel", "Effect Size (SMD)")
+        title = args.get("title", "Forest Plot")
+
+        n = len(studies)
+        if n == 0:
+            return {"ok": False, "error": "No studies provided"}
+
+        fig, ax = plt.subplots(figsize=(10, max(4, n * 0.5 + 2)))
+        fig.patch.set_facecolor("#0f1520")
+        ax.set_facecolor("#0f1520")
+
+        y_positions = list(range(n, 0, -1))
+        max_weight = max((s.get("weight", 1) for s in studies), default=1)
+
+        for i, (s, y) in enumerate(zip(studies, y_positions)):
+            es = s.get("effect_size", 0)
+            lo = s.get("ci_lower", es - 0.2)
+            hi = s.get("ci_upper", es + 0.2)
+            w = s.get("weight", 1) / max_weight
+            color = "#22d3ee"
+
+            ax.plot([lo, hi], [y, y], color=color, linewidth=1, alpha=0.7)
+            ax.scatter([es], [y], s=max(20, w * 120), color=color, zorder=5, edgecolors="white", linewidths=0.3)
+            ax.text(-0.02, y, s.get("study_id", f"Study {i+1}"),
+                    ha="right", va="center", fontsize=8, color="#94a3b8")
+            ax.text(hi + 0.02, y,
+                    f"{es:.2f} [{lo:.2f}, {hi:.2f}]",
+                    ha="left", va="center", fontsize=7, color="#64748b",
+                    fontfamily="monospace")
+
+        # Pooled diamond
+        diamond_y = 0
+        diamond_x = [pooled_lo, pooled, pooled_hi, pooled, pooled_lo]
+        diamond_yy = [diamond_y, diamond_y + 0.35, diamond_y, diamond_y - 0.35, diamond_y]
+        ax.fill(diamond_x, diamond_yy, color="#10b981", alpha=0.8, zorder=6)
+        ax.text(-0.02, diamond_y, "Pooled",
+                ha="right", va="center", fontsize=8, color="#10b981", fontweight="bold")
+        ax.text(pooled_hi + 0.02, diamond_y,
+                f"{pooled:.2f} [{pooled_lo:.2f}, {pooled_hi:.2f}]",
+                ha="left", va="center", fontsize=7, color="#10b981",
+                fontfamily="monospace")
+
+        # Null effect line
+        ax.axvline(x=0, color="#475569", linestyle="--", linewidth=0.8, alpha=0.6)
+
+        ax.set_yticks([])
+        ax.set_xlabel(xlabel, color="#94a3b8", fontsize=9)
+        ax.set_title(title, color="#e2e8f0", fontsize=11, pad=12)
+        ax.tick_params(colors="#64748b", labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_edgecolor("#1c2536")
+
+        plt.tight_layout(pad=1.5)
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=150, bbox_inches="tight",
+                    facecolor=fig.get_facecolor())
+        plt.close()
+        buf.seek(0)
+        image_b64 = base64.b64encode(buf.read()).decode()
+
+        return {"ok": True, "image_base64": image_b64, "chart_type": "forest_plot"}
+    except ImportError:
+        return {"ok": False, "error": "matplotlib not installed. Run: pip install matplotlib"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def generate_funnel_plot(args: dict) -> dict:
+    """Generate a funnel plot to assess publication bias.
+    Args: {studies: [{study_id, effect_size, se|variance}], pooled_effect}
+    Returns: {image_base64, egger_p, begg_p}"""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np, io, base64
+        from scipy import stats
+
+        studies = args.get("studies", [])
+        pooled = args.get("pooled_effect", 0)
+        n = len(studies)
+        if n < 3:
+            return {"ok": False, "error": "Need at least 3 studies for funnel plot"}
+
+        effects = []
+        ses = []
+        for s in studies:
+            es = float(s.get("effect_size", 0))
+            if "se" in s:
+                se = float(s["se"])
+            elif "variance" in s:
+                se = float(s["variance"]) ** 0.5
+            elif "ci_lower" in s and "ci_upper" in s:
+                se = (float(s["ci_upper"]) - float(s["ci_lower"])) / (2 * 1.96)
+            else:
+                se = 0.1
+            effects.append(es)
+            ses.append(se)
+
+        effects = np.array(effects)
+        ses = np.array(ses)
+
+        # Egger's test (regress ES/SE on 1/SE)
+        precision = 1.0 / ses
+        slope, intercept, r, p_egger, _ = stats.linregress(precision, effects / ses)
+        begg_tau, p_begg = stats.kendalltau(effects, ses)
+
+        fig, ax = plt.subplots(figsize=(7, 6))
+        fig.patch.set_facecolor("#0f1520")
+        ax.set_facecolor("#0f1520")
+
+        ax.scatter(effects, ses, color="#22d3ee", alpha=0.8, s=60, edgecolors="white", linewidths=0.5, zorder=5)
+        for i, s in enumerate(studies):
+            ax.text(effects[i], ses[i] * 1.02, s.get("study_id", ""), fontsize=6,
+                    ha="center", color="#64748b")
+
+        # Funnel borders (95% CI lines)
+        se_range = np.linspace(0, max(ses) * 1.1, 100)
+        ax.plot([pooled - 1.96 * se_range, pooled + 1.96 * se_range],
+                [se_range, se_range], color="#475569", linestyle="--", linewidth=0.8, alpha=0.5)
+
+        ax.axvline(x=pooled, color="#10b981", linestyle="-", linewidth=1, alpha=0.7)
+        ax.invert_yaxis()
+        ax.set_xlabel("Effect Size", color="#94a3b8", fontsize=9)
+        ax.set_ylabel("Standard Error", color="#94a3b8", fontsize=9)
+        ax.set_title(f"Funnel Plot  |  Egger p={p_egger:.3f}  |  Begg p={p_begg:.3f}",
+                     color="#e2e8f0", fontsize=10, pad=10)
+        ax.tick_params(colors="#64748b", labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_edgecolor("#1c2536")
+
+        plt.tight_layout(pad=1.5)
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
+        plt.close()
+        buf.seek(0)
+        image_b64 = base64.b64encode(buf.read()).decode()
+
+        return {
+            "ok": True, "image_base64": image_b64, "chart_type": "funnel_plot",
+            "egger_p": round(float(p_egger), 4),
+            "begg_p": round(float(p_begg), 4),
+            "asymmetric": p_egger < 0.05,
+        }
+    except ImportError:
+        return {"ok": False, "error": "matplotlib/scipy not installed"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def generate_prisma_flowchart(args: dict) -> dict:
+    """Generate a PRISMA 2020 flowchart.
+    Args: {records_identified, records_removed_duplicates, records_screened, records_excluded,
+           reports_sought, reports_not_retrieved, reports_assessed, reports_excluded_reasons: [{reason, count}],
+           studies_included}
+    Returns: {image_base64}"""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+        import io, base64
+
+        ri = args.get("records_identified", 0)
+        rd = args.get("records_removed_duplicates", 0)
+        rs = args.get("records_screened", ri - rd)
+        re_ = args.get("records_excluded", 0)
+        rso = args.get("reports_sought", rs - re_)
+        rnr = args.get("reports_not_retrieved", 0)
+        ra = args.get("reports_assessed", rso - rnr)
+        ex_reasons = args.get("reports_excluded_reasons", [])
+        si = args.get("studies_included", 0)
+
+        fig, ax = plt.subplots(figsize=(10, 12))
+        fig.patch.set_facecolor("#06080d")
+        ax.set_facecolor("#06080d")
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 12)
+        ax.axis("off")
+
+        bg_id = "#0f1520"
+        bg_ex = "#1a1030"
+        cy = "#22d3ee"
+        gr = "#94a3b8"
+
+        def box(x, y, w, h, text, color=bg_id, text_color=gr, fontsize=8):
+            rect = mpatches.FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.05",
+                                            linewidth=1, edgecolor="#1c2536", facecolor=color)
+            ax.add_patch(rect)
+            ax.text(x + w/2, y + h/2, text, ha="center", va="center",
+                    fontsize=fontsize, color=text_color, wrap=True,
+                    multialignment="center")
+
+        def arrow(x1, y1, x2, y2):
+            ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
+                        arrowprops=dict(arrowstyle="->", color="#475569", lw=0.8))
+
+        # Column headers
+        ax.text(3, 11.7, "Identification", ha="center", fontsize=9, color=cy, fontweight="bold")
+        ax.text(3, 9.2, "Screening", ha="center", fontsize=9, color=cy, fontweight="bold")
+        ax.text(3, 6.2, "Eligibility", ha="center", fontsize=9, color=cy, fontweight="bold")
+        ax.text(3, 3.2, "Included", ha="center", fontsize=9, color=cy, fontweight="bold")
+
+        # Boxes - left column (identification flow)
+        box(1.5, 10.8, 3, 0.7, f"Records identified\n(n = {ri})", bg_id, gr)
+        arrow(3, 10.8, 3, 9.6)
+        box(1.5, 8.8, 3, 0.7, f"Records screened\n(n = {rs})", bg_id, gr)
+        arrow(3, 8.8, 3, 7.6)
+        box(1.5, 6.8, 3, 0.7, f"Reports sought\n(n = {rso})", bg_id, gr)
+        arrow(3, 6.8, 3, 5.6)
+        box(1.5, 4.8, 3, 0.7, f"Reports assessed\n(n = {ra})", bg_id, gr)
+        arrow(3, 4.8, 3, 3.6)
+        box(1.5, 2.8, 3, 0.7, f"Studies included\n(n = {si})", "#0a1e0e", "#10b981", 9)
+
+        # Boxes - right column (exclusions)
+        box(5.5, 10.3, 3.5, 0.7, f"Duplicates removed\n(n = {rd})", bg_ex, "#64748b")
+        ax.annotate("", xy=(5.5, 10.65), xytext=(4.5, 10.65),
+                    arrowprops=dict(arrowstyle="->", color="#475569", lw=0.8))
+
+        box(5.5, 8.3, 3.5, 0.7, f"Records excluded\n(n = {re_})", bg_ex, "#64748b")
+        ax.annotate("", xy=(5.5, 8.65), xytext=(4.5, 8.65),
+                    arrowprops=dict(arrowstyle="->", color="#475569", lw=0.8))
+
+        box(5.5, 6.3, 3.5, 0.7, f"Not retrieved\n(n = {rnr})", bg_ex, "#64748b")
+        ax.annotate("", xy=(5.5, 6.65), xytext=(4.5, 6.65),
+                    arrowprops=dict(arrowstyle="->", color="#475569", lw=0.8))
+
+        ex_text = "\n".join(f"{r['reason']}: {r['count']}" for r in ex_reasons[:4]) or f"Excluded (n = {ra - si})"
+        box(5.5, 4.3, 3.5, 0.7, ex_text, bg_ex, "#64748b", fontsize=6)
+        ax.annotate("", xy=(5.5, 4.65), xytext=(4.5, 4.65),
+                    arrowprops=dict(arrowstyle="->", color="#475569", lw=0.8))
+
+        ax.set_title("PRISMA 2020 Flow Diagram", color="#e2e8f0", fontsize=12, pad=8)
+
+        plt.tight_layout(pad=1.0)
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
+        plt.close()
+        buf.seek(0)
+        image_b64 = base64.b64encode(buf.read()).decode()
+        return {"ok": True, "image_base64": image_b64, "chart_type": "prisma_flowchart"}
+    except ImportError:
+        return {"ok": False, "error": "matplotlib not installed. Run: pip install matplotlib"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def generate_rob_plot(args: dict) -> dict:
+    """Generate a Risk of Bias traffic light + summary plot.
+    Args: {studies: [{study_id, domains: {domain_name: 'low'|'some'|'high'|'unclear'}}]}
+    Returns: {image_base64}"""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+        import numpy as np, io, base64
+
+        studies = args.get("studies", [])
+        if not studies:
+            return {"ok": False, "error": "No studies provided"}
+
+        all_domains = []
+        for s in studies:
+            for d in s.get("domains", {}).keys():
+                if d not in all_domains:
+                    all_domains.append(d)
+
+        COLOR_MAP = {
+            "low": "#10b981", "some": "#f59e0b", "some concerns": "#f59e0b",
+            "high": "#ef4444", "unclear": "#64748b", "": "#1c2536"
+        }
+        LABEL_MAP = {"low": "L", "some": "SC", "some concerns": "SC", "high": "H", "unclear": "?", "": "—"}
+
+        n_studies = len(studies)
+        n_domains = len(all_domains)
+        fig_w = max(8, n_domains * 1.2 + 3)
+        fig_h = max(4, n_studies * 0.5 + 2)
+
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+        fig.patch.set_facecolor("#0f1520")
+        ax.set_facecolor("#0f1520")
+
+        for si, study in enumerate(studies):
+            for di, domain in enumerate(all_domains):
+                rating = study.get("domains", {}).get(domain, "unclear").lower()
+                color = COLOR_MAP.get(rating, "#64748b")
+                label = LABEL_MAP.get(rating, "?")
+
+                rect = mpatches.FancyBboxPatch(
+                    (di + 0.05, si + 0.05), 0.9, 0.9,
+                    boxstyle="round,pad=0.05",
+                    linewidth=0.5, edgecolor="#0f1520", facecolor=color + "cc"
+                )
+                ax.add_patch(rect)
+                ax.text(di + 0.5, si + 0.5, label,
+                        ha="center", va="center", fontsize=7,
+                        color="white", fontweight="bold")
+
+        ax.set_xlim(0, n_domains)
+        ax.set_ylim(0, n_studies)
+        ax.set_xticks(np.arange(n_domains) + 0.5)
+        ax.set_xticklabels([d[:20] for d in all_domains], rotation=35, ha="right",
+                            fontsize=7, color="#94a3b8")
+        ax.set_yticks(np.arange(n_studies) + 0.5)
+        ax.set_yticklabels([s.get("study_id", f"Study {i+1}")[:25]
+                             for i, s in enumerate(studies)], fontsize=7, color="#94a3b8")
+
+        ax.set_title("Risk of Bias Assessment", color="#e2e8f0", fontsize=11, pad=12)
+
+        legend_patches = [
+            mpatches.Patch(color=COLOR_MAP["low"], label="Low Risk"),
+            mpatches.Patch(color=COLOR_MAP["some"], label="Some Concerns"),
+            mpatches.Patch(color=COLOR_MAP["high"], label="High Risk"),
+            mpatches.Patch(color=COLOR_MAP["unclear"], label="Unclear"),
+        ]
+        ax.legend(handles=legend_patches, loc="upper right", fontsize=7,
+                  framealpha=0.3, facecolor="#1c2536", edgecolor="#475569",
+                  labelcolor="#94a3b8")
+
+        plt.tight_layout(pad=1.5)
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
+        plt.close()
+        buf.seek(0)
+        image_b64 = base64.b64encode(buf.read()).decode()
+        return {"ok": True, "image_base64": image_b64, "chart_type": "rob_plot"}
+    except ImportError:
+        return {"ok": False, "error": "matplotlib not installed"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def calculate_grade(args: dict) -> dict:
+    """Calculate GRADE certainty of evidence for an outcome.
+    Args: {
+        study_design: 'rct'|'observational',
+        risk_of_bias: 0|1|2,          # 0=not serious, 1=serious, 2=very serious
+        inconsistency: 0|1|2,
+        indirectness: 0|1|2,
+        imprecision: 0|1|2,
+        publication_bias: 0|1|2,
+        large_effect: 0|1|2,          # upgrade: 0=no, 1=large, 2=very large
+        dose_response: bool,
+        confounding_direction: 0|1    # upgrade: 0=no, 1=confounders reduce effect
+        outcome_label: str
+    }
+    Returns: {certainty: 'high'|'moderate'|'low'|'very_low', score, rationale[]}"""
+    study_design = args.get("study_design", "rct").lower()
+    # Starting score: RCTs start at 4 (high), observational at 2 (low)
+    score = 4 if "rct" in study_design or "randomis" in study_design else 2
+
+    rationale = []
+    # Downgrade domains
+    for domain, key in [
+        ("Risk of bias", "risk_of_bias"),
+        ("Inconsistency", "inconsistency"),
+        ("Indirectness", "indirectness"),
+        ("Imprecision", "imprecision"),
+        ("Publication bias", "publication_bias"),
+    ]:
+        val = int(args.get(key, 0))
+        if val == 1:
+            score -= 1
+            rationale.append(f"↓ {domain}: serious")
+        elif val >= 2:
+            score -= 2
+            rationale.append(f"↓↓ {domain}: very serious")
+
+    # Upgrade domains (observational studies only)
+    if "rct" not in study_design:
+        large = int(args.get("large_effect", 0))
+        if large == 1:
+            score += 1; rationale.append("↑ Large effect (RR > 2)")
+        elif large >= 2:
+            score += 2; rationale.append("↑↑ Very large effect (RR > 5)")
+        if args.get("dose_response"):
+            score += 1; rationale.append("↑ Dose-response gradient")
+        if int(args.get("confounding_direction", 0)) == 1:
+            score += 1; rationale.append("↑ Confounders reduce effect")
+
+    score = max(1, min(4, score))
+    certainty_map = {4: "high", 3: "moderate", 2: "low", 1: "very_low"}
+    certainty = certainty_map[score]
+
+    return {
+        "ok": True,
+        "outcome": args.get("outcome_label", ""),
+        "certainty": certainty,
+        "score": score,
+        "rationale": rationale,
+        "grade_symbol": {"high": "⊕⊕⊕⊕", "moderate": "⊕⊕⊕◯", "low": "⊕⊕◯◯", "very_low": "⊕◯◯◯"}[certainty],
+    }
+
+
+def extract_pico_structured(args: dict) -> dict:
+    """Extract structured PICO elements from a paper using LLM.
+    Args: {text, title, api_key, provider, model}
+    Returns: {population, intervention, comparator, outcome, sample_size, effect_size, ci, p_value, study_design}"""
+    text = args.get("text", "")[:6000]
+    title = args.get("title", "")
+    api_key = args.get("api_key", "")
+    provider = args.get("provider", "")
+    model = args.get("model", "")
+
+    if not text:
+        return {"ok": False, "error": "No text provided"}
+
+    system = (
+        "You are a biomedical data extraction specialist. Extract PICO elements from the research paper text. "
+        "Return ONLY valid JSON with keys: population, intervention, comparator, outcome, sample_size, "
+        "effect_size, ci_95, p_value, study_design. Use null for missing fields. Keep values concise (< 80 chars each)."
+    )
+    prompt = f"Paper title: {title}\n\nText excerpt:\n{text}\n\nExtract PICO elements as JSON:"
+
+    result = _llm_chat(provider, api_key, model,
+                       [{"role": "user", "content": prompt}],
+                       temperature=0.1, max_tokens=1024, system_prompt=system,
+                       response_format="json_object")
+    if result.get("error"):
+        return {"ok": False, "error": result["error"]}
+
+    try:
+        parsed = json.loads(result.get("content", "{}"))
+        return {
+            "ok": True,
+            "population": parsed.get("population", ""),
+            "intervention": parsed.get("intervention", ""),
+            "comparator": parsed.get("comparator", ""),
+            "outcome": parsed.get("outcome", ""),
+            "sample_size": str(parsed.get("sample_size", "")),
+            "effect_size": str(parsed.get("effect_size", "")),
+            "ci": str(parsed.get("ci_95", "")),
+            "p_value": str(parsed.get("p_value", "")),
+            "study_design": parsed.get("study_design", ""),
+            "tokens": result.get("usage"),
+        }
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "LLM returned invalid JSON"}
 
 
 def run_pipeline_phase(args):
@@ -2358,6 +3235,87 @@ def run_pipeline_phase(args):
     elif phase == "get_prompt_logs":
         return {"ok": True, "logs": _get_prompt_logs()}
 
+    # ── v6.1 Free Data Source Phases ──────────────────────────────────────────
+
+    elif phase == "europe_pmc_search":
+        results = _search_europe_pmc(query, args.get("max_results", 50))
+        return {"ok": True, "papers": results, "total": len(results), "source": "Europe PMC"}
+
+    elif phase == "clinical_trials_search":
+        results = _search_clinical_trials(
+            args.get("condition", query),
+            args.get("intervention", ""),
+            args.get("status", "COMPLETED"),
+            args.get("max_results", 50),
+        )
+        return {"ok": True, "trials": results, "total": len(results), "source": "ClinicalTrials.gov"}
+
+    elif phase == "openfda_adverse_events":
+        return _query_openfda_adverse_events(
+            args.get("drug_name", query),
+            args.get("limit", 100),
+        )
+
+    elif phase == "openfda_drug_labels":
+        return _query_openfda_drug_labels(args.get("drug_name", query))
+
+    elif phase == "mesh_lookup":
+        return _lookup_mesh_terms(args.get("term", query))
+
+    elif phase == "rxnorm_lookup":
+        return _lookup_rxnorm(args.get("drug_name", query))
+
+    elif phase == "retraction_check":
+        dois = args.get("dois", [])
+        if not dois and args.get("doi"):
+            dois = [args["doi"]]
+        results = [_check_retraction_watch(doi) for doi in dois[:50]]
+        retracted = [r for r in results if r.get("retracted")]
+        return {"ok": True, "checked": len(results), "retracted_count": len(retracted), "results": results}
+
+    elif phase == "predatory_journal_check":
+        journals = args.get("journals", [])
+        if not journals and args.get("journal"):
+            journals = [args["journal"]]
+        results = [_check_predatory_journal(j) for j in journals[:20]]
+        flagged = [r for r in results if r.get("is_predatory")]
+        return {"ok": True, "checked": len(results), "flagged_count": len(flagged), "results": results}
+
+    # ── v6.1 Statistical Analysis Phases ─────────────────────────────────────
+
+    elif phase == "meta_analysis":
+        return run_meta_analysis(args)
+
+    elif phase == "forest_plot":
+        return generate_forest_plot(args)
+
+    elif phase == "funnel_plot":
+        return generate_funnel_plot(args)
+
+    elif phase == "prisma_flowchart":
+        return generate_prisma_flowchart(args)
+
+    elif phase == "rob_plot":
+        return generate_rob_plot(args)
+
+    elif phase == "grade_assess":
+        return calculate_grade(args)
+
+    elif phase == "pico_extract":
+        return extract_pico_structured(args)
+
+    # ── Utility Phases ────────────────────────────────────────────────────────
+
+    elif phase == "test_connection":
+        if not api_key:
+            return {"ok": False, "error": "No API key provided"}
+        result = _llm_chat(provider, api_key, model,
+                           [{"role": "user", "content": "Reply with exactly: OK"}],
+                           temperature=0.0, max_tokens=10)
+        if result.get("error"):
+            return {"ok": False, "error": result["error"]}
+        return {"ok": True, "reply": result.get("content", ""), "model": model, "provider": provider}
+
     else:
         return {"error": f"Unknown pipeline phase: {phase}"}
 
@@ -2423,6 +3381,22 @@ def research_chat(args):
             tools.append("- GENERATE_CHART: Generate a chart (bar, line, pie, scatter, heatmap) from data")
         if "generate_table" in enabled_tools:
             tools.append("- GENERATE_TABLE: Generate a formatted data table")
+        # ── V6.1 Free Data Source Tools ──
+        tools.append("- EUROPE_PMC_SEARCH: Search Europe PMC for biomedical literature (free, no key)")
+        tools.append("- CLINICAL_TRIALS_SEARCH: Search ClinicalTrials.gov v2 API for registered trials")
+        tools.append("- OPENFDA_ADVERSE_EVENTS: Query OpenFDA for drug adverse event reports by drug name")
+        tools.append("- OPENFDA_DRUG_LABELS: Fetch FDA drug label/prescribing information")
+        tools.append("- MESH_LOOKUP: Look up MeSH controlled vocabulary terms and synonyms via NLM")
+        tools.append("- RXNORM_LOOKUP: Look up drug info, brand names, and drug classes via NLM RxNorm")
+        tools.append("- RETRACTION_CHECK: Check if papers (by DOI) have been retracted")
+        # ── V6.1 Statistical Tools ──
+        tools.append("- META_ANALYSIS: Run fixed/random-effects meta-analysis (provide studies with effect sizes)")
+        tools.append("- FOREST_PLOT: Generate a forest plot image from meta-analysis data")
+        tools.append("- FUNNEL_PLOT: Generate a funnel plot to assess publication bias")
+        tools.append("- PRISMA_FLOWCHART: Generate a PRISMA 2020 flow diagram for systematic reviews")
+        tools.append("- ROB_PLOT: Generate a risk of bias traffic light / summary plot")
+        tools.append("- GRADE_ASSESS: Calculate GRADE certainty of evidence for an outcome")
+        tools.append("- PICO_EXTRACT: Extract structured PICO elements from a paper's text using AI")
         if tools:
             tool_desc = (
                 "\n\nYou have access to these research tools:\n" +
@@ -2443,6 +3417,20 @@ def research_chat(args):
                 "For EXPERIMENT: {\"code\": \"print('hello')\", \"timeout_sec\": 30}\n"
                 "For GENERATE_CHART: {\"chart_type\": \"bar\", \"data\": [10,20,30], \"labels\": [\"A\",\"B\",\"C\"], \"title\": \"My Chart\"}\n"
                 "For GENERATE_TABLE: {\"headers\": [\"Col1\",\"Col2\"], \"rows\": [[\"a\",\"b\"]], \"title\": \"My Table\"}\n"
+                "For EUROPE_PMC_SEARCH: {\"query\": \"...\", \"max_results\": 20}\n"
+                "For CLINICAL_TRIALS_SEARCH: {\"condition\": \"diabetes\", \"intervention\": \"metformin\", \"status\": \"COMPLETED\"}\n"
+                "For OPENFDA_ADVERSE_EVENTS: {\"drug_name\": \"aspirin\", \"limit\": 50}\n"
+                "For OPENFDA_DRUG_LABELS: {\"drug_name\": \"metformin\"}\n"
+                "For MESH_LOOKUP: {\"term\": \"myocardial infarction\"}\n"
+                "For RXNORM_LOOKUP: {\"drug_name\": \"ibuprofen\"}\n"
+                "For RETRACTION_CHECK: {\"dois\": [\"10.1000/xyz123\"]}\n"
+                "For META_ANALYSIS: {\"studies\": [{\"study_id\": \"Smith 2020\", \"effect_size\": 0.5, \"se\": 0.1}], \"method\": \"random\"}\n"
+                "For FOREST_PLOT: {\"studies\": [...], \"pooled_effect\": 0.5, \"ci_lower\": 0.3, \"ci_upper\": 0.7}\n"
+                "For FUNNEL_PLOT: {\"studies\": [...], \"pooled_effect\": 0.5}\n"
+                "For PRISMA_FLOWCHART: {\"records_identified\": 500, \"records_removed_duplicates\": 80, \"records_excluded\": 200, \"studies_included\": 12}\n"
+                "For ROB_PLOT: {\"studies\": [{\"study_id\": \"Smith 2020\", \"domains\": {\"Selection bias\": \"low\", \"Performance bias\": \"high\"}}]}\n"
+                "For GRADE_ASSESS: {\"study_design\": \"rct\", \"risk_of_bias\": 0, \"inconsistency\": 1, \"indirectness\": 0, \"imprecision\": 1, \"publication_bias\": 0, \"outcome_label\": \"All-cause mortality\"}\n"
+                "For PICO_EXTRACT: {\"text\": \"...\", \"title\": \"...\"}\n"
                 "You can use multiple tools in a single response. Always explain what you found after using a tool."
             )
 
@@ -2456,7 +3444,8 @@ def research_chat(args):
         chat_msgs.append({"role": m.get("role", "user"), "content": m.get("content", "")})
 
     # First LLM call
-    result = _llm_chat(provider, api_key, model, chat_msgs, temperature, max_tokens)
+    google_search = "web_search" in enabled_tools and provider == "google"
+    result = _llm_chat(provider, api_key, model, chat_msgs, temperature, max_tokens, google_search=google_search)
     if "error" in result:
         return result
 
@@ -2493,7 +3482,7 @@ def research_chat(args):
                 {"role": "user", "content": f"Here are the tool results:\n{tool_context}\n\nPlease synthesize these results into a clear, comprehensive response."}
             ]
 
-            followup = _llm_chat(provider, api_key, model, followup_msgs, temperature, max_tokens)
+            followup = _llm_chat(provider, api_key, model, followup_msgs, temperature, max_tokens, google_search=google_search)
             if "error" not in followup:
                 reply_text = followup["text"]
                 fu = followup.get("usage", {})
@@ -2812,6 +3801,130 @@ def _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key
         else:
             summary = tr.get("error", "Table generation failed")
         return {"tool_name": "GENERATE_TABLE", "type": "table", "data": tr, "summary": summary}
+
+    # ── V6.1 Free Data Source Tools ──────────────────────────────────────────
+
+    elif tool_name == "EUROPE_PMC_SEARCH":
+        papers = _search_europe_pmc(tool_args.get("query", ""), tool_args.get("max_results", 20))
+        summary = f"Europe PMC: Found {len(papers)} papers."
+        if papers:
+            summary += " Top: " + "; ".join(f"\"{p['title'][:50]}\" ({p.get('year','?')})" for p in papers[:3])
+        return {"tool_name": "EUROPE_PMC_SEARCH", "type": "papers", "data": papers, "summary": summary}
+
+    elif tool_name == "CLINICAL_TRIALS_SEARCH":
+        trials = _search_clinical_trials(
+            tool_args.get("condition", tool_args.get("query", "")),
+            tool_args.get("intervention", ""),
+            tool_args.get("status", "COMPLETED"),
+            tool_args.get("max_results", 20),
+        )
+        summary = f"ClinicalTrials.gov: Found {len(trials)} trials."
+        if trials:
+            summary += " Top: " + "; ".join(f"\"{t['title'][:50]}\" ({t.get('phase',[])})" for t in trials[:3])
+        return {"tool_name": "CLINICAL_TRIALS_SEARCH", "type": "text", "data": trials, "summary": summary}
+
+    elif tool_name == "OPENFDA_ADVERSE_EVENTS":
+        result = _query_openfda_adverse_events(tool_args.get("drug_name", ""), tool_args.get("limit", 50))
+        top_ae = result.get("adverse_events", [])[:5]
+        summary = f"OpenFDA AE for '{result.get('drug','')}': {result.get('total',0)} event types."
+        if top_ae:
+            summary += " Top AEs: " + ", ".join(f"{ae['reaction']} ({ae['count']})" for ae in top_ae)
+        return {"tool_name": "OPENFDA_ADVERSE_EVENTS", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "OPENFDA_DRUG_LABELS":
+        result = _query_openfda_drug_labels(tool_args.get("drug_name", ""))
+        labels = result.get("labels", [])
+        summary = f"OpenFDA labels for '{result.get('drug','')}': {len(labels)} label(s) found."
+        if labels:
+            summary += f" Indications: {labels[0].get('indications','')[:200]}"
+        return {"tool_name": "OPENFDA_DRUG_LABELS", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "MESH_LOOKUP":
+        result = _lookup_mesh_terms(tool_args.get("term", ""))
+        summary = f"MeSH lookup: {len(result.get('mesh_terms',[]))} terms, {len(result.get('synonyms',[]))} synonyms for '{result.get('term','')}'"
+        if result.get("mesh_terms"):
+            summary += "\nTerms: " + ", ".join(result["mesh_terms"][:8])
+        return {"tool_name": "MESH_LOOKUP", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "RXNORM_LOOKUP":
+        result = _lookup_rxnorm(tool_args.get("drug_name", ""))
+        summary = f"RxNorm: '{result.get('drug','')}' → RxCUI {result.get('rxcui','N/A')}, {len(result.get('brand_names',[]))} brand names"
+        if result.get("drug_classes"):
+            summary += f"\nClasses: {', '.join(result['drug_classes'][:4])}"
+        return {"tool_name": "RXNORM_LOOKUP", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "RETRACTION_CHECK":
+        dois = tool_args.get("dois", [])
+        if not dois and tool_args.get("doi"):
+            dois = [tool_args["doi"]]
+        results = [_check_retraction_watch(doi) for doi in dois[:20]]
+        retracted = [r for r in results if r.get("retracted")]
+        summary = f"Retraction check: {len(dois)} DOIs checked, {len(retracted)} retracted."
+        if retracted:
+            summary += " RETRACTED: " + "; ".join(r["doi"] for r in retracted)
+        return {"tool_name": "RETRACTION_CHECK", "type": "text", "data": results, "summary": summary}
+
+    # ── V6.1 Statistical Analysis Tools ──────────────────────────────────────
+
+    elif tool_name == "META_ANALYSIS":
+        result = run_meta_analysis(tool_args)
+        if result.get("ok"):
+            summary = (f"Meta-analysis ({result.get('method','?')}): k={result['k']}, "
+                       f"pooled={result['pooled_effect']} [{result['ci_lower']}, {result['ci_upper']}], "
+                       f"I²={result['i_squared']}%, p={result['p_value']}")
+        else:
+            summary = result.get("error", "Meta-analysis failed")
+        return {"tool_name": "META_ANALYSIS", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "FOREST_PLOT":
+        result = generate_forest_plot(tool_args)
+        if result.get("ok"):
+            summary = f"Forest plot generated ({len(tool_args.get('studies', []))} studies)"
+        else:
+            summary = result.get("error", "Forest plot failed")
+        return {"tool_name": "FOREST_PLOT", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "FUNNEL_PLOT":
+        result = generate_funnel_plot(tool_args)
+        if result.get("ok"):
+            summary = f"Funnel plot generated. Egger's p={result.get('egger_p','N/A')} ({'asymmetric' if result.get('asymmetric') else 'symmetric'})"
+        else:
+            summary = result.get("error", "Funnel plot failed")
+        return {"tool_name": "FUNNEL_PLOT", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "PRISMA_FLOWCHART":
+        result = generate_prisma_flowchart(tool_args)
+        if result.get("ok"):
+            summary = f"PRISMA 2020 flowchart generated ({tool_args.get('studies_included','?')} included studies)"
+        else:
+            summary = result.get("error", "PRISMA flowchart failed")
+        return {"tool_name": "PRISMA_FLOWCHART", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "ROB_PLOT":
+        result = generate_rob_plot(tool_args)
+        if result.get("ok"):
+            summary = f"Risk of Bias plot generated ({len(tool_args.get('studies',[]))} studies)"
+        else:
+            summary = result.get("error", "RoB plot failed")
+        return {"tool_name": "ROB_PLOT", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "GRADE_ASSESS":
+        result = calculate_grade(tool_args)
+        if result.get("ok"):
+            summary = f"GRADE: {result['outcome']} → {result['certainty'].upper()} {result['grade_symbol']}"
+            if result.get("rationale"):
+                summary += "\n" + "\n".join(result["rationale"])
+        else:
+            summary = result.get("error", "GRADE assessment failed")
+        return {"tool_name": "GRADE_ASSESS", "type": "text", "data": result, "summary": summary}
+
+    elif tool_name == "PICO_EXTRACT":
+        result = extract_pico_structured({**tool_args, "api_key": api_key, "provider": provider, "model": model})
+        if result.get("ok"):
+            summary = f"PICO extracted: P={result.get('population','?')[:50]}, I={result.get('intervention','?')[:50]}"
+        else:
+            summary = result.get("error", "PICO extraction failed")
+        return {"tool_name": "PICO_EXTRACT", "type": "text", "data": result, "summary": summary}
 
     else:
         return {"tool_name": tool_name, "type": "text", "data": None, "summary": f"Unknown tool: {tool_name}"}

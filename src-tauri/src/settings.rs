@@ -14,16 +14,14 @@ pub struct ScriptEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiKeyEntry {
-    pub provider: String, // "openai", "anthropic", "google", "deepseek", "groq"
+    pub provider: String,
     pub label: String,
     pub key: String,
-    #[serde(default = "default_model")]
+    #[serde(default)]
     pub model: String,
     #[serde(default)]
     pub is_default: bool,
 }
-
-fn default_model() -> String { "gemini-3.1-flash-lite-preview".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessingDefaults {
@@ -190,10 +188,10 @@ pub struct PipelineStepConfig {
     #[serde(default)]
     pub system_prompt: String,
     #[serde(default = "default_tier_strong")]
-    pub model_tier: String,
-    #[serde(default = "default_max_tokens")]
+    pub model_tier: String,        // "strong" | "fast"
+    #[serde(default = "default_max_tokens_4k")]
     pub max_tokens: u32,
-    #[serde(default = "default_temp_mid")]
+    #[serde(default = "default_temp_low")]
     pub temperature: f64,
     #[serde(default)]
     pub use_structured_output: bool,
@@ -202,15 +200,12 @@ pub struct PipelineStepConfig {
     #[serde(default = "default_thinking_budget")]
     pub thinking_budget: u32,
     #[serde(default)]
-    pub use_google_search: bool,
-    #[serde(default)]
-    pub use_code_execution: bool,
+    pub enabled_tools: Vec<String>,
 }
 
 fn default_thinking_budget() -> u32 { 8192 }
 
 fn default_tier_strong() -> String { "strong".to_string() }
-fn default_max_tokens() -> u32 { 4096 }
 #[allow(dead_code)]
 fn default_tier_fast() -> String { "fast".to_string() }
 fn default_max_tokens_4k() -> u32 { 4096 }
@@ -253,8 +248,7 @@ fn default_gatekeeper_config() -> PipelineStepConfig {
         use_structured_output: true,
         use_thinking: false,
         thinking_budget: 0,
-        use_google_search: false,
-        use_code_execution: false,
+        enabled_tools: vec![],
     }
 }
 
@@ -267,8 +261,7 @@ fn default_query_architect_config() -> PipelineStepConfig {
         use_structured_output: true,
         use_thinking: false,
         thinking_budget: 0,
-        use_google_search: false,
-        use_code_execution: false,
+        enabled_tools: vec![],
     }
 }
 
@@ -281,8 +274,7 @@ fn default_triage_agent_config() -> PipelineStepConfig {
         use_structured_output: true,
         use_thinking: false,
         thinking_budget: 0,
-        use_google_search: false,
-        use_code_execution: false,
+        enabled_tools: vec![],
     }
 }
 
@@ -295,8 +287,7 @@ fn default_blueprint_agent_config() -> PipelineStepConfig {
         use_structured_output: true,
         use_thinking: true,
         thinking_budget: 8192,
-        use_google_search: false,
-        use_code_execution: false,
+        enabled_tools: vec![],
     }
 }
 
@@ -309,8 +300,7 @@ fn default_lead_author_config() -> PipelineStepConfig {
         use_structured_output: false,
         use_thinking: true,
         thinking_budget: 16384,
-        use_google_search: false,
-        use_code_execution: false,
+        enabled_tools: vec!["generate_chart".to_string(), "generate_table".to_string(), "experiment".to_string()],
     }
 }
 
@@ -323,8 +313,7 @@ fn default_citation_verifier_config() -> PipelineStepConfig {
         use_structured_output: true,
         use_thinking: false,
         thinking_budget: 0,
-        use_google_search: true,
-        use_code_execution: false,
+        enabled_tools: vec![],
     }
 }
 
@@ -337,8 +326,7 @@ fn default_guidelines_compliance_config() -> PipelineStepConfig {
         use_structured_output: true,
         use_thinking: false,
         thinking_budget: 0,
-        use_google_search: false,
-        use_code_execution: false,
+        enabled_tools: vec!["web_search".to_string()],
     }
 }
 
@@ -351,8 +339,7 @@ fn default_smoothing_pass_config() -> PipelineStepConfig {
         use_structured_output: false,
         use_thinking: true,
         thinking_budget: 16384,
-        use_google_search: false,
-        use_code_execution: false,
+        enabled_tools: vec![],
     }
 }
 

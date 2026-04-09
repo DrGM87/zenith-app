@@ -1224,22 +1224,20 @@ async fn process_file(
     let resource = app.path().resource_dir().unwrap_or_else(|_| PathBuf::from("."));
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let cwd_parent = cwd.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| cwd.clone());
-
-    #[cfg(target_os = "windows")]
-    let exe_name = "process_files.exe";
-    #[cfg(not(target_os = "windows"))]
-    let exe_name = "process_files";
-
+    let script = "scripts/process_files.py";
     let full_path = [
-        resource.join("resources").join("process_files").join(exe_name),
-        cwd.join("src-tauri").join("resources").join("process_files").join(exe_name),
+        resource.join(script),
+        cwd.join(script),
+        cwd_parent.join(script),
     ]
     .into_iter()
     .find(|p| p.exists())
-    .ok_or_else(|| format!("{} not found", exe_name))?;
+    .ok_or_else(|| "process_files.py not found".to_string())?;
 
-    let mut cmd = std::process::Command::new(&full_path);
-    cmd.arg(&action)
+    let mut cmd = std::process::Command::new("python");
+    cmd.arg("-u")
+        .arg(&full_path)
+        .arg(&action)
         .env("PYTHONIOENCODING", "utf-8")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -1253,7 +1251,7 @@ async fn process_file(
     }
 
     let mut child = cmd.spawn()
-        .map_err(|e| format!("Failed to run process_files executable: {}", e))?;
+        .map_err(|e| format!("Failed to run process_files.py: {}", e))?;
 
     // Write args JSON to stdin (avoids Windows 32K command-line length limit)
     {
@@ -1277,7 +1275,7 @@ async fn process_file(
     let _ = app.emit("script-started", serde_json::json!({"id": &pid_key, "pid": child_id, "action": &action}));
 
     let output = child.wait_with_output()
-        .map_err(|e| format!("Failed to run process_files executable: {}", e))?;
+        .map_err(|e| format!("Failed to run process_files.py: {}", e))?;
 
     let _ = app.emit("script-finished", serde_json::json!({"id": &pid_key, "action": &action}));
 

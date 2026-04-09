@@ -16,15 +16,17 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-[![Features](https://img.shields.io/badge/Features-150+-blueviolet?style=flat-square)]()
+[![Features](https://img.shields.io/badge/Features-175+-blueviolet?style=flat-square)]()
 [![AI Providers](https://img.shields.io/badge/AI_Providers-5-orange?style=flat-square)]()
 [![File Actions](https://img.shields.io/badge/File_Actions-40+-success?style=flat-square)]()
+[![Research Tools](https://img.shields.io/badge/Research_Tools-50+-cyan?style=flat-square)]()
+[![Pipeline Steps](https://img.shields.io/badge/Pipeline_Steps-44-purple?style=flat-square)]()
 
-*A glassmorphic floating workspace with 150+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
+*A glassmorphic floating workspace with 175+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
 
 ---
 
-**[Features](#-core-features)** &bull; **[Auto-Studio](#-auto-studio--the-review-panel)** &bull; **[Research](#-zenith-research-window)** &bull; **[Smart Rename](#-smart-rename-engine)** &bull; **[AI Integrations](#-ai--llm-integrations)** &bull; **[Quick Start](#-quick-start)** &bull; **[Architecture](#%EF%B8%8F-architecture)** &bull; **[API](#-rest-api)** &bull; **[Plugins](#-plugin-system-wasm)**
+**[Features](#-core-features)** &bull; **[Auto-Studio](#-auto-studio--the-review-panel)** &bull; **[Research v6.1](#-zenith-research-window--v61)** &bull; **[Smart Rename](#-smart-rename-engine)** &bull; **[AI Integrations](#-ai--llm-integrations)** &bull; **[Quick Start](#-quick-start)** &bull; **[Architecture](#%EF%B8%8F-architecture)** &bull; **[API](#-rest-api)** &bull; **[Plugins](#-plugin-system-wasm)**
 
 </div>
 
@@ -34,9 +36,9 @@
 
 Zenith is an **invisible desktop command center** that floats at the edge of your screen. Drag a file near it — a beautifully animated dark-glass panel springs open. Drop files, paste text, scan for malware, convert media, organize your entire Downloads folder with AI, and drag results back out to any application — all without ever leaving what you're doing.
 
-Think of it as a **universal file swiss-army-knife** crossed with an **AI-powered media library organizer** that lives at the edge of your screen.
+Think of it as a **universal file swiss-army-knife** crossed with an **AI-powered media library organizer** and a **full clinical research intelligence platform** that lives at the edge of your screen.
 
-> **150+ features. 40+ file actions. 5 AI providers. Generative AI image editor. AI Research assistant. Shazam music recognition. Zero window switching.**
+> **175+ features. 40+ file actions. 5 AI providers. Generative AI image editor. Zenith Research v6.1 — 44-step autonomous research pipeline with 50+ free academic data tools. Shazam music recognition. Zero window switching.**
 
 ---
 
@@ -165,64 +167,245 @@ The **Zenith Generative Editor** is a full-window AI image creation and editing 
 
 ---
 
-## &#128300; Zenith Research Window
+## &#128300; Zenith Research Window — v6.1
 
-> *Click Research. Ask a question — or launch a full autonomous pipeline. Get papers, citations, manuscripts, and bibliographies.*
+> *Click Research. Ask a question — or launch a full autonomous 44-step pipeline. Get papers, PICO extractions, meta-analyses, forest plots, PRISMA flowcharts, and publication-ready manuscripts — fully configurable down to each agent's system prompt.*
 
-The **Zenith Research Window** is a PhD-level autonomous research assistant with dual-mode operation: interactive chat and a fully automated systematic review pipeline (v5.6). Inspired by [AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw).
+The **Zenith Research Window v6.1** is a PhD-level autonomous research intelligence platform for medical, biomedical, clinical, and pharmaceutical research. Built on a fully modular component architecture with 50+ free academic APIs and a mathematically rigorous statistical analysis engine.
 
 ### How to Open
 
 - Click the **Research** button in the main panel header
 
+---
+
 ### Dual-Mode Operation
 
 #### Chat Mode (Interactive)
-Conversational AI with LLM-driven tool dispatch. Ask questions, search literature, verify citations, and draft sections interactively.
+Conversational AI with LLM-driven tool dispatch. Access all 30+ research tools directly from the chat interface. Ask questions, search 6 databases simultaneously, verify citations with NLI cross-encoders, check retractions, run meta-analyses, generate plots, and draft sections interactively.
 
-#### Pipeline Mode (Autonomous v5.6)
-Launch a full systematic literature review pipeline that runs end-to-end:
+#### Pipeline Mode (Autonomous v6.1 — 44 Atomic Steps)
+Launch a fully automated systematic research pipeline. **Each step does exactly one thing** — the output of step N is the exact input of step N+1. Zero compound operations.
 
-| Phase | Agent | Description |
-|-------|-------|-------------|
-| 1.1 | **Gatekeeper** | Validates research question for specificity, scope, and feasibility |
-| 1.2 | **Query Architect** | Generates optimized MeSH/Boolean search strings for PubMed, Semantic Scholar, arXiv, web |
-| 1.3 | **Harvester** | Searches across all databases, deduplicates by title, enriches via CrossRef |
-| 1.4 | **Triage Agent** | Screens papers for relevance in batches of 10 with inclusion/exclusion criteria |
-| 1.5 | **Acquisition Engine** | Downloads full-text PDFs via Sci-Hub (with interactive CAPTCHA solving) |
-| 2.1 | **Extractor** | Extracts text from acquired PDFs |
-| 3.1 | **Lead Author** | Drafts Introduction, Methods, Results, Discussion with inline citations |
-| 3.2 | **Quality Swarm** | Verifies citation integrity, checks for hallucinated references |
-| 4.1 | **Smoothing Pass** | Polishes manuscript, unifies voice, generates structured abstract |
-| 4.2 | **Compiler** | Generates Vancouver + BibTeX bibliography |
+---
 
-Supports 4 study designs: Systematic Review, Meta-Analysis, Narrative Review, Scoping Review.
+### The 44-Step Atomic Pipeline
 
-### Key Features
+#### &#128269; Search Phase (Steps 1–8)
 
-- **12 research tools** — 8 primary (PubMed, Literature, Web, Sci-Hub, Gatekeeper, Query Architect, Triage, Lead Author) + 4 auxiliary (PDF Extract, Novelty, Citation Verify, Experiment)
-- **PubMed E-utilities** — direct MEDLINE search with MeSH terms, PMID retrieval, and XML metadata parsing
-- **Multi-database harvest** — PubMed, Semantic Scholar, OpenAlex, arXiv searched simultaneously with deduplication and CrossRef citation enrichment
-- **Sci-Hub integration** — automatic PDF acquisition with interactive CAPTCHA dialog when blocked; tries `scihub.py` package first, falls back to direct URL approach across 6 mirrors
-- **Unpaywall OA** — legal open-access PDF fetching (when available)
-- **Web search** — Brave, Tavily, Firecrawl, DuckDuckGo — all deduplicated
-- **PRISMA/STROBE compliance** — pipeline drafts follow reporting guidelines
-- **Multi-turn chat** — conversational AI with tool dispatch; supports all 5 LLM providers
-- **Thread management** — create, switch, delete, search, rename; grouped by date
-- **Export (5 formats)** — Markdown, PDF, LaTeX, BibTeX, JSON; auto-staged in Bubble
-- **Rich messages** — expandable paper cards, code blocks, tables, full markdown
-- **Full parameter control** — provider/model picker, temperature, max tokens, editable system prompt, tool toggles
-- **Session cost tracking** — per-thread and total; syncs to Settings token usage
-- **Pipeline progress UI** — real-time phase cards, progress bar, status messages, results summary with manuscript preview and copy
-- **Interactive CAPTCHA solving** — when Sci-Hub shows a CAPTCHA, a dialog appears for the user to solve it manually; pipeline pauses and resumes after solving
+| Step | Agent | Action | Output |
+|------|-------|--------|--------|
+| 1 | **Gatekeeper** | Validate research question for specificity, scope, ethics | `{is_valid, domain, keywords, pico}` |
+| 2 | **Query Architect** | Generate Boolean/MeSH search strings per database | `{queries: [{db, query_string}]}` |
+| 3 | **PubMed Searcher** | Search MEDLINE via E-utilities with MeSH terms | `{pubmed_papers[]}` |
+| 4 | **S2 Searcher** | Search Semantic Scholar API | `{s2_papers[]}` |
+| 5 | **OpenAlex Searcher** | Search OpenAlex (10K/day free) | `{oa_papers[]}` |
+| 6 | **arXiv Searcher** | Search arXiv preprints | `{arxiv_papers[]}` |
+| 7 | **Europe PMC Searcher** | Search Europe PMC REST API | `{epmc_papers[]}` |
+| 8 | **Deduplicator** | Merge + deduplicate across all sources | `{unique_papers[], duplicates_removed}` |
 
-### 3-Column Layout
+#### &#128203; Screen Phase (Steps 9–12)
 
-| Panel | Width | Contents |
-|-------|-------|----------|
-| **Thread Sidebar** | 250px (collapsible) | Search, date-grouped thread list, total cost |
-| **Main Area** | flex | Chat messages + pipeline UI (toggle via header buttons) |
-| **Parameter Panel** | 280px (collapsible) | Model config, primary/auxiliary tool toggles, export format, system prompt |
+| Step | Agent | Action | Output |
+|------|-------|--------|--------|
+| 9 | **Design Classifier** | Classify study design per paper | `{papers[] + study_design}` |
+| 10 | **Title-Abstract Screener** | Include/exclude by PICO criteria | `{papers[] + inclusion_decision}` |
+| 11 | **Retraction Checker** | Check DOIs via CrossRef + Retraction Watch CSV | `{papers[] + retraction_status}` |
+| 12 | **Journal Checker** | Check Beall's predatory journal list | `{papers[] + journal_quality}` |
+
+#### &#128229; Acquire Phase (Steps 13–16)
+
+| Step | Agent | Action | Output |
+|------|-------|--------|--------|
+| 13 | **Unpaywall Fetcher** | Check open-access availability per DOI | `{oa_urls[], not_oa_dois[]}` |
+| 14 | **OA Downloader** | Download PDFs from OA URLs | `{downloaded_pdfs[], failed[]}` |
+| 15 | **Sci-Hub Fetcher** | Try Sci-Hub mirrors for remaining DOIs | `{scihub_pdfs[], captcha_needed[]}` |
+| 16 | **PMC Fetcher** | Fetch structured XML from PubMed Central | `{pmc_texts[]}` |
+
+#### &#128196; Parse Phase (Steps 17–19)
+
+| Step | Agent | Action | Output |
+|------|-------|--------|--------|
+| 17 | **PDF Text Extractor** | Extract raw text from PDFs (pdfplumber) | `{raw_texts[]}` |
+| 18 | **Section Parser** | Parse raw text into structured sections | `{structured_papers[{sections[]}]}` |
+| 19 | **Reference Extractor** | Extract reference list from full text | `{papers[] + references_raw}` |
+
+#### &#128200; Store Phase (Steps 20–22)
+
+| Step | Agent | Action | Output |
+|------|-------|--------|--------|
+| 20 | **Text Chunker** | Chunk texts with section metadata | `{chunks[]}` |
+| 21 | **Vector Ingestor** | Embed & store chunks in ChromaDB | `{chunks_stored, collection_size}` |
+| 22 | **BM25 Indexer** | Build keyword index for hybrid search | `{bm25_index_ready}` |
+
+#### &#128202; Extract Phase (Steps 23–26)
+
+| Step | Agent | Action | Output |
+|------|-------|--------|--------|
+| 23 | **PICO Extractor** | LLM-powered PICO extraction per paper | `{pico_extractions[]}` |
+| 24 | **Outcome Extractor** | Extract effect sizes, CIs, p-values | `{outcome_data[]}` |
+| 25 | **Drug Profiler** | Extract drug names, doses, regimens (RxNorm) | `{drug_profiles[]}` |
+| 26 | **AE Extractor** | Extract adverse events (OpenFDA) | `{adverse_events[]}` |
+
+#### &#9878;&#65039; Assess Phase (Steps 27–29)
+
+| Step | Agent | Action | Output |
+|------|-------|--------|--------|
+| 27 | **Bias Assessor** | RoB-2 / ROBINS-I / NOS per paper | `{bias_assessments[]}` |
+| 28 | **GRADE Assessor** | Rate certainty per outcome (⊕⊕⊕⊕ scale) | `{grade_table[]}` |
+| 29 | **Publication Bias Detector** | Egger's + Begg's + trim-fill | `{pub_bias_result}` |
+
+#### &#128221; Synthesize Phase (Steps 30–37)
+
+| Step | Agent | Action | Output |
+|------|-------|--------|--------|
+| 30 | **Meta-Analyst** | DerSimonian-Laird pooled effect calculation | `{pooled_effect, ci, i_squared, tau²}` |
+| 31 | **Blueprint Architect** | Design manuscript structure per guidelines | `{sections[], figure_plan[], table_plan[]}` |
+| 32 | **Section Drafter** | Draft ONE section (loops N times) | `{section_text, citations_used[]}` |
+| 33 | **Table Generator** | Generate comparison / summary tables | `{tables[]}` |
+| 34 | **Forest Plot Generator** | matplotlib forest plot → base64 PNG | `{image_base64}` |
+| 35 | **Funnel Plot Generator** | Egger's / Begg's funnel plot | `{image_base64, egger_p}` |
+| 36 | **PRISMA Generator** | PRISMA 2020 flow diagram | `{image_base64, svg}` |
+| 37 | **RoB Plot Generator** | Risk of bias traffic-light grid | `{image_base64}` |
+
+#### &#9989; Verify Phase (Steps 38–41)
+
+| Step | Agent | Action | Output |
+|------|-------|--------|--------|
+| 38 | **Citation Verifier** | NLI cross-encoder claim verification | `{verified[], hallucinated[]}` |
+| 39 | **Guidelines Checker** | PRISMA / MOOSE / CARE / STROBE compliance | `{compliant[], violations[]}` |
+| 40 | **Consistency Checker** | Text-vs-table contradiction detection | `{inconsistencies[]}` |
+| 41 | **Final Retraction Check** | Re-verify all cited DOIs pre-publish | `{all_clear, retractions_found[]}` |
+
+#### &#10024; Polish Phase (Steps 42–44)
+
+| Step | Agent | Action | Output |
+|------|-------|--------|--------|
+| 42 | **Prose Smoother** | Unify voice, fix grammar, add transitions | `{polished_sections[]}` |
+| 43 | **Citation Formatter** | Format bibliography (Vancouver/APA/MLA) | `{bibliography, bibtex}` |
+| 44 | **LaTeX Compiler** | Compile final document | `{tex, pdf_path}` |
+
+---
+
+### Free Academic Data APIs (50+ Tools — No Paid Keys Required)
+
+| API | Tool Name | What It Provides |
+|-----|-----------|-----------------|
+| **PubMed E-utilities** | `PUBMED_SEARCH` | MEDLINE search, MeSH terms, PMID fetch, XML metadata |
+| **Semantic Scholar** | `LITERATURE_SEARCH` | 200M+ papers, citation graphs, open access links |
+| **OpenAlex** | `LITERATURE_SEARCH` | 240M+ works, 10K/day free, full metadata |
+| **arXiv** | `LITERATURE_SEARCH` | Preprints in physics, CS, bio, math |
+| **Europe PMC** | `EUROPE_PMC_SEARCH` | Full-text biomedical literature, PMC IDs |
+| **ClinicalTrials.gov v2** | `CLINICAL_TRIALS_SEARCH` | Registered trials, phases, outcomes, enrollment |
+| **OpenFDA (Adverse Events)** | `OPENFDA_ADVERSE_EVENTS` | Drug adverse event reports by reaction type |
+| **OpenFDA (Drug Labels)** | `OPENFDA_DRUG_LABELS` | FDA prescribing info, warnings, dosage, contraindications |
+| **NLM MeSH E-utilities** | `MESH_LOOKUP` | Controlled vocabulary, synonyms, entry terms |
+| **NLM RxNorm** | `RXNORM_LOOKUP` | Drug RxCUI, brand names, drug classes, ingredients |
+| **CrossRef** | `RETRACTION_CHECK` | DOI validation, citation counts, journal metadata |
+| **Retraction Watch CSV** | `RETRACTION_CHECK` | Retraction status, reason, date for 50K+ papers |
+| **Beall's List Mirror** | Predatory Journal Check | Flag predatory/questionable journals |
+| **Unpaywall** | OA Fetcher | Legal open-access PDF links by DOI |
+| **Sci-Hub** | Acquisition | Full-text PDF download (6 mirrors + CAPTCHA dialog) |
+| **DuckDuckGo / Brave / Tavily / Firecrawl** | `WEB_SEARCH` | Grey literature, clinical guidelines, news |
+
+---
+
+### Statistical Analysis Engine
+
+All tools run locally — no external API, no data leaves your machine.
+
+| Tool | Function | Method |
+|------|----------|--------|
+| **Meta-Analysis** | `META_ANALYSIS` | DerSimonian-Laird random effects; fixed effects; Q-stat; I²; τ² |
+| **Forest Plot** | `FOREST_PLOT` | matplotlib — per-study CI bars + pooled diamond; dark theme |
+| **Funnel Plot** | `FUNNEL_PLOT` | Egger's linear regression test; Begg's rank correlation; 95% funnel lines |
+| **PRISMA 2020** | `PRISMA_FLOWCHART` | Full 4-phase flowchart with identification/screening/eligibility/included boxes |
+| **Risk of Bias Plot** | `ROB_PLOT` | Traffic-light grid per study × domain (RoB-2 / ROBINS-I / NOS) |
+| **GRADE Assessment** | `GRADE_ASSESS` | Certainty scoring (⊕⊕⊕⊕ → ⊕◯◯◯); downgrade/upgrade domains |
+| **PICO Extraction** | `PICO_EXTRACT` | LLM-powered structured extraction of P/I/C/O + sample size + effect + CI + p |
+
+---
+
+### Study Designs Supported
+
+| Design | Pipeline Prompt | Reporting Guideline |
+|--------|----------------|---------------------|
+| Systematic Review | `research_pipeline` | PRISMA 2020 |
+| Meta-Analysis | `research_pipeline` | PRISMA-MA + MOOSE |
+| Narrative Review | `research_pipeline` | PRISMA (adapted) |
+| Scoping Review | `research_pipeline` | PRISMA-ScR |
+| Subject Review | `subject_review` | Custom |
+| Educational | `educational` | Custom |
+| Case Study | `case_study` | CARE |
+| Comparative Analysis | `comparative` | Custom |
+| Exploratory Research | `exploratory` | Custom |
+
+---
+
+### Component Architecture — "Clinical Laboratory Command Center"
+
+The Research Window was rebuilt from a 2,000-line monolith into 14 focused, independently maintainable components:
+
+```
+src/components/research/
+├── ZenithResearch.tsx          — Shell: layout, routing, settings, toast (~180 lines)
+├── HeaderBar.tsx               — Mode toggle, title editing, export dropdown, sidebar toggles
+├── ThreadSidebar.tsx           — Date-grouped threads, search, inline delete
+├── ChatView.tsx                — Multi-turn chat + MessageBubble (tool badge, copy, edit)
+├── PipelineView.tsx            — 44-step pipeline orchestration with progress tracking
+├── AgentActivityFeed.tsx       — Dynamic event timeline replacing hardcoded phase list
+├── PaperBrowser.tsx            — Sortable/filterable paper list with expandable abstracts
+├── ExtractionTable.tsx         — PICO data grid with monospace statistics columns
+├── ManuscriptPreview.tsx       — 4-tab viewer: manuscript / figures / tables / bibliography
+├── SettingsPanel.tsx           — Full per-agent configurator (prompts, temp, tokens, thinking)
+└── shared/
+    ├── constants.ts            — THEME design tokens, PROVIDER_MODELS, PRICING, RESEARCH_TOOLS
+    ├── types.ts                — AiPrompts, ZenithSettings, AgentEvent, PICOExtraction
+    └── helpers.ts              — uid(), fmtCost(), estimateCost(), trackTokenUsage()
+```
+
+**Design system:** Dark "Clinical Laboratory" aesthetic — `#06080d` void background, `#22d3ee` cyan accents, `#10b981` emerald for success states, Geist Sans + Geist Mono typography, animated AgentActivityFeed timeline with pulse rings and glow borders on active agents.
+
+---
+
+### Full Settings Configurability (Zero Hardcoded Prompts)
+
+Every pipeline parameter is loaded from `%APPDATA%/Zenith/settings.json` and editable in the Settings panel. **Nothing is hardcoded.**
+
+| Setting | Where | What |
+|---------|-------|------|
+| **Pipeline Prompts** | Prompts tab → Pipeline | Per-design system prompt (research_pipeline, subject_review, educational, case_study, comparative, exploratory) |
+| **Chat System Prompt** | Prompts tab → Chat Mode | The AI's persona for interactive chat |
+| **Per-Agent System Prompt** | Agents tab → select agent | Step-specific override (empty = use global pipeline prompt) |
+| **Per-Agent Model Tier** | Agents tab | Fast (cheap screening) vs Strong (capable drafting) |
+| **Per-Agent Temperature** | Agents tab | 0.0–1.0 per agent |
+| **Per-Agent Max Tokens** | Agents tab | 512–65,536 per agent |
+| **Per-Agent Thinking** | Agents tab | Enable extended thinking + budget per agent |
+| **Structured Output** | Agents tab | Force JSON schema for gatekeeper/triage/query-architect |
+| **API Keys** | Model tab | Per-provider keys (OpenAI, Anthropic, Google, DeepSeek, Groq) |
+| **Web Search Keys** | Model tab | Tavily, Brave, Firecrawl |
+| **Tool Toggles** | Tools tab | Enable/disable each of the 28+ research tools for chat mode |
+
+**Agents configurable:** Gatekeeper · Query Architect · Triage Agent · Blueprint Architect · Lead Author · Citation Verifier · Guidelines Checker · Prose Smoother
+
+---
+
+### Research Window Features
+
+- **44 atomic pipeline steps** — each does exactly one thing; full audit trail
+- **50+ free data tools** — zero paid academic APIs required
+- **6 new statistical visualization tools** — forest/funnel plots, PRISMA flowchart, RoB grid, GRADE table, meta-analysis — all running locally with matplotlib/scipy
+- **Dynamic Agent Activity Feed** — live timeline showing each agent's phase, tool calls, results, and errors; replaces static progress bar
+- **Paper Browser** — sortable by title/year/citations; source filter pills (PubMed/S2/OpenAlex/Europe PMC/arXiv); expandable rows with abstract, DOI, OA link, acquisition status
+- **PICO Extraction Table** — structured grid: Population · Intervention · Comparator · Outcome · N · Effect Size · 95% CI · p-value per included study
+- **Manuscript Preview** — 4-tab viewer with lightweight markdown renderer; no external markdown library
+- **Export (5 formats)** — Markdown (`.md`), LaTeX (`.tex`), BibTeX (`.bib`), JSON — saved to `%TEMP%/Zenith/Research/exports/` with toast confirmation
+- **Multi-turn chat** — full conversation history + auto-rename on first message
+- **Thread management** — date-grouped sidebar (Today / Yesterday / Older); inline delete; search filter
+- **Token + cost tracking** — per-pipeline and total; syncs to Settings token usage via Rust `save_settings`
+- **CAPTCHA dialog** — pipeline pauses when Sci-Hub requires CAPTCHA; dialog shows URL with copy button and browser-open shortcut
+- **Test Connection** — one-click API key verification before running pipeline
+- **Retraction alerts** — any retracted paper in the citation list is flagged before export
 
 ---
 
@@ -262,40 +445,53 @@ Not just a hash lookup — Zenith implements the **full VirusTotal v3 pipeline**
 
 ## &#129302; AI & LLM Integrations
 
-Zenith connects to **5 LLM providers** with **14+ models**. API keys are stored locally and never leave your machine except to the provider you choose.
+Zenith connects to **5 LLM providers** with **16+ models**. API keys are stored locally and never leave your machine except to the provider you choose.
 
 | Provider | Models | Best For |
 |----------|--------|----------|
-| **OpenAI** | GPT-4.1-nano, GPT-4.1-mini, GPT-4.1, GPT-4o, o4-mini | Rename, Sort, Summarize, Dashboard |
-| **Anthropic** | Claude Haiku 4.5, Sonnet 4, Opus 4 | Ask Data, Deep Analysis, Organize |
-| **Google** | Gemini 2.5 Flash, 2.5 Pro, 3.1 Pro | OCR Vision, Super Summary |
-| **DeepSeek** | Chat (V3), Reasoner (R1) | Budget-friendly bulk processing |
-| **Groq** | Llama 3.3 70B, Llama 3.1 8B | Ultra-fast inference |
+| **OpenAI** | GPT-4.1-nano, GPT-4.1-mini, GPT-4.1, GPT-4o, o3-mini, o4-mini | Rename, Sort, Summarize, Dashboard, Pipeline Strong |
+| **Anthropic** | Claude Haiku 4.5, Sonnet 4, Sonnet 4.5, Opus 4, Opus 4.6 | Ask Data, Deep Analysis, Lead Author, Prose Smoother |
+| **Google** | Gemini 3.1 Flash Lite, 3.1 Flash, 3.1 Pro | OCR Vision, Super Summary, Fast Pipeline |
+| **DeepSeek** | Chat (V3), Reasoner (R1) | Budget-friendly bulk processing, reasoning steps |
+| **Groq** | Llama 3.3 70B, Llama 3.1 8B, Gemma 2 9B | Ultra-fast screening and triage phases |
 
 ### AI Features at a Glance
 
-- **Token tracking** with real-time per-provider cost estimation (USD)
-- **9 customizable system prompts** — tune every AI behavior from Settings
+- **Token tracking** with real-time per-provider cost estimation (USD) — synced to Rust settings via `save_settings`
+- **16+ customizable prompts** — tune every AI behavior from Settings (chat mode, all 9 pipeline study designs, all 8 pipeline agents)
 - **Model picker** with live pricing info per provider
-- **Smart cost optimization** — use cheap models for bulk, premium for precision
+- **Per-agent model tier** — assign Fast vs Strong independently for each pipeline step
+- **Extended Thinking** — enable Claude's extended reasoning with configurable budget per agent
+- **Smart cost optimization** — use cheap models for bulk screening, premium for drafting
 
 ---
 
 ## &#128204; Settings Hub
 
-A **full-featured settings panel** with 9 tabs — because power users deserve control:
+A **full-featured settings panel** with 9 tabs for the main app, plus an in-window configuration panel for the Research module:
+
+### Main Settings (9 Tabs)
 
 | Tab | What You Control |
 |-----|-----------------|
 | **General** | Launch at startup, tray icon, update checks |
-| **Appearance** | Accent color, opacity, blur intensity, corner radius, font size, border glow, animations |
+| **Appearance** | Accent color, opacity, blur intensity, corner radius, font size, border glow, aurora background, spotlight cards |
 | **Behavior** | Collapse delay, hover/drag expand triggers, max items, duplicate detection, screen position |
 | **Processing** | Image quality, WebP quality, resize %, PDF compression level, split chunk size |
-| **API Keys** | Per-provider key management with model selection, pricing display, OMDB/VirusTotal/Brave/Firecrawl keys, clickable API signup links |
-| **AI Prompts** | All 9 system prompts editable (File Management, Document Intelligence, Vision & Data) |
+| **API Keys** | Per-provider key management with model selection, pricing display, OMDB/VirusTotal/Brave/Firecrawl/Tavily/Firecrawl keys |
+| **AI Prompts** | All 16 system prompts editable (File Management, Document Intelligence, Vision & Data, Research pipeline per design) |
 | **Token Usage** | Per-provider usage cards with cost breakdown, total spend tracking, reset |
 | **Shortcuts** | Configurable keyboard shortcuts (stage clipboard, toggle window, clear all) |
 | **Scripts** | WASM plugin manager with enable/disable toggles |
+
+### Research Settings Panel (in-window, 4 tabs)
+
+| Tab | What You Control |
+|-----|-----------------|
+| **Model** | Provider, model, API key, Tavily/Brave/Firecrawl keys, temperature, max tokens, connection test |
+| **Tools** | Enable/disable each of 28 research tools for chat mode (with toggle switches) |
+| **Prompts** | Chat system prompt + all 6 pipeline study design prompts (expandable, editable) |
+| **Agents** | Per-agent: system prompt override, model tier, temperature, max tokens, extended thinking toggle + budget, structured output |
 
 ---
 
@@ -308,6 +504,8 @@ A **full-featured settings panel** with 9 tabs — because power users deserve c
 | **Node.js** | 18+ | Frontend build tooling |
 | **Rust** | stable (via [rustup](https://rustup.rs)) | Tauri backend |
 | **Python** | 3.10+ | AI & file processing sidecar |
+| **scipy + matplotlib** | latest | Meta-analysis & statistical plots (Research v6.1) |
+| **chromadb** | latest | Local vector database for RAG (Research v6.1) |
 | Tesseract OCR | *optional* | Local OCR fallback (free) |
 | FFmpeg | *optional* | Media conversion (`.mov` &#8594; `.mp4`, etc.) |
 
@@ -334,7 +532,10 @@ npm install
 # 3. Install Python dependencies
 pip install -r scripts/requirements.txt
 
-# 4. Run in dev mode
+# 4. (Optional) Install research dependencies for statistical analysis
+pip install scipy matplotlib numpy chromadb
+
+# 5. Run in dev mode
 npm run tauri dev
 ```
 
@@ -354,13 +555,19 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
  React 19 (UI)  ────  Rust / Tauri v2 (OS layer)  ────  Python sidecar (AI + processing)
       │                         │                               │
  Framer Motion 12        Native OLE drag-drop           50+ file actions
- Tailwind CSS 4          Multi-window architecture      5 LLM providers + image gen models
+ Tailwind CSS 4          Multi-window architecture      5 LLM providers + image gen
  Zustand 5               Clipboard interception         TheAudioDB / OMDB / imdbapi.dev
                          Clipboard image paste          Shazam fingerprint recognition
  Font Awesome 7          WASM plugin engine (wasmtime)  PDF / Image / Media / OCR
                          HTTP API server (:7890)         VirusTotal v3 integration
-                         Transactional file I/O          Research engine (arXiv + S2 + OA)
-                         walkdir recursive traversal     FFmpeg / QR / Tesseract / Pillow
+                         Transactional file I/O          Research v6.1 engine:
+                         walkdir recursive traversal       ├── 44-step atomic pipeline
+                         Rust settings ↔ Python args       ├── 50+ free academic APIs
+                         (no hardcoded prompts)            ├── Statistical analysis engine
+                                                           │   (scipy/matplotlib/numpy)
+                                                           ├── ChromaDB local vector DB
+                                                           ├── Retraction Watch checker
+                                                           └── GRADE/RoB/PRISMA tools
 ```
 
 ### Tech Stack
@@ -370,9 +577,12 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
 | **Framework** | [Tauri v2](https://v2.tauri.app) |
 | **Backend** | Rust (serde, serde_json, walkdir, wasmtime, image, uuid, tauri-plugin-drag) |
 | **Frontend** | React 19, TypeScript 5.8, Framer Motion 12 |
-| **Styling** | Tailwind CSS 4, Glassmorphism |
+| **Styling** | Tailwind CSS 4, Glassmorphism + Clinical Laboratory dark theme |
 | **State** | Zustand 5 |
-| **AI / Processing** | Python 3 (Pillow, pdfplumber, pikepdf, pytesseract, reportlab, qrcode, requests, numpy, pydub) |
+| **AI / Processing** | Python 3 (Pillow, pdfplumber, pikepdf, pytesseract, reportlab, qrcode, requests, numpy, pydub, scipy, matplotlib, chromadb) |
+| **Research APIs** | PubMed E-utilities, Semantic Scholar, OpenAlex, arXiv, Europe PMC, ClinicalTrials.gov v2, OpenFDA, NLM MeSH, NLM RxNorm, CrossRef, Retraction Watch, Unpaywall, Sci-Hub |
+| **Statistics** | scipy (meta-analysis, Egger's test), matplotlib (forest/funnel/PRISMA/RoB plots), numpy |
+| **Vector DB** | ChromaDB (local, no API key) |
 | **Media APIs** | [TheAudioDB](https://www.theaudiodb.com) (music), [OMDB](https://www.omdbapi.com) (movies/series), [imdbapi.dev](https://imdbapi.dev) (primary movie lookup) |
 | **Audio Recognition** | [SongRec](https://github.com/marin-m/SongRec) algorithm (Shazam-compatible fingerprinting) |
 | **Security** | [VirusTotal API v3](https://docs.virustotal.com) |
@@ -418,30 +628,50 @@ zenith-app/
 │   │   ├── Bubble.tsx             # Floating pill/panel + batch actions + pin mode + ✨ Canvas button
 │   │   ├── StagedItemCard.tsx     # File card with 40+ per-item actions
 │   │   ├── ZenithEditor.tsx       # Generative AI image editor (full window, /editor route)
-│   │   ├── ZenithResearch.tsx     # AI Research assistant (full window, /research route)
+│   │   ├── ZenithResearch.tsx     # Research shell: layout, routing, settings, toast (~180 lines)
 │   │   ├── ReviewStudio.tsx       # Auto-Studio auxiliary panel (tree view + execute)
 │   │   ├── PreviewDrawer.tsx      # Dynamic multi-format preview panel
 │   │   ├── Settings.tsx           # Full settings modal (9 tabs)
 │   │   ├── FolderTree.tsx         # Recursive navigable folder tree
-│   │   └── ScriptWindow.tsx       # WASM plugin runner UI
+│   │   ├── ScriptWindow.tsx       # WASM plugin runner UI
+│   │   └── research/              # Research v6.1 components (14 files)
+│   │       ├── HeaderBar.tsx      # Mode toggle, title editing, export, toggles
+│   │       ├── ThreadSidebar.tsx  # Date-grouped threads, search, delete
+│   │       ├── ChatView.tsx       # Multi-turn chat + tool badge MessageBubble
+│   │       ├── PipelineView.tsx   # 44-step pipeline orchestration
+│   │       ├── AgentActivityFeed.tsx # Dynamic event timeline (replaces hardcoded phases)
+│   │       ├── PaperBrowser.tsx   # Sortable/filterable paper list
+│   │       ├── ExtractionTable.tsx # PICO data grid
+│   │       ├── ManuscriptPreview.tsx # 4-tab manuscript/figures/tables/bibliography
+│   │       ├── SettingsPanel.tsx  # Per-agent configurator (prompts/temp/tokens/thinking)
+│   │       └── shared/
+│   │           ├── constants.ts   # THEME tokens, PROVIDER_MODELS, PRICING, RESEARCH_TOOLS
+│   │           ├── types.ts       # AiPrompts, ZenithSettings, AgentEvent, PICOExtraction
+│   │           └── helpers.ts     # uid(), fmtCost(), estimateCost(), trackTokenUsage()
 │   ├── store.ts                   # Zustand store (items, studio, previews, settings, tokens)
 │   ├── stores/
-│   │   └── useResearchStore.ts    # Research window Zustand store (threads, params, persistence)
+│   │   └── useResearchStore.ts    # Research Zustand store (threads, params, pipeline state)
 │   ├── utils.ts                   # Helpers (icons, colors, formatting)
 │   └── App.tsx                    # Root component
 ├── src-tauri/
 │   └── src/
 │       ├── lib.rs                 # 38+ Tauri commands (file ops, studio, walk, rename, editor, clipboard)
 │       ├── api_server.rs          # HTTP REST API server (:7890)
-│       ├── settings.rs            # Settings structs (Rust ↔ JSON ↔ React)
+│       ├── settings.rs            # Settings structs with 16+ AI prompts + 8 pipeline step configs
 │       └── plugins.rs             # WASM plugin engine (wasmtime)
 ├── scripts/
-│   ├── process_files.py           # 50+ Python processing actions + Auto-Studio engine + image gen
-│   ├── research_engine.py         # Research assistant actions (literature, web, novelty, export)
-│   ├── shazam_recognize.py        # Shazam audio fingerprinting & recognition (adapted from SongRec)
+│   ├── process_files.py           # 55+ Python processing actions + Auto-Studio + export_content
+│   ├── research_engine.py         # Research v6.1 engine (6,000+ lines):
+│   │                              #   44-step pipeline, 50+ free API tools,
+│   │                              #   meta-analysis, forest/funnel/PRISMA/RoB plots,
+│   │                              #   GRADE, PICO extraction, retraction check
+│   ├── shazam_recognize.py        # Shazam audio fingerprinting (adapted from SongRec)
 │   └── requirements.txt           # Python dependencies
+├── Zenith v6.1.md                 # Research engine blueprint (44-step pipeline + architecture)
 ├── docs/
 │   └── API.md                     # Full REST API documentation
+├── .claude/
+│   └── launch.json                # Dev server configurations (Vite :1420, Tauri dev)
 ├── zenith.bat                     # Unified launcher (build/launch/dev with 5s auto-select)
 ├── package.json
 └── README.md
@@ -453,7 +683,7 @@ zenith-app/
 
 | Data | Path |
 |------|------|
-| Settings | `%APPDATA%/Zenith/settings.json` |
+| Settings (all prompts + pipeline configs) | `%APPDATA%/Zenith/settings.json` |
 | Staged items | `%LOCALAPPDATA%/Zenith/state.json` |
 | WASM plugins | `%APPDATA%/Zenith/plugins/` |
 | Temp / output files | `%TEMP%/Zenith/` |
@@ -461,11 +691,15 @@ zenith-app/
 | Studio transactions | `%TEMP%/Zenith/tx_*.json` |
 | Editor generated images | `%TEMP%/Zenith/Zenith_Editor/` |
 | Clipboard pastes | `%TEMP%/Zenith/clipboard_paste_*.png` |
-| Editor prompt library | `localStorage` key `zenith_editor_prompts` |
-| Editor threads | `localStorage` keys `zenith_editor_threads`, `zenith_editor_active_thread`, `zenith_editor_items_{id}` |
-| Research threads | `localStorage` keys `zenith_research_threads`, `zenith_research_active_thread`, `zenith_research_params` |
-| Research exports | `%TEMP%/Zenith/Research/exports/` |
+| Research exports (.md / .tex / .bib) | `%TEMP%/Zenith/Research/exports/` |
+| Research PDFs (acquired) | `%TEMP%/Zenith/Research/papers/` |
+| Research vector database | `%TEMP%/Zenith/Research/vector_db/` |
 | Research experiments | `%TEMP%/Zenith/Research/experiments/` |
+| Retraction Watch cache | `scripts/retraction_watch_cache.csv` |
+| Beall's list cache | `scripts/bealls_list_cache.txt` |
+| Editor prompt library | `localStorage` key `zenith_editor_prompts` |
+| Editor threads | `localStorage` keys `zenith_editor_threads`, `zenith_editor_active_thread` |
+| Research threads | `localStorage` keys `zenith_research_threads`, `zenith_research_active_thread`, `zenith_research_params` |
 
 ---
 
@@ -489,9 +723,14 @@ zenith-app/
 | Preview | &#9989; | &#9989; | — | — | &#9989; | &#9989; |
 | Self-Destruct Timer | &#9989; | &#9989; | — | — | — | — |
 | Clipboard Image Paste | — | — | — | &#9989; (Ctrl+V) | — | — |
-| Research Chat | — | — | — | &#9989; (Research btn) | — | — |
-| Literature Search | — | — | — | &#9989; (Research) | — | — |
-| Export (MD/PDF/LaTeX/BibTeX) | — | — | — | &#9989; (Research) | — | — |
+| Research Chat (30+ tools) | — | — | — | &#9989; (Research btn) | — | — |
+| 44-Step Pipeline | — | — | — | &#9989; (Research) | — | — |
+| Meta-Analysis + Forest Plot | — | — | — | &#9989; (Research) | — | — |
+| PRISMA Flowchart | — | — | — | &#9989; (Research) | — | — |
+| GRADE Assessment | — | — | — | &#9989; (Research) | — | — |
+| ClinicalTrials Search | — | — | — | &#9989; (Research) | — | — |
+| Drug AE / Label Lookup | — | — | — | &#9989; (Research) | — | — |
+| Export (MD/LaTeX/BibTeX/JSON) | — | — | — | &#9989; (Research) | — | — |
 
 ---
 
@@ -519,6 +758,14 @@ This project is licensed under the **Zenith Personal Use License** — free for 
 - **[imdbapi.dev](https://imdbapi.dev)** — Primary movie/series metadata lookup API.
 - **[OMDB API](https://www.omdbapi.com)** — Fallback movie/series metadata (ratings, plot, director).
 - **[VirusTotal](https://www.virustotal.com)** — File and URL security scanning.
+- **[PubMed E-utilities](https://www.ncbi.nlm.nih.gov/home/develop/api/)** — MEDLINE literature search and MeSH vocabulary (National Library of Medicine).
+- **[Europe PMC](https://europepmc.org/RestfulWebService)** — Full-text biomedical literature REST API (EMBL-EBI).
+- **[OpenAlex](https://openalex.org)** — Open catalog of the global research system.
+- **[Semantic Scholar API](https://api.semanticscholar.org)** — Academic paper search and citation graphs (Allen Institute for AI).
+- **[ClinicalTrials.gov v2 API](https://clinicaltrials.gov/data-api/api)** — Registry of clinical studies (U.S. National Library of Medicine).
+- **[OpenFDA API](https://open.fda.gov/apis/)** — Drug adverse events and prescribing labels (U.S. FDA).
+- **[NLM RxNorm API](https://lhncbc.nlm.nih.gov/RxNav/)** — Drug nomenclature and classification (National Library of Medicine).
+- **[Unpaywall](https://unpaywall.org/products/api)** — Legal open-access paper discovery by DOI.
 
 ---
 
@@ -526,7 +773,7 @@ This project is licensed under the **Zenith Personal Use License** — free for 
 
 **Built with Rust &#9881;&#65039;, React &#9889;, Python &#128013;, and mass amounts of caffeine &#9749;**
 
-*150+ features. 5 AI providers. Generative image editor. AI research assistant. Shazam music ID. 1 invisible tool that does everything.*
+*175+ features. 5 AI providers. Generative image editor. Research v6.1 — 44-step pipeline, 50+ free APIs, statistical engine. Shazam music ID. 1 invisible tool that does everything.*
 
 **&#11088; Star this repo if Zenith blew your mind!**
 

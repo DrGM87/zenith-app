@@ -30,4 +30,5 @@ drag = "2"
 wasmtime = "29"
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
+reqwest = "0.13.2"
 

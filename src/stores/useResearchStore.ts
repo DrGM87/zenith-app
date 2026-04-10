@@ -133,6 +133,10 @@ export interface PipelineState {
   error: string | null;
   logs: PipelineLog[];
   totalTokens: { input: number; output: number; cost: number };
+  /** Phase key that caused the last failure — enables checkpoint retry */
+  failedPhase?: string;
+  /** Last phase key that completed successfully */
+  lastGoodPhase?: string;
 }
 
 /* ── Constants ── */
@@ -189,6 +193,8 @@ const DEFAULT_PIPELINE: PipelineState = {
   error: null,
   logs: [],
   totalTokens: { input: 0, output: 0, cost: 0 },
+  failedPhase: undefined,
+  lastGoodPhase: undefined,
 };
 
 const LS_PIPELINE = "zenith_research_pipeline";

@@ -4,7 +4,11 @@ import { useResearchStore } from "../../stores/useResearchStore";
 import { THEME as t } from "./shared/constants";
 import { fmtDate, fmtCost } from "./shared/helpers";
 
-export function ThreadSidebar() {
+interface ThreadSidebarProps {
+  onNew: () => void;
+}
+
+export function ThreadSidebar({ onNew }: ThreadSidebarProps) {
   const { threads, activeThreadId, switchThread, deleteThread, totalCost } = useResearchStore();
   const [search, setSearch] = useState("");
 
@@ -42,22 +46,55 @@ export function ThreadSidebar() {
       className="flex flex-col border-r overflow-hidden select-none"
       style={{ background: t.bg.base, borderColor: t.border.subtle, minWidth: 0, fontFamily: t.font.sans }}
     >
-      {/* Search */}
-      <div className="p-3">
-        <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg"
+      {/* Top bar: search + new button */}
+      <div className="px-3 pt-3 pb-2 flex items-center gap-2">
+        <div className="flex-1 flex items-center gap-2 px-2.5 py-2 rounded-lg"
           style={{ background: t.bg.surface, border: `1px solid ${t.border.subtle}` }}
         >
           <i className="fa-solid fa-magnifying-glass text-[10px]" style={{ color: t.text.ghost }} />
           <input value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search threads..."
+            placeholder="Search..."
             className="bg-transparent text-[12px] placeholder:opacity-40 outline-none flex-1"
             style={{ color: t.text.secondary, fontFamily: t.font.sans }}
           />
+          {search && (
+            <button onClick={() => setSearch("")} className="cursor-pointer opacity-50 hover:opacity-100" style={{ color: t.text.ghost }}>
+              <i className="fa-solid fa-xmark text-[9px]" />
+            </button>
+          )}
         </div>
+
+        {/* New Thread button */}
+        <button
+          onClick={onNew}
+          title="New research thread"
+          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 cursor-pointer transition-all"
+          style={{ background: t.accent.cyanDim, color: t.accent.cyan, border: `1px solid ${t.accent.cyanBorder}` }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = `${t.accent.cyan}25`; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = t.accent.cyanDim; }}
+        >
+          <i className="fa-solid fa-plus text-[11px]" />
+        </button>
       </div>
 
       {/* Thread list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-3" style={{ scrollbarWidth: "thin", scrollbarColor: `${t.border.subtle} transparent` }}>
+        {grouped.length === 0 && threads.length === 0 && (
+          <div className="text-center px-3 py-10">
+            <div className="w-12 h-12 mx-auto rounded-xl flex items-center justify-center mb-3"
+              style={{ background: t.bg.surface, border: `1px solid ${t.border.subtle}` }}>
+              <i className="fa-solid fa-flask text-lg" style={{ color: t.text.ghost }} />
+            </div>
+            <div className="text-[11px] mb-2" style={{ color: t.text.muted }}>No threads yet</div>
+            <button onClick={onNew}
+              className="text-[10px] px-3 py-1.5 rounded-lg cursor-pointer transition-all"
+              style={{ background: t.accent.cyanDim, color: t.accent.cyan, border: `1px solid ${t.accent.cyanBorder}` }}
+            >
+              <i className="fa-solid fa-plus text-[9px] mr-1" />Start Research
+            </button>
+          </div>
+        )}
+
         {grouped.map((group) => (
           <div key={group.label}>
             <div className="text-[9px] font-semibold uppercase tracking-[0.12em] px-2.5 mb-1.5"
@@ -75,6 +112,8 @@ export function ThreadSidebar() {
                     background: active ? t.accent.cyanDim : "transparent",
                     borderColor: active ? t.accent.cyanBorder : "transparent",
                   }}
+                  onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = t.bg.hover; }}
+                  onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors"
@@ -104,9 +143,10 @@ export function ThreadSidebar() {
             })}
           </div>
         ))}
-        {filtered.length === 0 && (
+
+        {filtered.length === 0 && threads.length > 0 && (
           <div className="text-center text-[11px] py-10" style={{ color: t.text.ghost }}>
-            No threads found
+            No threads match "{search}"
           </div>
         )}
       </div>
@@ -114,8 +154,10 @@ export function ThreadSidebar() {
       {/* Footer */}
       <div className="px-3 py-2.5 border-t" style={{ borderColor: t.border.subtle }}>
         <div className="flex items-center justify-between text-[10px]" style={{ fontFamily: t.font.mono }}>
-          <span style={{ color: t.text.ghost }}>Total spent</span>
-          <span style={{ color: `${t.accent.cyan}88` }}>{fmtCost(totalCost())}</span>
+          <span style={{ color: t.text.ghost }}>{threads.length} thread{threads.length !== 1 ? "s" : ""}</span>
+          {totalCost() > 0 && (
+            <span style={{ color: `${t.accent.cyan}88` }}>{fmtCost(totalCost())} total</span>
+          )}
         </div>
       </div>
     </motion.aside>

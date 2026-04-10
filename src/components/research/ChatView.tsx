@@ -79,12 +79,13 @@ export function ChatView({ settings }: ChatViewProps) {
 
       if (isFirst && savedInput.trim().length > 0) {
         try {
+          // Use model: "" to force the provider's fast/cheap default for rename
           const renameResult = JSON.parse(await invoke<string>("process_file", {
             action: "run_pipeline_phase",
-            argsJson: JSON.stringify({ phase: "auto_rename", content: savedInput.trim(), api_key: params.api_key, provider: params.provider, model: params.model }),
+            argsJson: JSON.stringify({ phase: "auto_rename", content: savedInput.trim(), api_key: params.api_key, provider: params.provider, model: "" }),
           }));
-          renameThread(thread.id, renameResult?.ok && renameResult.title ? renameResult.title : savedInput.trim().slice(0, 50));
-        } catch { renameThread(thread.id, savedInput.trim().slice(0, 50)); }
+          renameThread(thread.id, renameResult?.ok && renameResult.title ? renameResult.title : savedInput.trim().slice(0, 60));
+        } catch { renameThread(thread.id, savedInput.trim().slice(0, 60)); }
       }
     } catch (e) {
       addMessage(thread.id, { id: uid(), role: "assistant", content: `Error: ${String(e)}`, type: "error", timestamp: Date.now() });

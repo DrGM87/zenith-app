@@ -5416,9 +5416,16 @@ def generate_pipeline_figures(args):
                         local_code += f'\nplt.savefig("{chart_path.replace(chr(92), "/")}", dpi=200, bbox_inches="tight", facecolor="white")\nplt.close()'
                     else:
                         local_code += "\nplt.close()"
-                    # Execute in isolated namespace
-                    _ns = {"__builtins__": __builtins__}
-                    exec(local_code, _ns)  # noqa: S102
+                    # Execute in isolated namespace — redirect stdout to prevent
+                    # any print() in LLM-generated code from corrupting the JSON sidecar output
+                    import io as _io, sys as _sys
+                    _old_stdout = _sys.stdout
+                    _sys.stdout = _io.StringIO()
+                    try:
+                        _ns = {"__builtins__": __builtins__}
+                        exec(local_code, _ns)  # noqa: S102
+                    finally:
+                        _sys.stdout = _old_stdout
 
                     if os.path.isfile(chart_path) and os.path.getsize(chart_path) > 500:
                         chart_saved = True
@@ -5433,38 +5440,57 @@ def generate_pipeline_figures(args):
                 except Exception as ce:
                     errors.append(f"Figure '{fig_desc}': local exec error — {ce}")
 
-            # Fallback: if code execution didn't produce a file, use old JSON→generate_chart method
+            # Fallback: if code execution produced no file, ask the LLM for JSON chart data
+            # (works for all providers, not just Gemini code-execution)
             if not chart_saved:
-                # Try to parse chart data from the text response
-                json_match = re.search(r'\{[^{}]*"chart_type"[^{}]*\}', text, re.DOTALL)
-                if not json_match:
-                    json_match = re.search(r'\{.*\}', text, re.DOTALL)
-                if json_match:
-                    try:
-                        chart_data = json.loads(json_match.group())
-                        chart_result = generate_chart({
-                            "chart_type": chart_data.get("chart_type", "bar"),
-                            "data": chart_data.get("data", []),
-                            "title": chart_data.get("title", fig_desc),
-                            "xlabel": chart_data.get("xlabel", ""),
-                            "ylabel": chart_data.get("ylabel", ""),
-                            "labels": chart_data.get("labels", []),
-                        })
-                        if chart_result.get("ok"):
-                            generated_figures.append({
-                                "description": fig_desc,
-                                "caption": chart_data.get("caption", fig_desc),
-                                "path": chart_result["path"],
-                                "chart_type": chart_result.get("chart_type", "bar"),
-                                "size": chart_result.get("size", 0),
-                                "index": i + 1,
+                try:
+                    json_prompt = (
+                        f"Research question: {query}\n\n"
+                        f"Create a publication-quality chart for: \"{fig_desc}\"\n\n"
+                        f"Context (literature):\n{papers_context[:2000]}\n\n"
+                        "Return ONLY a JSON object (no markdown, no explanation) with these fields:\n"
+                        '{"chart_type":"bar","title":"...","labels":["Label1","Label2","Label3"],'
+                        '"data":[25,40,35],"xlabel":"X Axis","ylabel":"Y Axis","caption":"One sentence describing the figure."}'
+                        "\n\nchart_type must be one of: bar, line, pie, scatter\n"
+                        "Use realistic numerical data extracted from the literature above."
+                    )
+                    jr = _llm_chat(
+                        provider, api_key, model,
+                        [{"role": "system", "content": "Return ONLY valid JSON with no markdown fences, comments, or extra text."},
+                         {"role": "user", "content": json_prompt}],
+                        temperature=0.3, max_tokens=512,
+                    )
+                    if "error" not in jr:
+                        jtext = jr.get("text", "").strip()
+                        # Strip markdown fences if present
+                        jtext = re.sub(r'^```(?:json)?\s*', '', jtext, flags=re.MULTILINE)
+                        jtext = re.sub(r'\s*```\s*$', '', jtext, flags=re.MULTILINE)
+                        jmatch = re.search(r'\{.*\}', jtext, re.DOTALL)
+                        if jmatch:
+                            chart_data = json.loads(jmatch.group())
+                            chart_result = generate_chart({
+                                "chart_type": chart_data.get("chart_type", "bar"),
+                                "data": chart_data.get("data", []),
+                                "title": chart_data.get("title", fig_desc),
+                                "xlabel": chart_data.get("xlabel", ""),
+                                "ylabel": chart_data.get("ylabel", ""),
+                                "labels": chart_data.get("labels", []),
                             })
-                            chart_saved = True
-                    except (json.JSONDecodeError, Exception):
-                        pass
+                            if chart_result.get("ok"):
+                                generated_figures.append({
+                                    "description": fig_desc,
+                                    "caption": chart_data.get("caption", fig_desc),
+                                    "path": chart_result["path"],
+                                    "chart_type": chart_result.get("chart_type", "bar"),
+                                    "size": chart_result.get("size", 0),
+                                    "index": i + 1,
+                                })
+                                chart_saved = True
+                except Exception:
+                    pass
 
                 if not chart_saved:
-                    errors.append(f"Figure '{fig_desc}': code execution produced no chart file")
+                    errors.append(f"Figure '{fig_desc}': could not generate chart")
 
         except Exception as e:
             errors.append(f"Figure '{fig_desc}': {e}")
@@ -5535,8 +5561,16 @@ def generate_pipeline_figures(args):
                         local_code += f'\nplt.savefig("{tbl_path.replace(chr(92), "/")}", dpi=200, bbox_inches="tight", facecolor="white")\nplt.close()'
                     else:
                         local_code += "\nplt.close()"
-                    _ns = {"__builtins__": __builtins__}
-                    exec(local_code, _ns)  # noqa: S102
+                    # Capture stdout so any print() in LLM-generated code doesn't
+                    # corrupt the JSON sidecar output channel
+                    import io as _io, sys as _sys
+                    _old_stdout = _sys.stdout
+                    _sys.stdout = _io.StringIO()
+                    try:
+                        _ns = {"__builtins__": __builtins__}
+                        exec(local_code, _ns)  # noqa: S102
+                    finally:
+                        _sys.stdout = _old_stdout
 
                     if os.path.isfile(tbl_path) and os.path.getsize(tbl_path) > 500:
                         tbl_saved = True
@@ -5551,32 +5585,49 @@ def generate_pipeline_figures(args):
                 except Exception as ce:
                     errors.append(f"Table '{tbl_desc}': local exec error — {ce}")
 
-            # Fallback: JSON→generate_table
+            # Fallback: ask LLM for structured JSON table data, then call generate_table()
             if not tbl_saved:
-                json_match = re.search(r'\{.*\}', text, re.DOTALL)
-                if json_match:
-                    try:
-                        tbl_data = json.loads(json_match.group())
-                        tbl_result = generate_table({
-                            "headers": tbl_data.get("headers", []),
-                            "rows": tbl_data.get("rows", []),
-                            "title": tbl_data.get("title", tbl_desc),
-                            "format": "image",
+                try:
+                    json_prompt = (
+                        f'Create a publication-quality data table for: "{tbl_desc}"\n'
+                        f'Context: {query[:300]}\n\n'
+                        'Return ONLY a JSON object with this exact schema '
+                        '(no markdown fences, no explanation):\n'
+                        '{"title":"...", "caption":"...", "headers":["Col1","Col2",...], '
+                        '"rows":[["val","val",...],...]}\n\n'
+                        'Requirements: meaningful headers, realistic data values, '
+                        'at least 3 columns and 4-8 rows, data relevant to the description.'
+                    )
+                    jr = _llm_chat(
+                        provider, api_key, model,
+                        [{"role": "user", "content": json_prompt}],
+                        temperature=0.3, max_tokens=600,
+                    )
+                    jr_text = (jr.get("content") or "").strip()
+                    # Strip markdown fences if present
+                    jr_text = re.sub(r'^```[a-z]*\n?', '', jr_text)
+                    jr_text = re.sub(r'\n?```$', '', jr_text).strip()
+                    tbl_data = json.loads(jr_text)
+                    tbl_result = generate_table({
+                        "headers": tbl_data.get("headers", []),
+                        "rows": tbl_data.get("rows", []),
+                        "title": tbl_data.get("title", tbl_desc),
+                        "format": "image",
+                    })
+                    if tbl_result.get("ok"):
+                        generated_tables.append({
+                            "description": tbl_desc,
+                            "caption": tbl_data.get("caption", tbl_desc),
+                            "markdown": tbl_result.get("markdown", ""),
+                            "path": tbl_result.get("path", ""),
+                            "size": tbl_result.get("size", 0),
+                            "index": i + 1,
                         })
-                        if tbl_result.get("ok"):
-                            generated_tables.append({
-                                "description": tbl_desc,
-                                "caption": tbl_data.get("caption", tbl_desc),
-                                "markdown": tbl_result.get("markdown", ""),
-                                "path": tbl_result.get("path", ""),
-                                "size": tbl_result.get("size", 0),
-                                "index": i + 1,
-                            })
-                            tbl_saved = True
-                    except (json.JSONDecodeError, Exception):
-                        pass
-                if not tbl_saved:
-                    errors.append(f"Table '{tbl_desc}': no table generated")
+                        tbl_saved = True
+                except (json.JSONDecodeError, Exception) as fe:
+                    errors.append(f"Table '{tbl_desc}': JSON fallback failed — {fe}")
+            if not tbl_saved:
+                errors.append(f"Table '{tbl_desc}': no table generated")
 
         except Exception as e:
             errors.append(f"Table '{tbl_desc}': {e}")

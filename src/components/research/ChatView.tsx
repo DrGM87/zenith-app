@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useResearchStore, type ResearchMessage } from "../../stores/useResearchStore";
 import { THEME as t } from "./shared/constants";
 import { uid, fmtTime, estimateCost, trackTokenUsage } from "./shared/helpers";
@@ -27,8 +29,16 @@ export function ChatView({ settings }: ChatViewProps) {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
+  const abortRef = useRef(false);
+
+  const handleStop = useCallback(() => {
+    abortRef.current = true;
+    setGenerating(false);
+  }, [setGenerating]);
+
   const handleSend = useCallback(async () => {
     if (!input.trim() || isGenerating || !thread) return;
+    abortRef.current = false;
     const userMsg: ResearchMessage = {
       id: uid(), role: "user", content: input.trim(),
       type: "text", timestamp: Date.now(),
@@ -140,7 +150,20 @@ export function ChatView({ settings }: ChatViewProps) {
         )}
 
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} onEdit={() => handleEditRetry(msg.id)} />
+          <MessageBubble
+            key={msg.id}
+            msg={msg}
+            onEdit={() => handleEditRetry(msg.id)}
+            onRetry={() => {
+              // For user messages: edit-retry. For assistant errors: re-send last user msg.
+              if (msg.role === "user") {
+                handleEditRetry(msg.id);
+              } else {
+                const lastUser = [...messages].reverse().find((m) => m.role === "user");
+                if (lastUser) handleEditRetry(lastUser.id);
+              }
+            }}
+          />
         ))}
         <div ref={chatEndRef} />
       </div>
@@ -164,18 +187,29 @@ export function ChatView({ settings }: ChatViewProps) {
                 {params.provider}/{params.model.split("-").slice(-2).join("-")}
               </span>
             </div>
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isGenerating}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
-              style={{ background: t.accent.cyanDim, color: t.accent.cyan, border: `1px solid ${t.accent.cyanBorder}` }}
-            >
-              {isGenerating ? (
-                <><i className="fa-solid fa-circle-notch fa-spin text-[9px]" /> Thinking...</>
-              ) : (
-                <><i className="fa-solid fa-paper-plane text-[9px]" /> Send</>
+            <div className="flex items-center gap-2">
+              {isGenerating && (
+                <button
+                  onClick={handleStop}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer"
+                  style={{ background: t.accent.redDim, color: t.accent.red, border: `1px solid ${t.accent.red}40` }}
+                >
+                  <i className="fa-solid fa-stop text-[8px]" /> Stop
+                </button>
               )}
-            </button>
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || isGenerating}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer disabled:opacity-20 disabled:cursor-not-allowed"
+                style={{ background: t.accent.cyanDim, color: t.accent.cyan, border: `1px solid ${t.accent.cyanBorder}` }}
+              >
+                {isGenerating ? (
+                  <><i className="fa-solid fa-circle-notch fa-spin text-[9px]" /> Thinking...</>
+                ) : (
+                  <><i className="fa-solid fa-paper-plane text-[9px]" /> Send</>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -185,19 +219,41 @@ export function ChatView({ settings }: ChatViewProps) {
 
 // ── Message Bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ msg, onEdit }: { msg: ResearchMessage; onEdit: () => void }) {
+function MsgActionBtn({ icon, title, onClick, color }: { icon: string; title: string; onClick: () => void; color?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] cursor-pointer transition-all opacity-0 group-hover:opacity-100"
+      style={{ color: color ?? t.text.ghost, background: "transparent" }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = t.bg.elevated; e.currentTarget.style.opacity = "1"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+    >
+      <i className={`${icon} text-[8px]`} />
+    </button>
+  );
+}
+
+function MessageBubble({ msg, onEdit, onRetry }: { msg: ResearchMessage; onEdit: () => void; onRetry: () => void }) {
+  const [copied, setCopied] = useState(false);
   const isUser = msg.role === "user";
   const isError = msg.type === "error";
   const isTool = msg.role === "tool";
+
+  const copyContent = () => {
+    navigator.clipboard.writeText(msg.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.15 }}
-      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+      className={`flex group ${isUser ? "justify-end" : "justify-start"}`}
     >
-      <div className={`max-w-[80%] rounded-xl px-4 py-3 ${isUser ? "rounded-br-sm" : "rounded-bl-sm"}`}
+      <div className={`max-w-[82%] rounded-xl px-4 py-3 ${isUser ? "rounded-br-sm" : "rounded-bl-sm"}`}
         style={{
           background: isUser ? t.accent.cyanDim
             : isError ? t.accent.redDim
@@ -222,36 +278,58 @@ function MessageBubble({ msg, onEdit }: { msg: ResearchMessage; onEdit: () => vo
         )}
 
         {/* Content */}
-        <div className="text-[13px] leading-relaxed whitespace-pre-wrap select-text"
+        <div className="zenith-prose select-text text-[13px]"
           style={{ color: isError ? `${t.accent.red}cc` : t.text.primary }}
         >
-          {msg.content}
+          {isUser || isError ? (
+            <span className="whitespace-pre-wrap">{msg.content}</span>
+          ) : (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}
+              components={{
+                sup: ({ children }) => <sup style={{ color: t.accent.cyan, fontSize: "0.7em" }}>{children}</sup>,
+                a: ({ href, children }) => <a href={href} style={{ color: t.accent.cyan, textDecoration: "underline" }} target="_blank" rel="noreferrer">{children}</a>,
+                code: ({ children, className }) => className
+                  ? <pre style={{ background: t.bg.elevated, border: `1px solid ${t.border.subtle}`, borderRadius: 6, padding: "8px 12px", overflowX: "auto", fontSize: 11, fontFamily: t.font.mono }}><code>{children}</code></pre>
+                  : <code style={{ background: t.bg.elevated, borderRadius: 3, padding: "1px 4px", fontSize: "0.85em", fontFamily: t.font.mono, color: t.accent.amber }}>{children}</code>,
+              }}
+            >
+              {msg.content}
+            </ReactMarkdown>
+          )}
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between mt-2 pt-1.5" style={{ borderTop: `1px solid ${t.border.subtle}` }}>
           <span className="text-[9px]" style={{ color: t.text.ghost, fontFamily: t.font.mono }}>
             {fmtTime(msg.timestamp)}
-          </span>
-          <div className="flex items-center gap-2">
             {msg.tokens && (
-              <span className="text-[9px]" style={{ color: t.text.ghost, fontFamily: t.font.mono }}>
-                {msg.tokens.input + msg.tokens.output} tok
+              <span className="ml-2" style={{ color: t.text.ghost }}>
+                {(msg.tokens.input + msg.tokens.output).toLocaleString()} tok
+                {msg.tokens.cost > 0 && ` · $${msg.tokens.cost.toFixed(5)}`}
               </span>
             )}
-            <button onClick={() => navigator.clipboard.writeText(msg.content)}
-              className="text-[9px] cursor-pointer transition-opacity opacity-40 hover:opacity-80"
-              style={{ color: t.text.secondary }}
-            >
-              <i className="fa-solid fa-copy" />
-            </button>
+          </span>
+
+          {/* Action buttons — visible on hover */}
+          <div className="flex items-center gap-0.5">
+            <MsgActionBtn
+              icon={copied ? "fa-solid fa-check" : "fa-solid fa-copy"}
+              title="Copy to clipboard"
+              onClick={copyContent}
+              color={copied ? t.accent.emerald : undefined}
+            />
             {isUser && (
-              <button onClick={onEdit}
-                className="text-[9px] cursor-pointer transition-opacity opacity-40 hover:opacity-80"
-                style={{ color: t.text.secondary }}
-              >
-                <i className="fa-solid fa-pen" />
-              </button>
+              <MsgActionBtn icon="fa-solid fa-pen" title="Edit and resend" onClick={onEdit} />
+            )}
+            {(isUser || isError) && (
+              <MsgActionBtn icon="fa-solid fa-rotate-right" title="Retry this message" onClick={onRetry} color={t.accent.amber} />
+            )}
+            {!isUser && !isTool && (
+              <MsgActionBtn
+                icon="fa-solid fa-quote-right"
+                title="Copy as quote"
+                onClick={() => navigator.clipboard.writeText(`> ${msg.content.replace(/\n/g, "\n> ")}`)}
+              />
             )}
           </div>
         </div>

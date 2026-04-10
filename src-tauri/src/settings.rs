@@ -410,6 +410,24 @@ pub struct ZenithSettings {
     pub firecrawl_api_key: String,
     #[serde(default = "default_true")]
     pub shazam_auto_recognize: bool,
+    #[serde(default = "default_scihub_mirrors")]
+    pub scihub_mirrors: Vec<String>,
+}
+
+fn default_scihub_mirrors() -> Vec<String> {
+    vec![
+        "https://sci-hub.ru".to_string(),
+        "https://sci-hub.st".to_string(),
+        "https://sci-hub.se".to_string(),
+        "https://sci-hub.su".to_string(),
+        "https://sci-hub.box".to_string(),
+        "https://sci-hub.red".to_string(),
+        "https://sci-hub.al".to_string(),
+        "https://sci-hub.mk".to_string(),
+        "https://sci-hub.ee".to_string(),
+        "https://sci-hub.in".to_string(),
+        "https://sci-hub.shop".to_string(),
+    ]
 }
 
 fn default_scripts() -> Vec<ScriptEntry> {
@@ -540,6 +558,7 @@ impl Default for ZenithSettings {
             brave_api_key: String::new(),
             firecrawl_api_key: String::new(),
             shazam_auto_recognize: true,
+            scihub_mirrors: default_scihub_mirrors(),
         }
     }
 }

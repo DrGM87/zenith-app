@@ -582,6 +582,21 @@ fn reveal_in_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Ping a URL with a short timeout. Returns latency in ms or an error string.
+#[tauri::command]
+async fn ping_url(url: String) -> Result<u64, String> {
+    use std::time::Instant;
+    let start = Instant::now();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .danger_accept_invalid_certs(true)
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .build()
+        .map_err(|e| e.to_string())?;
+    client.head(&url).send().await.map_err(|e| e.to_string())?;
+    Ok(start.elapsed().as_millis() as u64)
+}
+
 #[tauri::command]
 async fn open_research_window(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
@@ -589,14 +604,32 @@ async fn open_research_window(app: tauri::AppHandle) -> Result<(), String> {
         win.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
     }
+
+    // Compute 70% of primary monitor width, 84% of monitor height (leaves ~50px for taskbar).
+    // Fall back to sensible defaults if monitor info isn't available.
+    let (target_w, target_h) = {
+        // Use the main window to get the current monitor info
+        let (mw, mh) = app
+            .get_webview_window("main")
+            .and_then(|w| w.current_monitor().ok().flatten())
+            .map(|m| {
+                let sz = m.size();
+                (sz.width as f64, sz.height as f64)
+            })
+            .unwrap_or((1920.0, 1080.0));
+        let w = (mw * 0.70).round().max(1020.0);
+        let h = (mh * 0.84).round().max(700.0).min(mh - 60.0); // keep ≥ 60px from bottom
+        (w, h)
+    };
+
     let _research = tauri::WebviewWindowBuilder::new(
         &app,
         "zenith_research",
         tauri::WebviewUrl::App("/?window=research".into()),
     )
     .title("Zenith Research")
-    .inner_size(1400.0, 900.0)
-    .min_inner_size(1000.0, 700.0)
+    .inner_size(target_w, target_h)
+    .min_inner_size(960.0, 640.0)
     .center()
     .decorations(true)
     .transparent(false)
@@ -1501,6 +1534,7 @@ pub fn run() {
             process_file,
             set_self_destruct,
             reveal_in_folder,
+            ping_url,
             open_file,
             list_directory,
             email_files,

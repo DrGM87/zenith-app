@@ -139,6 +139,7 @@ interface ZenithSettings {
   brave_api_key: string;
   firecrawl_api_key: string;
   shazam_auto_recognize: boolean;
+  scihub_mirrors: string[];
 }
 
 interface PluginInfo {
@@ -243,6 +244,8 @@ export function Settings() {
   const [saved, setSaved] = useState(false);
   const [pluginOutput, setPluginOutput] = useState<string | null>(null);
   const [runningScripts, setRunningScripts] = useState<Record<string, boolean>>({});
+  const [mirrorPingStatus, setMirrorPingStatus] = useState<Record<string, { status: "idle"|"pinging"|"ok"|"fail"; ms?: number }>>({});
+  const [newMirrorUrl, setNewMirrorUrl] = useState("");
 
   useEffect(() => {
     invoke<ZenithSettings>("get_settings").then((s) => {
@@ -347,6 +350,50 @@ export function Settings() {
     if (!settings) return;
     const keys = settings.api_keys.map((k, i) => ({ ...k, is_default: i === idx }));
     save({ ...settings, api_keys: keys });
+  };
+
+  const DEFAULT_MIRRORS = [
+    "https://sci-hub.ru","https://sci-hub.st","https://sci-hub.se","https://sci-hub.su",
+    "https://sci-hub.box","https://sci-hub.red","https://sci-hub.al","https://sci-hub.mk",
+    "https://sci-hub.ee","https://sci-hub.in","https://sci-hub.shop",
+  ];
+
+  const addMirror = (url: string) => {
+    if (!settings || !url.trim()) return;
+    const normalized = url.trim().replace(/\/$/, "");
+    if ((settings.scihub_mirrors ?? []).includes(normalized)) return;
+    save({ ...settings, scihub_mirrors: [...(settings.scihub_mirrors ?? []), normalized] });
+  };
+
+  const removeMirror = (url: string) => {
+    if (!settings) return;
+    save({ ...settings, scihub_mirrors: (settings.scihub_mirrors ?? []).filter((m) => m !== url) });
+  };
+
+  const moveMirror = (url: string, dir: -1 | 1) => {
+    if (!settings) return;
+    const arr = [...(settings.scihub_mirrors ?? [])];
+    const idx = arr.indexOf(url);
+    if (idx < 0) return;
+    const to = idx + dir;
+    if (to < 0 || to >= arr.length) return;
+    [arr[idx], arr[to]] = [arr[to], arr[idx]];
+    save({ ...settings, scihub_mirrors: arr });
+  };
+
+  const pingMirror = async (url: string) => {
+    setMirrorPingStatus((p) => ({ ...p, [url]: { status: "pinging" } }));
+    try {
+      const ms = await invoke<number>("ping_url", { url });
+      setMirrorPingStatus((p) => ({ ...p, [url]: { status: "ok", ms } }));
+    } catch {
+      setMirrorPingStatus((p) => ({ ...p, [url]: { status: "fail" } }));
+    }
+  };
+
+  const pingAllMirrors = async () => {
+    const mirrors = settings?.scihub_mirrors ?? DEFAULT_MIRRORS;
+    await Promise.all(mirrors.map((m) => pingMirror(m)));
   };
 
   const runPlugin = async (path: string) => {
@@ -907,6 +954,94 @@ export function Settings() {
               />
               <p className="text-[10px] text-white/20 mt-1">API: <a href="https://www.theaudiodb.com/free_music_api" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">theaudiodb.com/free_music_api</a> — free key <code className="text-white/40">523532</code> used by default</p>
             </SettingGroup>
+            {/* ── Sci-Hub Mirrors ────────────────────────────────────────── */}
+            <SettingGroup title="Sci-Hub Mirrors">
+              <p className="text-[11px] text-white/30 mb-3 -mt-1">
+                Ordered list of Sci-Hub mirrors used by the Research Pipeline for paper acquisition.
+                The first reachable mirror is used. Drag to reorder (use arrows), ping to check live status.
+              </p>
+
+              {/* Ping all button */}
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] text-white/25">{(settings.scihub_mirrors ?? DEFAULT_MIRRORS).length} mirrors configured</span>
+                <button
+                  onClick={pingAllMirrors}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors bg-cyan-500/10 text-cyan-400/70 hover:bg-cyan-500/20 hover:text-cyan-300 border border-cyan-500/20 cursor-pointer"
+                >
+                  <i className="fa-solid fa-wifi text-[9px]" /> Ping All
+                </button>
+              </div>
+
+              {/* Mirror list */}
+              <div className="space-y-1.5 mb-3">
+                {(settings.scihub_mirrors ?? DEFAULT_MIRRORS).map((url, i) => {
+                  const ps = mirrorPingStatus[url];
+                  return (
+                    <div key={url} className="flex items-center gap-2 px-3 py-2 rounded-lg group"
+                      style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                      {/* Order badge */}
+                      <span className="text-[9px] w-4 text-center flex-shrink-0" style={{ color: "rgba(255,255,255,0.2)", fontFamily: "monospace" }}>{i + 1}</span>
+                      {/* URL */}
+                      <span className="flex-1 text-[11px] font-mono truncate" style={{ color: "rgba(255,255,255,0.65)" }}>{url}</span>
+                      {/* Ping status */}
+                      <div className="flex-shrink-0 w-20 text-right">
+                        {!ps || ps.status === "idle" ? (
+                          <span className="text-[9px]" style={{ color: "rgba(255,255,255,0.15)" }}>—</span>
+                        ) : ps.status === "pinging" ? (
+                          <span className="text-[9px] text-cyan-400/50"><i className="fa-solid fa-circle-notch fa-spin mr-1" />...</span>
+                        ) : ps.status === "ok" ? (
+                          <span className="text-[9px] text-emerald-400">{ps.ms}ms</span>
+                        ) : (
+                          <span className="text-[9px] text-red-400/70">unreachable</span>
+                        )}
+                      </div>
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => pingMirror(url)} title="Ping" className="text-[9px] px-1.5 py-0.5 rounded text-cyan-400/60 hover:text-cyan-300 hover:bg-cyan-500/15 transition-colors cursor-pointer">
+                          <i className="fa-solid fa-wifi" />
+                        </button>
+                        <button onClick={() => moveMirror(url, -1)} disabled={i === 0} title="Move up" className="text-[9px] px-1 py-0.5 rounded text-white/30 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer">
+                          <i className="fa-solid fa-chevron-up" />
+                        </button>
+                        <button onClick={() => moveMirror(url, 1)} disabled={i === (settings.scihub_mirrors ?? DEFAULT_MIRRORS).length - 1} title="Move down" className="text-[9px] px-1 py-0.5 rounded text-white/30 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer">
+                          <i className="fa-solid fa-chevron-down" />
+                        </button>
+                        <button onClick={() => removeMirror(url)} title="Remove" className="text-[9px] px-1.5 py-0.5 rounded text-red-400/40 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer">
+                          <i className="fa-solid fa-trash" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Add new mirror */}
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={newMirrorUrl}
+                  onChange={(e) => setNewMirrorUrl(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { addMirror(newMirrorUrl); setNewMirrorUrl(""); } }}
+                  placeholder="https://sci-hub.example.com"
+                  className="flex-1 px-3 py-1.5 rounded-lg text-[12px] font-mono outline-none placeholder:text-white/15 bg-white/5 border border-white/10 text-white/80 focus:border-cyan-500/40 transition-colors"
+                />
+                <button
+                  onClick={() => { addMirror(newMirrorUrl); setNewMirrorUrl(""); }}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors cursor-pointer"
+                >
+                  <i className="fa-solid fa-plus text-[9px] mr-1" />Add
+                </button>
+                <button
+                  onClick={() => save({ ...settings!, scihub_mirrors: DEFAULT_MIRRORS })}
+                  title="Reset to defaults"
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-white/5 text-white/30 border border-white/10 hover:text-white/60 transition-colors cursor-pointer"
+                >
+                  Reset
+                </button>
+              </div>
+              <p className="text-[10px] text-white/15 mt-2">First mirror in list is tried first. Working mirrors detected via ping.</p>
+            </SettingGroup>
+
             <div className="mt-4 p-4 rounded-xl bg-white/3 border border-white/6">
               <p className="text-[11px] text-white/30 leading-relaxed">
                 <i className="fa-solid fa-shield-halved text-white/20 mr-1" />

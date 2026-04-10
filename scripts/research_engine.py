@@ -1558,12 +1558,18 @@ def triage_papers(args):
 
 def acquire_papers(args):
     """Phase 1.5 — The Acquisition Engine: Download papers via Sci-Hub + Unpaywall.
-    Args: {papers: [{doi, title}], output_dir (optional), skip_unpaywall (bool)}
+    Args: {papers: [{doi, title}], output_dir (optional), skip_unpaywall (bool), scihub_mirrors (list)}
     Returns: {ok, acquired, failed, captcha_needed}"""
     papers = args.get("papers", [])
     output_dir = args.get("output_dir", PAPERS_DIR)
     skip_unpaywall = args.get("skip_unpaywall", False)
     os.makedirs(output_dir, exist_ok=True)
+
+    # Override global mirror list if provided via settings
+    custom_mirrors = args.get("scihub_mirrors", [])
+    if custom_mirrors and isinstance(custom_mirrors, list) and len(custom_mirrors) > 0:
+        global _SCIHUB_MIRRORS
+        _SCIHUB_MIRRORS = [m.rstrip("/") for m in custom_mirrors if isinstance(m, str) and m.startswith("http")]
 
     acquired = []
     failed = []
@@ -1836,7 +1842,11 @@ def smooth_manuscript(args):
                 auth += " et al."
             refs_context += f"[{i}] {auth}. \"{p.get('title', '')}\" ({p.get('year', 'n.d.')}). {p.get('journal', '')}. DOI: {p.get('doi', 'N/A')}\n"
 
-    system = _build_system_prompt(args, sc, 
+    # Build figure/table tag inventory so we can tell the LLM exactly what tags to preserve
+    fig_tag_list = ", ".join(fig_tag_map.keys()) if fig_tag_map else "none"
+    tbl_tag_list = ", ".join(tbl_tag_map.keys()) if tbl_tag_map else "none"
+
+    system = _build_system_prompt(args, sc,
         "You are a senior research editor performing a final smoothing pass on an academic manuscript. "
         "Your tasks:\n"
         "1. Fix tonal inconsistencies between sections\n"
@@ -1845,7 +1855,14 @@ def smooth_manuscript(args):
         "4. Write the Abstract (structured: Background, Methods, Results, Conclusions)\n"
         "5. Write the Conclusion section summarizing main findings and implications\n"
         "6. Preserve ALL existing numbered citations [N] exactly as they are. DO NOT REMOVE OR RENUMBER citations.\n"
-        "7. Append a formal References section at the very end using the provided Reference List."
+        "7. Append a formal References section at the very end using the provided Reference List.\n"
+        f"8. CRITICAL — FIGURE AND TABLE PLACEMENT TAGS: The draft contains figure tags ({fig_tag_list}) "
+        f"and table tags ({tbl_tag_list}). You MUST keep every single one of these tags verbatim in your output, "
+        "exactly as they appear (e.g. [FIGURE_1], [FIGURE_2], [TABLE_1]). "
+        "Place each tag immediately after the paragraph that discusses that figure or table. "
+        "DO NOT remove, rename, merge, or paraphrase any [FIGURE_N] or [TABLE_N] tag. "
+        "If a tag exists in the draft, it MUST appear unchanged in your output. "
+        "These are machine-readable markers that will be replaced with actual chart images after your pass."
     )
 
     # Incorporate quality swarm feedback
@@ -1873,6 +1890,14 @@ def smooth_manuscript(args):
     manuscript = result["text"]
 
     # ── Post-LLM: Replace [FIGURE_N] and [TABLE_N] tags with actual markdown images ──
+    # Fallback: if the LLM dropped tags, append missing ones at the end before References
+    for tag in list(fig_tag_map.keys()) + list(tbl_tag_map.keys()):
+        if tag not in manuscript:
+            # Re-inject before the References section, or at end
+            refs_pos = re.search(r'\n##\s*References', manuscript, re.IGNORECASE)
+            insert_at = refs_pos.start() if refs_pos else len(manuscript)
+            manuscript = manuscript[:insert_at] + f"\n\n{tag}\n\n" + manuscript[insert_at:]
+
     real_fig_num = 0
     for tag, info in fig_tag_map.items():
         fig = info.get("figure")

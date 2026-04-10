@@ -313,6 +313,7 @@ export function ZenithResearch() {
           onToggleFx={toggleFx}
           isDark={isDark}
           onToggleTheme={toggleTheme}
+          totalCostUsd={settings?.token_usage?.total_cost_usd ?? 0}
         />
 
         {/* ── CAPTCHA dialog ─────────────────────────────────────────────── */}
@@ -455,7 +456,7 @@ export function ZenithResearch() {
 // ── Status Bar ───────────────────────────────────────────────────────────────
 
 function StatusBar({
-  phase, progress, statusMessage, tokens, papersCount, fxEnabled, onToggleFx, isDark, onToggleTheme,
+  phase, progress, statusMessage, tokens, papersCount, fxEnabled, onToggleFx, isDark, onToggleTheme, totalCostUsd,
 }: {
   phase: string; progress: number; statusMessage: string;
   tokens: { input: number; output: number; cost: number };
@@ -464,6 +465,7 @@ function StatusBar({
   onToggleFx: () => void;
   isDark: boolean;
   onToggleTheme: () => void;
+  totalCostUsd: number;
 }) {
   const isActive = phase !== "idle" && phase !== "complete" && phase !== "error";
   const isError = phase === "error";
@@ -555,15 +557,17 @@ function StatusBar({
         </span>
       )}
 
-      {/* Cost */}
+      {/* Cost — session + cumulative */}
       {tokens.cost > 0 && (
-        <span className="text-[9px]" style={{
-          color: fxEnabled ? undefined : t.accent.emerald,
-          ...(fxEnabled ? {} : {}),
-        }}>
+        <span className="text-[9px]" title="This pipeline run cost" style={{ color: fxEnabled ? undefined : t.accent.emerald }}>
           {fxEnabled
             ? <GradientText enabled gradient="linear-gradient(90deg,#10b981,#22d3ee)" animate={false}>{fmtCost(tokens.cost)}</GradientText>
             : fmtCost(tokens.cost)}
+        </span>
+      )}
+      {totalCostUsd > 0 && (
+        <span className="text-[9px]" title="Cumulative cost across all sessions" style={{ color: "rgba(255,255,255,0.18)" }}>
+          / {fmtCost(totalCostUsd)} total
         </span>
       )}
 
@@ -573,16 +577,16 @@ function StatusBar({
         title={isDark ? "Switch to light mode" : "Switch to dark mode"}
         className="cursor-pointer transition-all duration-200 flex items-center gap-1 select-none"
         style={{
-          background: "transparent",
-          border: `1px solid ${t.border.subtle}`,
+          background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)",
+          border: isDark ? "1px solid rgba(255,255,255,0.20)" : "1px solid rgba(0,0,0,0.25)",
           borderRadius: 4,
-          padding: "1px 5px",
-          color: t.text.ghost,
+          padding: "1px 6px",
+          color: isDark ? "#e2e8f0" : "#1e293b",
           fontSize: 8,
           lineHeight: "16px",
         }}
       >
-        <i className={`fa-solid ${isDark ? "fa-sun" : "fa-moon"} text-[8px]`} />
+        <i className={`fa-solid ${isDark ? "fa-sun" : "fa-moon"} text-[8px]`} style={{ color: isDark ? "#fbbf24" : "#6366f1" }} />
         <span style={{ fontSize: 8 }}>{isDark ? "LIGHT" : "DARK"}</span>
       </button>
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   useResearchStore,
@@ -43,6 +43,30 @@ export function PipelineView({ settings, onToast, setCaptchaUrl: _setCaptchaUrl 
   const [bottomTab, setBottomTab] = useState<"papers" | "manuscript">("papers");
   const abortRef = useRef(false);
   const thread = activeThread();
+
+  // ── Restore query/design from stored pipeline when thread has data ─────────
+  useEffect(() => {
+    if (pipeline.query) {
+      setQuery(pipeline.query);
+    }
+    if (pipeline.studyDesign) {
+      setDesign(pipeline.studyDesign as StudyDesign);
+    }
+    if (pipeline.manuscript) {
+      setBottomTab("manuscript");
+    }
+  }, [pipeline.query, pipeline.studyDesign, pipeline.manuscript]);
+
+  // ── When thread changes and pipeline is idle, prefill query from thread title ──
+  const threadId = thread?.id;
+  useEffect(() => {
+    if (!threadId) return;
+    const { pipeline: p } = useResearchStore.getState();
+    // Only prefill if idle and query field is empty
+    if (p.phase === "idle" && !query && thread?.title && thread.title !== "New Research") {
+      setQuery(thread.title);
+    }
+  }, [threadId]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -233,7 +257,11 @@ export function PipelineView({ settings, onToast, setCaptchaUrl: _setCaptchaUrl 
       if (!shouldSkip("acquire") && withDoi.length > 0) {
         log("acquire", `Acquiring ${withDoi.length} papers via Unpaywall / open access...`);
         setPipeline({ phase: "acquiring", progress: 58, statusMessage: `Acquiring ${withDoi.length} papers...` });
-        const ar = await runPhase("acquire", { papers: withDoi, skip_unpaywall: false, ...baseArgs });
+        const ar = await runPhase("acquire", {
+          papers: withDoi, skip_unpaywall: false,
+          scihub_mirrors: (settings as { scihub_mirrors?: string[] } | null)?.scihub_mirrors ?? [],
+          ...baseArgs,
+        });
         if (abortRef.current) return;
         acquired = Array.isArray(ar?.acquired) ? ar.acquired : [];
         log("acquire", `Acquired ${acquired.length}/${withDoi.length} PDFs`, acquired.length > 0 ? "success" : "warn");

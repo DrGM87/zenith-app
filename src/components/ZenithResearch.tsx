@@ -18,7 +18,7 @@ import { SettingsPanel } from "./research/SettingsPanel";
 export function ZenithResearch() {
   const {
     viewMode, params, setParams, loadThreads, pipeline,
-    createThread, resetPipeline, setViewMode,
+    createThread, resetPipeline, setViewMode, activeThread,
   } = useResearchStore();
 
   const [settings, setSettings] = useState<ZenithSettings | null>(null);
@@ -91,12 +91,12 @@ export function ZenithResearch() {
             manuscript: p.manuscript || "",
             papers: p.relevantPapers.length > 0 ? p.relevantPapers : p.papers,
             bibliography: p.bibliography || "",
-            query: p.query || thread?.messages.find((m) => m.role === "user")?.content?.slice(0, 200) || "Research",
+            query: p.query || thread?.messages.find((m: { role: string }) => m.role === "user")?.content?.slice(0, 200) || "Research",
             study_design: p.studyDesign || "systematic_review",
             logs: p.logs || [],
             thread_title: thread?.title || "Zenith Research Export",
             draft_sections: p.draftSections || [],
-            messages: (thread?.messages || []).map((m) => ({
+            messages: (thread?.messages || []).map((m: { role: string; content: string; type: string; data?: unknown; tool_used?: string; timestamp: number }) => ({
               role: m.role,
               content: m.content,
               type: m.type,

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { AnimatePresence, motion } from "framer-motion";
 import { useResearchStore } from "../stores/useResearchStore";
 import { THEME as t } from "./research/shared/constants";
@@ -28,6 +27,7 @@ import {
 // ── Shell ────────────────────────────────────────────────────────────────────
 
 const FX_KEY = "zenith_fx_enabled";
+const THEME_KEY = "zenith_theme";
 
 export function ZenithResearch() {
   const {
@@ -44,6 +44,9 @@ export function ZenithResearch() {
   const [fxEnabled, setFxEnabled] = useState<boolean>(() => {
     try { return localStorage.getItem(FX_KEY) !== "false"; } catch { return true; }
   });
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    try { return localStorage.getItem(THEME_KEY) !== "light"; } catch { return true; }
+  });
 
   const toggleFx = useCallback(() => {
     setFxEnabled(v => {
@@ -51,6 +54,20 @@ export function ZenithResearch() {
       try { localStorage.setItem(FX_KEY, String(next)); } catch { /* */ }
       return next;
     });
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setIsDark(v => {
+      const next = !v;
+      try { localStorage.setItem(THEME_KEY, next ? "dark" : "light"); } catch { /* */ }
+      document.documentElement.setAttribute("data-theme", next ? "dark" : "light");
+      return next;
+    });
+  }, []);
+
+  // Apply theme on mount
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
   }, []);
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -138,7 +155,7 @@ export function ZenithResearch() {
           const fileCount = result.files?.length ?? 0;
           const totalKB = Math.round((result.files ?? []).reduce((s, f) => s + (f.size ?? 0), 0) / 1024);
           showToast(`✓ Exported ${fileCount} files (${totalKB} KB) — opening folder`);
-          await openPath(result.folder);
+          await invoke("reveal_in_folder", { path: result.folder });
         } else {
           showToast(`Export failed: ${result.error ?? "unknown error"}`);
         }
@@ -165,7 +182,7 @@ export function ZenithResearch() {
       })) as { ok: boolean; path?: string; error?: string };
       if (result.ok && result.path) {
         showToast(`Saved → ${result.path.split(/[\\/]/).pop()}`);
-        await openPath(result.path);
+        await invoke("reveal_in_folder", { path: result.path });
       } else {
         showToast(`Export failed: ${result.error ?? "unknown"}`);
       }
@@ -294,6 +311,8 @@ export function ZenithResearch() {
           papersCount={pipeline.papers.length}
           fxEnabled={fxEnabled}
           onToggleFx={toggleFx}
+          isDark={isDark}
+          onToggleTheme={toggleTheme}
         />
 
         {/* ── CAPTCHA dialog ─────────────────────────────────────────────── */}
@@ -436,13 +455,15 @@ export function ZenithResearch() {
 // ── Status Bar ───────────────────────────────────────────────────────────────
 
 function StatusBar({
-  phase, progress, statusMessage, tokens, papersCount, fxEnabled, onToggleFx,
+  phase, progress, statusMessage, tokens, papersCount, fxEnabled, onToggleFx, isDark, onToggleTheme,
 }: {
   phase: string; progress: number; statusMessage: string;
   tokens: { input: number; output: number; cost: number };
   papersCount: number;
   fxEnabled: boolean;
   onToggleFx: () => void;
+  isDark: boolean;
+  onToggleTheme: () => void;
 }) {
   const isActive = phase !== "idle" && phase !== "complete" && phase !== "error";
   const isError = phase === "error";
@@ -546,6 +567,25 @@ function StatusBar({
         </span>
       )}
 
+      {/* ── Theme toggle ─────────────────────────────────────────────────── */}
+      <button
+        onClick={onToggleTheme}
+        title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+        className="cursor-pointer transition-all duration-200 flex items-center gap-1 select-none"
+        style={{
+          background: "transparent",
+          border: `1px solid ${t.border.subtle}`,
+          borderRadius: 4,
+          padding: "1px 5px",
+          color: t.text.ghost,
+          fontSize: 8,
+          lineHeight: "16px",
+        }}
+      >
+        <i className={`fa-solid ${isDark ? "fa-sun" : "fa-moon"} text-[8px]`} />
+        <span style={{ fontSize: 8 }}>{isDark ? "LIGHT" : "DARK"}</span>
+      </button>
+
       {/* ── Effects toggle ────────────────────────────────────────────────── */}
       <button
         onClick={onToggleFx}
@@ -553,10 +593,10 @@ function StatusBar({
         className="cursor-pointer transition-all duration-200 flex items-center gap-1 select-none"
         style={{
           background: fxEnabled ? "rgba(34,211,238,0.10)" : "transparent",
-          border: `1px solid ${fxEnabled ? "rgba(34,211,238,0.25)" : "rgba(255,255,255,0.08)"}`,
+          border: `1px solid ${fxEnabled ? "rgba(34,211,238,0.25)" : t.border.subtle}`,
           borderRadius: 4,
           padding: "1px 5px",
-          color: fxEnabled ? t.accent.cyan : "rgba(255,255,255,0.25)",
+          color: fxEnabled ? t.accent.cyan : t.text.ghost,
           fontSize: 8,
           lineHeight: "16px",
         }}

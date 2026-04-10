@@ -105,40 +105,42 @@ export const STUDY_DESIGNS: { id: string; label: string }[] = [
 
 // ── Theme Tokens ─────────────────────────────────────────────────────────────
 
+// All color values reference CSS custom properties defined in index.css.
+// Toggling [data-theme="light"|"dark"] on <html> switches themes automatically.
 export const THEME = {
   bg: {
-    void: "#06080d",
-    base: "#0a0e17",
-    surface: "#0f1520",
-    elevated: "#151d2e",
-    hover: "rgba(255,255,255,0.03)",
+    void:     "var(--zen-bg-void)",
+    base:     "var(--zen-bg-base)",
+    surface:  "var(--zen-bg-surface)",
+    elevated: "var(--zen-bg-elevated)",
+    hover:    "var(--zen-bg-hover)",
   },
   accent: {
-    cyan: "#22d3ee",
-    cyanDim: "rgba(34,211,238,0.12)",
-    cyanBorder: "rgba(34,211,238,0.20)",
-    emerald: "#10b981",
-    emeraldDim: "rgba(16,185,129,0.12)",
-    emeraldBorder: "rgba(16,185,129,0.20)",
-    amber: "#f59e0b",
-    amberDim: "rgba(245,158,11,0.12)",
-    red: "#ef4444",
-    redDim: "rgba(239,68,68,0.10)",
+    cyan:           "var(--zen-accent-cyan)",
+    cyanDim:        "var(--zen-accent-cyan-dim)",
+    cyanBorder:     "var(--zen-accent-cyan-border)",
+    emerald:        "var(--zen-accent-emerald)",
+    emeraldDim:     "var(--zen-accent-emerald-dim)",
+    emeraldBorder:  "var(--zen-accent-emerald-border)",
+    amber:          "var(--zen-accent-amber)",
+    amberDim:       "var(--zen-accent-amber-dim)",
+    red:            "var(--zen-accent-red)",
+    redDim:         "var(--zen-accent-red-dim)",
   },
   text: {
-    primary: "#e2e8f0",
-    secondary: "#94a3b8",
-    tertiary: "#64748b",
-    muted: "#475569",
-    ghost: "rgba(255,255,255,0.20)",
+    primary:   "var(--zen-text-primary)",
+    secondary: "var(--zen-text-secondary)",
+    tertiary:  "var(--zen-text-tertiary)",
+    muted:     "var(--zen-text-muted)",
+    ghost:     "var(--zen-text-ghost)",
   },
   border: {
-    subtle: "rgba(255,255,255,0.06)",
-    default: "#1c2536",
-    active: "rgba(34,211,238,0.25)",
+    subtle:  "var(--zen-border-subtle)",
+    default: "var(--zen-border-default)",
+    active:  "var(--zen-border-active)",
   },
   font: {
     sans: "'Geist Sans', 'Inter', system-ui, sans-serif",
     mono: "'Geist Mono', 'JetBrains Mono', monospace",
   },
-} as const;
+};

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { THEME as t } from "./shared/constants";
 
 interface GeneratedFigure {
@@ -204,44 +206,22 @@ export function ManuscriptPreview({ manuscript, bibliography, figures, tables, o
   );
 }
 
-// ── Markdown-to-HTML renderer (lightweight, no extra deps) ──────────────────
+// ── Markdown renderer — react-markdown + remark-gfm (full GFM: tables, strikethrough, etc.) ──
 
 function ManuscriptRenderer({ text }: { text: string }) {
-  const lines = text.split("\n");
-  const elements: React.ReactNode[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-
-    if (line.startsWith("## ")) {
-      elements.push(<h2 key={i} className="text-[16px] font-semibold mt-8 mb-3 pb-2 border-b" style={{ color: t.text.primary, borderColor: t.border.subtle }}>{line.slice(3)}</h2>);
-    } else if (line.startsWith("# ")) {
-      elements.push(<h1 key={i} className="text-[18px] font-bold mt-6 mb-4" style={{ color: t.text.primary }}>{line.slice(2)}</h1>);
-    } else if (line.startsWith("### ")) {
-      elements.push(<h3 key={i} className="text-[13px] font-semibold mt-5 mb-2" style={{ color: t.text.secondary }}>{line.slice(4)}</h3>);
-    } else if (line.startsWith("**") && line.endsWith("**")) {
-      elements.push(<p key={i} className="font-semibold text-[12px] my-1" style={{ color: t.text.secondary }}>{line.slice(2, -2)}</p>);
-    } else if (line.startsWith("> ")) {
-      elements.push(
-        <blockquote key={i} className="my-3 pl-4 py-2 rounded-r-lg text-[11px] italic border-l-2" style={{ color: t.text.muted, borderColor: t.accent.amber, background: `${t.accent.amber}08` }}>
-          {line.slice(2)}
-        </blockquote>
-      );
-    } else if (line.trim() === "") {
-      elements.push(<div key={i} className="h-2" />);
-    } else if (line.startsWith("- ") || line.startsWith("* ")) {
-      elements.push(
-        <div key={i} className="flex gap-2 text-[12px] my-0.5" style={{ color: t.text.muted }}>
-          <span className="mt-1.5 w-1 h-1 rounded-full flex-shrink-0" style={{ background: t.accent.cyan }} />
-          <span>{line.slice(2)}</span>
-        </div>
-      );
-    } else {
-      elements.push(<p key={i} className="text-[12px] my-1.5 leading-relaxed" style={{ color: t.text.secondary }}>{line}</p>);
-    }
-    i++;
-  }
-
-  return <>{elements}</>;
+  return (
+    <div className="zenith-prose select-text">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Override citation superscripts like [1] to look nice
+          sup: ({ children }) => (
+            <sup style={{ color: t.accent.cyan, fontSize: "0.7em", cursor: "default" }}>{children}</sup>
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
 }

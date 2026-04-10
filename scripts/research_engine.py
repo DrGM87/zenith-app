@@ -36,7 +36,8 @@ _NO_TEMPERATURE_MODELS = frozenset({"o3", "o3-mini", "o4-mini", "deepseek-reason
 
 TEMP_DIR = os.path.join(tempfile.gettempdir(), "Zenith")
 RESEARCH_DIR = os.path.join(TEMP_DIR, "Research")
-EXPORTS_DIR = os.path.join(RESEARCH_DIR, "exports")
+# Exports go to ~/Documents/Zenith Exports so Explorer can open them without ACL issues
+EXPORTS_DIR = os.path.join(os.path.expanduser("~"), "Documents", "Zenith Exports")
 EXPERIMENTS_DIR = os.path.join(RESEARCH_DIR, "experiments")
 PAPERS_DIR = os.path.join(RESEARCH_DIR, "papers")
 
@@ -1308,8 +1309,10 @@ _SCHEMA_BLUEPRINT = {
             "section": {"type": "string", "description": "Section name (e.g. Introduction, Methods, Results, Discussion)"},
             "requirements": {"type": "array", "items": {"type": "string"}, "description": "What must be covered in this section"},
             "subsections": {"type": "array", "items": {"type": "string"}, "description": "Subsection headings within this section"},
-            "needs_table": {"type": "boolean", "description": "Whether this section needs a comparison/summary table"},
-            "needs_figure": {"type": "boolean", "description": "Whether this section needs a figure or chart"},
+            "needs_table": {"type": "boolean", "description": "Whether this section needs a data/comparison table"},
+            "needs_figure": {"type": "boolean", "description": "Whether this section needs a chart or figure"},
+            "figure_description": {"type": "string", "description": "Specific chart description: chart type (bar/line/pie/forest/funnel), what data to show, axes labels, and what insight it conveys. Example: 'Bar chart comparing prevalence rates (%) of condition X across 6 studies, x-axis: study name, y-axis: prevalence (%), showing heterogeneity in reported rates'"},
+            "table_description": {"type": "string", "description": "Specific table description: what rows/columns to include, data sources, and purpose. Example: 'Summary table of included studies with columns: Author, Year, Study Design, Sample Size, Outcome Measure, Key Finding'"},
             "word_target": {"type": "integer", "description": "Target word count for this section"},
         },
         "required": ["section", "requirements"],
@@ -2015,11 +2018,19 @@ def generate_blueprint(args):
     if not api_key:
         return {"error": "API key required."}
 
-    system = _build_system_prompt(args, sc, 
+    system = _build_system_prompt(args, sc,
         "You are a research manuscript architect. Generate a detailed section-by-section blueprint "
         "for a {study_design} paper following {guidelines} guidelines.\n\n"
         "For each section, specify: what content to cover, required tables/figures, "
-        "citation density expectations, and word count targets. "
+        "citation density expectations, and word count targets.\n\n"
+        "CRITICAL — for every section with needs_figure=true, provide a SPECIFIC figure_description "
+        "that names the chart type (bar, line, pie, scatter, forest plot, funnel plot), what real data "
+        "to show (extracted from the papers), axis labels, and the scientific insight. "
+        "For every section with needs_table=true, provide a SPECIFIC table_description with column names "
+        "and what each row represents.\n"
+        "Bad example: 'Figure for Results'\n"
+        "Good example: 'Bar chart comparing mean effect sizes across 8 RCTs. X-axis: study author and year. "
+        "Y-axis: effect size (Cohen d). Error bars: 95% CI. Shows heterogeneity in treatment effects.'\n\n"
         "Adapt the blueprint to the specific research question and available literature."
     )
 
@@ -2059,9 +2070,12 @@ def generate_blueprint(args):
         reqs_str = desc
         sections_out.append({"id": sec_id, "title": sec_title, "description": desc, "requirements": reqs_str})
         if s.get("needs_figure"):
-            figure_plan.append(f"Figure for {sec_title}")
+            # Prefer the specific figure_description from the LLM; fall back to a generic label
+            fig_desc = s.get("figure_description", "").strip()
+            figure_plan.append(fig_desc if len(fig_desc) > 20 else f"Chart for {sec_title} section")
         if s.get("needs_table"):
-            table_plan.append(f"Table for {sec_title}")
+            tbl_desc = s.get("table_description", "").strip()
+            table_plan.append(tbl_desc if len(tbl_desc) > 20 else f"Summary table for {sec_title} section")
 
     return {"ok": True, "sections": sections_out, "figure_plan": figure_plan,
             "table_plan": table_plan, "guidelines_map": {study_design: guidelines},
@@ -3089,7 +3103,7 @@ def run_pipeline_phase(args):
         for sq in search_queries:
             db = sq.get("db", "").lower()
             q = sq.get("query_string", query)
-            max_r = sq.get("max_results", 15)
+            max_r = sq.get("max_results", 40)
 
             if db == "pubmed":
                 papers = _search_pubmed(q, max_r)
@@ -3403,8 +3417,8 @@ def research_chat(args):
                 "\n".join(tools) +
                 "\n\nWhen you need to use a tool, include a tool call tag in your response like: "
                 "[TOOL:TOOL_NAME]{\"param\": \"value\"}[/TOOL]\n"
-                "For PUBMED_SEARCH: {\"query\": \"...\", \"max_results\": 20}\n"
-                "For LITERATURE_SEARCH: {\"query\": \"...\", \"max_results\": 5}\n"
+                "For PUBMED_SEARCH: {\"query\": \"...\", \"max_results\": 50}\n"
+                "For LITERATURE_SEARCH: {\"query\": \"...\", \"max_results\": 25}\n"
                 "For WEB_SEARCH: {\"query\": \"...\"}\n"
                 "For SCIHUB_FETCH: {\"doi\": \"10.1234/example\"}\n"
                 "For VALIDATE_QUERY: {\"query\": \"your research question\"}\n"
@@ -3417,7 +3431,7 @@ def research_chat(args):
                 "For EXPERIMENT: {\"code\": \"print('hello')\", \"timeout_sec\": 30}\n"
                 "For GENERATE_CHART: {\"chart_type\": \"bar\", \"data\": [10,20,30], \"labels\": [\"A\",\"B\",\"C\"], \"title\": \"My Chart\"}\n"
                 "For GENERATE_TABLE: {\"headers\": [\"Col1\",\"Col2\"], \"rows\": [[\"a\",\"b\"]], \"title\": \"My Table\"}\n"
-                "For EUROPE_PMC_SEARCH: {\"query\": \"...\", \"max_results\": 20}\n"
+                "For EUROPE_PMC_SEARCH: {\"query\": \"...\", \"max_results\": 50}\n"
                 "For CLINICAL_TRIALS_SEARCH: {\"condition\": \"diabetes\", \"intervention\": \"metformin\", \"status\": \"COMPLETED\"}\n"
                 "For OPENFDA_ADVERSE_EVENTS: {\"drug_name\": \"aspirin\", \"limit\": 50}\n"
                 "For OPENFDA_DRUG_LABELS: {\"drug_name\": \"metformin\"}\n"
@@ -3514,7 +3528,7 @@ def _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key
 
     if tool_name == "LITERATURE_SEARCH":
         query = tool_args.get("query", "")
-        max_results = tool_args.get("max_results", 5)
+        max_results = tool_args.get("max_results", 25)
         year_min = tool_args.get("year_min", None)
 
         # Source order matches ARC: OpenAlex (10K/day) → S2 (1K/5min) → arXiv (1/3s)
@@ -3536,7 +3550,7 @@ def _execute_tool(tool_name, tool_args, api_key, provider, model, tavily_api_key
 
         # Sort by citations desc
         unique.sort(key=lambda x: x.get("citations", 0), reverse=True)
-        unique = unique[:max_results * 2]  # keep top results
+        unique = unique[:max_results * 3]  # keep top results
 
         summary = f"Found {len(unique)} papers for '{query}'."
         if unique:
@@ -3936,7 +3950,7 @@ def search_papers(args):
     Returns: {ok, papers: [...]}
     """
     query = args.get("query", "")
-    max_results = args.get("max_results", 10)
+    max_results = args.get("max_results", 30)
     sources = args.get("sources", ["arxiv", "semantic_scholar", "openalex"])
     year_min = args.get("year_min", None)
 
@@ -3964,7 +3978,7 @@ def search_papers(args):
             unique.append(p)
 
     unique.sort(key=lambda x: x.get("citations", 0), reverse=True)
-    return {"ok": True, "papers": unique[:max_results * 2], "total": len(unique)}
+    return {"ok": True, "papers": unique[:max_results * 3], "total": len(unique)}
 
 
 def web_search_action(args):

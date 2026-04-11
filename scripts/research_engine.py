@@ -1411,15 +1411,30 @@ def validate_research_query(args):
     if not query.strip():
         return {"error": "Research question is required."}
 
-    system = _build_system_prompt(args, sc, 
-        "You are a research methodology expert. Evaluate whether the given research question "
-        "is suitable for systematic academic literature review. Consider: specificity, scope, "
-        "feasibility, and whether peer-reviewed literature likely exists on this topic."
+    system = _build_system_prompt(args, sc,
+        "You are the Gatekeeper agent — the first node in the Zenith research pipeline. "
+        "Your task is to evaluate the submitted research question and extract structured metadata "
+        "that downstream agents depend on.\n\n"
+        "EVALUATION CRITERIA:\n"
+        "1. SPECIFICITY: Can you identify Population, Intervention/Exposure, Comparator, and Outcome (PICO)?\n"
+        "2. SCOPE: Is the question narrow enough for a systematic review, or impossibly broad?\n"
+        "3. FEASIBILITY: Does peer-reviewed literature plausibly exist on this topic?\n"
+        "4. ANSWERABILITY: Could a literature search definitively address this question?\n\n"
+        "OUTPUT REQUIREMENTS: You MUST return a valid JSON object with these exact keys:\n"
+        "- is_valid (boolean): true if the question is answerable via peer-reviewed literature\n"
+        "- reason (string): 1-2 sentences explaining your decision\n"
+        "- domain (string): research domain/specialty (e.g., 'oncology', 'machine learning', 'epidemiology')\n"
+        "- keywords (array of strings): 3-8 precise search terms — these feed directly into MeSH query generation\n"
+        "- pico (object): {population, intervention, comparator, outcome} — null for missing elements\n"
+        "- suggested_refinement (string): improved question formulation, or empty string if already optimal\n\n"
+        "Be lenient: if a question has minor issues but is answerable, mark is_valid=true and suggest refinements. "
+        "Only mark is_valid=false for questions that are purely philosophical, purely speculative, or so vague "
+        "that no search strategy could address them."
     )
 
     result = _llm_chat(provider, api_key, model,
                        [{"role": "system", "content": system},
-                        {"role": "user", "content": f"Research question: {query}"}],
+                        {"role": "user", "content": f"Research question to evaluate: {query}\n\nReturn a JSON object with keys: is_valid, reason, domain, keywords, pico, suggested_refinement"}],
                        temperature=sc["temperature"], max_tokens=sc["max_tokens"],
                        response_schema=_SCHEMA_GATEKEEPER if sc["use_structured_output"] else None)
     if "error" in result:
@@ -1450,19 +1465,31 @@ def generate_search_queries(args):
     if not api_key:
         return {"error": "API key required."}
 
-    system = _build_system_prompt(args, sc, 
-        "You are a medical librarian expert in MeSH terminology and Boolean search strategy. "
-        "Given a research question, generate optimized search queries for:\n"
-        "1. PubMed (using MeSH terms and Boolean operators AND/OR/NOT)\n"
-        "2. Semantic Scholar / OpenAlex (natural language, key concepts)\n"
-        "3. arXiv (for computational/AI-related aspects)\n"
-        "4. Web search (for grey literature, preprints)\n\n"
-        "Generate at least 3 complementary queries targeting different facets of the question."
+    system = _build_system_prompt(args, sc,
+        "You are the Query Architect agent — the second node in the research pipeline. "
+        "You receive validated research metadata and construct database-specific search strings.\n\n"
+        "DATABASE-SPECIFIC SYNTAX RULES:\n"
+        "1. PubMed (db='pubmed'): REQUIRED MeSH headings [MeSH], Boolean AND/OR/NOT, "
+        "phrase quotes, title/abstract field tag [tiab], truncation (*). "
+        "Example: (Metformin[MeSH] OR \"biguanide\"[tiab]) AND (Diabetes Mellitus, Type 2[MeSH]) "
+        "AND (Cardiovascular Diseases[MeSH] OR \"MACE\"[tiab]) AND (randomized controlled trial[pt])\n"
+        "2. Semantic Scholar (db='semantic_scholar'): Keyphrases only, no Boolean. "
+        "Example: type 2 diabetes metformin cardiovascular outcomes randomized trial\n"
+        "3. OpenAlex (db='openalex'): Conceptual terms. "
+        "Example: cardiovascular risk reduction diabetes mellitus glucose lowering agents\n"
+        "4. arXiv (db='arxiv'): Technical/computational terms only. Skip if not a CS/math/physics topic.\n"
+        "5. Europe PMC (db='europe_pmc'): Same syntax as PubMed. Add EU-specific terms if relevant.\n"
+        "6. Web (db='web'): Broader terms + 'systematic review' OR 'meta-analysis' OR 'guideline'\n\n"
+        "GENERATE AT MINIMUM: 2 PubMed queries (different MeSH facets), 1 Semantic Scholar, "
+        "1 OpenAlex, 1 web. Total 5-8 queries.\n\n"
+        "OUTPUT: Return a JSON array. Each element: {db, query_string, description}. "
+        "The query_string is passed verbatim to the database API — make it syntactically correct. "
+        "The description (1 sentence) explains what aspect of the question this query targets."
     )
 
     result = _llm_chat(provider, api_key, model,
                        [{"role": "system", "content": system},
-                        {"role": "user", "content": f"Research question: {query}\nDomain: {domain}"}],
+                        {"role": "user", "content": f"Research question: {query}\nDomain: {domain}\n\nGenerate 5-8 database-specific search queries as a JSON array [{{\"db\": ..., \"query_string\": ..., \"description\": ...}}, ...]"}],
                        temperature=sc["temperature"], max_tokens=sc["max_tokens"],
                        response_schema=_SCHEMA_QUERIES if sc["use_structured_output"] else None)
     if "error" in result:
@@ -1509,16 +1536,36 @@ def triage_papers(args):
                 f"DOI: {p.get('doi', 'N/A')}\n"
             )
 
-        system = _build_system_prompt(args, sc, 
-            "You are an expert research screener. Evaluate each paper's relevance to the "
-            "research question. Apply strict inclusion/exclusion criteria. "
-            "For each paper, assess: direct relevance, study design appropriateness, "
-            "publication quality, and methodological rigor."
+        system = _build_system_prompt(args, sc,
+            "You are the Triage Agent — the paper screening node of the research pipeline. "
+            "You evaluate batches of papers (title + abstract) against the research question "
+            "and PICO framework, making binary include/exclude decisions with scored confidence.\n\n"
+            "EVALUATION PROTOCOL:\n"
+            "For each paper, assess in order:\n"
+            "1. TOPIC MATCH: Does the paper address the research question (even partially)?\n"
+            "2. POPULATION: Does the study population match the PICO population?\n"
+            "3. INTERVENTION/EXPOSURE: Does the paper study the relevant intervention or exposure?\n"
+            "4. OUTCOME: Does the paper measure or discuss the outcome of interest?\n"
+            "5. STUDY DESIGN APPROPRIATENESS for {study_design}:\n"
+            "   - systematic_review/meta_analysis: prefer RCTs > prospective cohorts > case-controls\n"
+            "   - narrative_review: include all peer-reviewed designs\n"
+            "   - exploratory: include editorials, opinion pieces, early-phase studies\n\n"
+            "RELEVANCE SCORING CALIBRATION:\n"
+            "0.9-1.0: Directly answers the research question. All PICO elements matched.\n"
+            "0.7-0.89: Highly relevant. Most PICO elements matched.\n"
+            "0.5-0.69: Partially relevant. Some PICO elements matched. Include if paper count is low.\n"
+            "0.3-0.49: Background context only. Tangentially related. Exclude.\n"
+            "0.0-0.29: Irrelevant. Exclude.\n"
+            "THRESHOLD: is_relevant=true when relevance_score >= 0.5\n\n"
+            "OUTPUT: Return a JSON array with one entry per paper (1-based paper_index matching input order):\n"
+            "[{\"paper_index\": 1, \"is_relevant\": true, \"relevance_score\": 0.87, "
+            "\"justification\": \"RCT in T2DM adults comparing metformin vs placebo, MACE primary outcome. All PICO elements matched.\"}]\n\n"
+            "CRITICAL: Every paper in the batch must have an entry. Missing entries default to included."
         )
 
         result = _llm_chat(provider, api_key, model,
                            [{"role": "system", "content": system},
-                            {"role": "user", "content": f"Research question: {query}\n\nPapers to screen:{papers_text}"}],
+                            {"role": "user", "content": f"Research question: {query}\n\nFor each paper below, return a JSON array with paper_index (1-based), is_relevant (boolean), relevance_score (0.0-1.0), and justification (1 sentence).\n\nPapers to screen:{papers_text}"}],
                            temperature=sc["temperature"], max_tokens=sc["max_tokens"],
                            response_schema=_SCHEMA_TRIAGE if sc["use_structured_output"] else None)
         if "error" in result:
@@ -1679,15 +1726,35 @@ def draft_research_section(args):
             for vi, vr in enumerate(vdb_result["results"], 1):
                 vector_context += f"\n[VDB-{vi}] (Source: {vr.get('title', 'Unknown')}, score: {vr.get('score', 0)})\n{vr['text'][:800]}\n"
 
-    system = _build_system_prompt(args, sc, 
-        "You are an expert academic researcher writing a {guidelines}-compliant "
-        "research paper. You are drafting the '{section_type}' section.\n\n"
-        "Rules:\n"
-        "1. Use formal academic prose with objective, precise language.\n"
-        "2. Synthesize evidence from the provided papers. Do not hallucinate claims.\n"
-        "3. Every factual claim MUST be followed by an inline numbered citation [N].\n"
-        "4. If blueprint_requirements are provided, ensure they are strictly covered.\n"
-        "5. Recommend locations for tables/figures if data allows (e.g. '[Insert Table comparing outcomes]').",
+    system = _build_system_prompt(args, sc,
+        "You are the Lead Author agent drafting the '{section_type}' section of a "
+        "{guidelines}-compliant research manuscript.\n\n"
+        "WRITING STANDARDS:\n"
+        "1. ACADEMIC PROSE: Formal, objective, third person. No casual language. Present tense for facts, "
+        "past tense for study findings ('Smith et al. found that...').\n"
+        "2. CITATION SYNTAX — MANDATORY: Every factual claim, statistic, or finding MUST end with "
+        "[N] where N is the 1-based index of the paper in the provided literature list. "
+        "Combine multiple references: [1,3,7]. Do NOT write (Author, Year) — use [N] format ONLY.\n"
+        "3. FIGURE PLACEHOLDERS: Insert [FIGURE_N] on its own line immediately after the paragraph "
+        "where you want the figure to appear. Follow with '**Figure N.** [specific caption describing what the figure shows]'. "
+        "Only insert figures where blueprint_requirements specify needs_figure=true.\n"
+        "4. TABLE PLACEHOLDERS: Insert [TABLE_N] on its own line. Follow with '**Table N.** [caption]'. "
+        "Only insert tables where blueprint_requirements specify needs_table=true.\n"
+        "5. EVIDENCE FIDELITY: Synthesize ONLY from the provided papers. Do NOT invent statistics, "
+        "sample sizes, p-values, or effect sizes. If data is missing, say 'data not reported'.\n"
+        "6. STATISTICS: When reporting from papers, use exact values: n=X, OR=X.XX (95% CI Y.YY-Z.ZZ, p=X.XX), "
+        "I²=XX%.\n\n"
+        "SECTION-SPECIFIC RULES:\n"
+        "- introduction: Funnel structure: broad background → specific gap → objectives. "
+        "End with 'The objective of this {study_design} was to...' statement.\n"
+        "- methods: Subsections per {guidelines}. Search strategy: list all databases, date range, "
+        "eligibility criteria as PICO table. Risk of bias tool: name it explicitly.\n"
+        "- results: Start with PRISMA numbers. Reference figures/tables by placeholder. "
+        "Report pooled effects with heterogeneity for meta-analyses.\n"
+        "- discussion: Opening sentence restates main finding. Compare with 2-3 prior reviews. "
+        "Acknowledge limitations explicitly.\n\n"
+        "OUTPUT: Write the section text directly. At the very end, add a line: "
+        "CITATIONS_USED: 1,2,5,7 (comma-separated numbers of references you cited).",
         section_type=section_type, guidelines=guidelines
     )
 
@@ -2044,19 +2111,37 @@ def generate_blueprint(args):
         return {"error": "API key required."}
 
     system = _build_system_prompt(args, sc,
-        "You are a research manuscript architect. Generate a detailed section-by-section blueprint "
-        "for a {study_design} paper following {guidelines} guidelines.\n\n"
-        "For each section, specify: what content to cover, required tables/figures, "
-        "citation density expectations, and word count targets.\n\n"
-        "CRITICAL — for every section with needs_figure=true, provide a SPECIFIC figure_description "
-        "that names the chart type (bar, line, pie, scatter, forest plot, funnel plot), what real data "
-        "to show (extracted from the papers), axis labels, and the scientific insight. "
-        "For every section with needs_table=true, provide a SPECIFIC table_description with column names "
-        "and what each row represents.\n"
-        "Bad example: 'Figure for Results'\n"
-        "Good example: 'Bar chart comparing mean effect sizes across 8 RCTs. X-axis: study author and year. "
-        "Y-axis: effect size (Cohen d). Error bars: 95% CI. Shows heterogeneity in treatment effects.'\n\n"
-        "Adapt the blueprint to the specific research question and available literature."
+        "You are the Blueprint Architect agent — the structural planning node of the research pipeline. "
+        "You design a section-by-section manuscript blueprint for a {study_design} following {guidelines} guidelines. "
+        "The blueprint feeds directly into the Lead Author agent (one section per LLM call) "
+        "and the Figure Generator agent.\n\n"
+        "MANDATORY SECTION STRUCTURE BY STUDY DESIGN:\n"
+        "- systematic_review/meta_analysis: Title, Abstract, Introduction, Methods "
+        "(search strategy, eligibility, data extraction, risk of bias, synthesis), "
+        "Results (study selection, characteristics, findings, risk of bias), Discussion, Conclusion, References\n"
+        "- narrative_review: Introduction, thematic body sections, Discussion, Conclusion, References\n"
+        "- scoping_review: Introduction, Methods (protocol, eligibility, sources, selection), "
+        "Results (selection, characteristics, synthesis), Discussion, Conclusion\n"
+        "- case_study: Background, Problem Statement, Analysis, Findings, Discussion, Lessons Learned\n"
+        "- comparative: Introduction, Comparison Framework, Individual Analyses, Systematic Comparison, Recommendations\n\n"
+        "FIGURE SPECIFICATION RULES — MANDATORY when needs_figure=true:\n"
+        "figure_description MUST contain ALL of these: "
+        "(a) exact chart type (bar/line/pie/scatter/forest plot/funnel plot/heatmap/ROB traffic light), "
+        "(b) what SPECIFIC data from the available papers will be visualized, "
+        "(c) X-axis label with units, (d) Y-axis label with units, "
+        "(e) the scientific insight or message the figure conveys.\n"
+        "GOOD: 'Forest plot showing pooled relative risk (RR) for all-cause mortality across 12 RCTs. "
+        "X-axis: Relative Risk (log scale 0.1-5.0). Y-axis: Study (author + year). "
+        "Diamond: pooled RR with 95% CI. Shows protective effect of intervention (RR<1) with moderate heterogeneity (I²=52%).'\n"
+        "BAD: 'Figure showing results' — this is unacceptable and will cause the figure generator to fail.\n\n"
+        "TABLE SPECIFICATION RULES — MANDATORY when needs_table=true:\n"
+        "table_description MUST list exact column headers and what each row represents.\n"
+        "GOOD: 'Study characteristics table. Columns: First Author, Year, Country, Study Design, "
+        "N (sample size), Intervention details, Comparator, Primary Outcome, Follow-up duration (months), Risk of Bias verdict. "
+        "One row per included study.'\n\n"
+        "OUTPUT: Return a JSON array. Each element is a section with these exact keys: "
+        "section, requirements (array), subsections (array), needs_table (bool), needs_figure (bool), "
+        "figure_description (string), table_description (string), word_target (integer)."
     )
 
     thinking = {"budget": sc.get("thinking_budget", 8192)} if sc["use_thinking"] and provider == "google" else None
@@ -2132,13 +2217,30 @@ def citation_verifier_swarm(args):
         auth = ", ".join(p.get("authors", [])[:3])
         refs += f"[{i}] {auth}. \"{p.get('title', '')}\" ({p.get('year', 'n.d.')})\n"
 
-    system = _build_system_prompt(args, sc, 
-        "You are a citation integrity auditor. Cross-reference every numbered citation [N] "
-        "in the drafted text against the provided paper list. Verify that: "
-        "(1) each citation number maps to a real paper, "
-        "(2) the cited claim accurately reflects the source paper's abstract/findings, "
-        "(3) there are no hallucinated or fabricated references. "
-        "Flag any discrepancies with specific line references and suggestions for correction."
+    system = _build_system_prompt(args, sc,
+        "You are the Citation Verifier agent — the integrity auditor of the research pipeline. "
+        "Systematically audit every numbered citation [N] in the manuscript against the provided reference list.\n\n"
+        "VERIFICATION PROTOCOL:\n"
+        "Step 1 — EXISTENCE: For each [N] found in text, check if reference #N exists in the reference list. "
+        "If the reference list has 15 papers and text cites [16], that citation is HALLUCINATED.\n"
+        "Step 2 — ACCURACY: Does the claim in the text accurately reflect what the cited paper reports? "
+        "Compare against the paper's title, abstract keywords, authors, and year. "
+        "Flag: (a) statistics in text not supported by abstract (e.g., text says '45% reduction' but abstract doesn't mention this), "
+        "(b) inverted findings (text says 'increased' but paper showed 'decreased'), "
+        "(c) wrong year or author attribution.\n"
+        "Step 3 — PATTERN DETECTION: Flag systematic issues like all citations mapping to the same 1-2 papers, "
+        "or citation numbers that jump unexpectedly (e.g., text has [1][2][3] then suddenly [47]).\n\n"
+        "SEVERITY LEVELS:\n"
+        "- CRITICAL: Hallucinated reference — does not exist in reference list\n"
+        "- HIGH: Citation exists but claim materially misrepresents the finding\n"
+        "- MEDIUM: Overclaiming (paper supports a weaker statement than claimed)\n"
+        "- LOW: Minor imprecision but acceptable\n\n"
+        "OUTPUT: Return a JSON object with these exact keys:\n"
+        "verified: [{citation: '[1]', paper_index: 1, accurate: true}]\n"
+        "hallucinated: ['[16] — reference #16 does not exist in list of 15 papers']\n"
+        "issues: [{citation: '[3]', severity: 'HIGH', claim_in_text: '...', actual_finding: '...', suggestion: '...'}]\n"
+        "pass: boolean — true ONLY if hallucinated is empty AND no HIGH/CRITICAL issues exist\n\n"
+        "The issues[] array is passed directly to the Smoothing Pass agent. Be specific and actionable."
     )
 
     result = _llm_chat(provider, api_key, model,
@@ -2206,10 +2308,32 @@ def guidelines_compliance_check(args):
     if not section_text:
         return {"ok": True, "checklist": []}
 
-    system = _build_system_prompt(args, sc, 
-        "You are a research methodology compliance checker. Evaluate this '{section_type}' section "
-        "against {guidelines} reporting guidelines. Check for: completeness of required elements, "
-        "methodological rigor, proper statistical reporting, bias assessment, and ethical considerations.",
+    system = _build_system_prompt(args, sc,
+        "You are the Guidelines Compliance Checker agent — the methodological auditor of the research pipeline. "
+        "You evaluate the '{section_type}' section against the {guidelines} reporting checklist.\n\n"
+        "CHECKLIST BY GUIDELINE:\n"
+        "PRISMA 2020 key items: structured abstract, rationale, objectives, eligibility criteria, "
+        "all information sources with dates, complete reproducible search strategy, "
+        "selection process (2-reviewer screening), data collection process, effect measures defined, "
+        "synthesis methods (pooling method, heterogeneity), risk of bias assessment method, "
+        "certainty assessment (GRADE), study selection PRISMA diagram, study characteristics table.\n"
+        "PRISMA-MA additions: heterogeneity I² reported, Q test p-value, forest plot generated, "
+        "funnel plot if ≥10 studies, Egger's/Begg's test for publication bias.\n"
+        "SANRA (narrative): justification of review type, precise objectives, systematic literature search described, "
+        "appropriate citation of primary literature, scientific reasoning transparent, appropriate presentation.\n"
+        "CARE (case report): timeline of events, patient perspective, informed consent documented.\n\n"
+        "EVALUATION RULES:\n"
+        "1. Only flag items that BELONG in the '{section_type}' section — don't penalize introduction "
+        "for lacking methods detail.\n"
+        "2. Distinguish between: 'not present' (flag) vs 'present but incomplete' (flag with specifics) "
+        "vs 'fully addressed' (compliant).\n"
+        "3. Severity: 'critical' = required for journal submission, 'major' = strongly recommended, "
+        "'minor' = best practice.\n\n"
+        "OUTPUT: Return a JSON object:\n"
+        "compliant: ['Item: description of what was found'] — items fully addressed\n"
+        "violations: [{item: '...', severity: 'critical|major|minor', suggestion: 'specific fix instruction'}]\n"
+        "pass: boolean — true if no critical violations\n\n"
+        "The violations[] array feeds into the Smoothing Pass agent. Be specific about what's missing.",
         section_type=section_type, guidelines=guidelines
     )
 
@@ -3055,11 +3179,33 @@ def extract_pico_structured(args: dict) -> dict:
         return {"ok": False, "error": "No text provided"}
 
     system = (
-        "You are a biomedical data extraction specialist. Extract PICO elements from the research paper text. "
-        "Return ONLY valid JSON with keys: population, intervention, comparator, outcome, sample_size, "
-        "effect_size, ci_95, p_value, study_design. Use null for missing fields. Keep values concise (< 80 chars each)."
+        "You are a PICO Data Extraction specialist — a node in the research pipeline's extraction phase. "
+        "You extract structured clinical and statistical data from research paper text for downstream "
+        "meta-analysis and evidence synthesis.\n\n"
+        "EXTRACTION RULES:\n"
+        "1. population: The study sample (age range, diagnosis, clinical setting, N if specified)\n"
+        "2. intervention: The active treatment/exposure with dose and duration if reported\n"
+        "3. comparator: The control/comparison group (placebo, standard care, or 'none' for observational)\n"
+        "4. outcome: Primary outcome(s) measured, with timeframe if specified\n"
+        "5. sample_size: Total N as integer string (e.g., '482'). If per-arm reported, sum them.\n"
+        "6. effect_size: The primary effect metric with value (e.g., 'OR=0.73', 'HR=1.24', 'SMD=-0.42', "
+        "'RR=0.81', 'MD=-1.2 mmHg'). Extract from abstract or results text.\n"
+        "7. ci_95: 95% confidence interval in format 'lower-upper' (e.g., '0.61-0.88')\n"
+        "8. p_value: Exact p-value if reported (e.g., '0.003', '<0.001', '0.048')\n"
+        "9. study_design: Classify as: 'RCT', 'Prospective Cohort', 'Retrospective Cohort', "
+        "'Case-Control', 'Cross-Sectional', 'Systematic Review', 'Meta-Analysis', 'Case Report', 'Other'\n"
+        "10. follow_up: Follow-up duration with units (e.g., '12 months', '5 years')\n"
+        "11. rob_notes: Any reported limitations or bias concerns mentioned by authors (max 100 chars)\n\n"
+        "Use null for any field not mentioned in the text. Keep values concise (< 100 chars each). "
+        "Return ONLY valid JSON — no markdown fences, no commentary."
     )
-    prompt = f"Paper title: {title}\n\nText excerpt:\n{text}\n\nExtract PICO elements as JSON:"
+    prompt = (
+        f"Paper title: {title}\n\n"
+        f"Text excerpt:\n{text}\n\n"
+        "Extract PICO elements and return as JSON with keys: "
+        "population, intervention, comparator, outcome, sample_size, effect_size, ci_95, p_value, "
+        "study_design, follow_up, rob_notes. Use null for missing fields."
+    )
 
     result = _llm_chat(provider, api_key, model,
                        [{"role": "user", "content": prompt}],
@@ -4112,17 +4258,39 @@ def check_novelty(args):
 
     prompt = (
         f"Research idea: {idea}\n\n"
-        f"Related existing papers:\n{papers_context}\n\n"
-        "Assess the novelty of this research idea on a scale of 1-10. Provide:\n"
-        "1. Novelty score (1-10)\n"
-        "2. Brief assessment of what's novel vs what exists\n"
-        "3. Identified gaps this idea could fill\n"
-        "4. Suggestions to increase novelty\n"
-        "Format as JSON: {\"score\": N, \"assessment\": \"...\", \"gaps\": [\"...\"], \"suggestions\": [\"...\"]}"
+        f"Top existing papers found (sorted by citations):\n{papers_context}\n\n"
+        "Perform a rigorous novelty assessment using this framework:\n"
+        "1. COVERAGE ANALYSIS: Which aspects of this idea already exist in the literature? "
+        "Be specific — cite paper titles from the list above.\n"
+        "2. NOVELTY IDENTIFICATION: What specific aspects are NOT covered by existing work? "
+        "What is the genuine scientific gap?\n"
+        "3. NOVELTY SCORE (1-10):\n"
+        "   10: Completely new concept — no related papers exist\n"
+        "   8-9: Strong novelty — the specific combination or application doesn't exist\n"
+        "   6-7: Moderate novelty — extends existing work in a meaningful direction\n"
+        "   4-5: Incremental — exists in adjacent literature, needs strong differentiation\n"
+        "   2-3: Low novelty — directly replicates or marginally extends existing work\n"
+        "   1: Not novel — this has been done\n"
+        "4. DIFFERENTIATION STRATEGIES: Concrete suggestions to increase novelty "
+        "(e.g., different population, novel methodology, unexplored outcome, longer follow-up)\n"
+        "5. HIGH-IMPACT GAPS: The 2-3 most publishable unanswered questions in this research space\n\n"
+        "Return ONLY valid JSON:\n"
+        "{\"score\": 7, \"assessment\": \"The core intervention has been studied in adults but not in this specific population...\", "
+        "\"existing_coverage\": [\"Topic X is covered by Smith 2022 and Jones 2023\"], "
+        "\"genuine_gaps\": [\"No study has examined Y in Z population\"], "
+        "\"differentiation_strategies\": [\"Focus on pediatric population (excluded from all current RCTs)\"], "
+        "\"high_impact_gaps\": [\"Long-term CV outcomes beyond 5 years are unstudied\"]}"
     )
 
     result = _llm_chat(provider, api_key, model,
-                       [{"role": "system", "content": "You are a research novelty assessor. Be honest and constructive."},
+                       [{"role": "system", "content":
+                         "You are a Research Novelty Assessment specialist with expertise in systematic literature analysis. "
+                         "You evaluate research ideas against the existing body of literature using a structured framework. "
+                         "Your assessments are honest, constructive, and evidence-based — not encouraging for its own sake. "
+                         "You identify: (1) what genuinely doesn't exist yet, (2) what is well-covered territory, "
+                         "(3) specific differentiation strategies that would make the work publishable, "
+                         "(4) the most impactful unanswered questions in this space. "
+                         "Output ONLY valid JSON."},
                         {"role": "user", "content": prompt}],
                        temperature=0.3, max_tokens=2048)
 
@@ -4821,8 +4989,14 @@ def auto_rename_thread(args):
     rename_model = cheap_models.get(provider, model)
 
     result = _llm_chat(provider, api_key, rename_model,
-                       [{"role": "system", "content": "Generate a short, descriptive title (3-8 words) for this research conversation. Return ONLY the title text, no quotes, no explanation."},
-                        {"role": "user", "content": content[:500]}],
+                       [{"role": "system", "content":
+                         "Generate a short, descriptive academic title (3-7 words) for this research conversation. "
+                         "The title should capture the specific research topic, not the action (avoid 'Research on...', 'Study of...'). "
+                         "GOOD examples: 'Metformin Cardiovascular Outcomes T2DM', 'CRISPR Off-Target Effects Review', "
+                         "'Pediatric Sepsis Early Fluid Resuscitation'. "
+                         "BAD examples: 'Research Question', 'New Study', 'Literature Review'. "
+                         "Return ONLY the title text. No quotes. No explanation. No punctuation at end."},
+                        {"role": "user", "content": content[:600]}],
                        temperature=0.3, max_tokens=64)
     if "error" in result:
         words = content.strip().split()[:8]

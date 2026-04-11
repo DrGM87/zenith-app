@@ -1,14 +1,14 @@
 <div align="center">
 
-# &#9889; ZENITH
+# ⚡ ZENITH
 
 <p align="center">
   <img src="icon.png" alt="Zenith Logo" width="128"/>
 </p>
 
-### The AI-Powered File Command Center for Windows
+### The AI-Powered File Command Center & Research Intelligence Platform for Windows
 
-**Drop it. Organize it. Ship it. — All from the edge of your screen.**
+**Drop it. Organize it. Research it. Ship it. — All from the edge of your screen.**
 
 [![Tauri](https://img.shields.io/badge/Tauri-v2-24C8D8?style=flat-square&logo=tauri&logoColor=white)](https://v2.tauri.app)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
@@ -16,17 +16,17 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-[![Features](https://img.shields.io/badge/Features-175+-blueviolet?style=flat-square)]()
+[![Features](https://img.shields.io/badge/Features-200+-blueviolet?style=flat-square)]()
 [![AI Providers](https://img.shields.io/badge/AI_Providers-5-orange?style=flat-square)]()
 [![File Actions](https://img.shields.io/badge/File_Actions-40+-success?style=flat-square)]()
 [![Research Tools](https://img.shields.io/badge/Research_Tools-50+-cyan?style=flat-square)]()
 [![Pipeline Steps](https://img.shields.io/badge/Pipeline_Steps-44-purple?style=flat-square)]()
 
-*A glassmorphic floating workspace with 175+ features that transforms how you handle files, media, documents, and AI workflows on Windows.*
+*A glassmorphic floating workspace that transforms how you handle files, media, documents, and AI research workflows on Windows.*
 
 ---
 
-**[Features](#-core-features)** &bull; **[Auto-Studio](#-auto-studio--the-review-panel)** &bull; **[Research v6.1](#-zenith-research-window--v61)** &bull; **[Smart Rename](#-smart-rename-engine)** &bull; **[AI Integrations](#-ai--llm-integrations)** &bull; **[Quick Start](#-quick-start)** &bull; **[Architecture](#%EF%B8%8F-architecture)** &bull; **[API](#-rest-api)** &bull; **[Plugins](#-plugin-system-wasm)**
+**[The Bubble](#-the-bubble--main-entry-point)** &bull; **[Research Window](#-zenith-research-window--v61)** &bull; **[Auto-Studio](#-auto-studio--the-review-panel)** &bull; **[Generative Editor](#-zenith-generative-editor)** &bull; **[Smart Rename](#-smart-rename-engine)** &bull; **[Settings](#-settings-hub)** &bull; **[Quick Start](#-quick-start)** &bull; **[Architecture](#%EF%B8%8F-architecture)**
 
 </div>
 
@@ -36,138 +36,100 @@
 
 Zenith is an **invisible desktop command center** that floats at the edge of your screen. Drag a file near it — a beautifully animated dark-glass panel springs open. Drop files, paste text, scan for malware, convert media, organize your entire Downloads folder with AI, and drag results back out to any application — all without ever leaving what you're doing.
 
-Think of it as a **universal file swiss-army-knife** crossed with an **AI-powered media library organizer** and a **full clinical research intelligence platform** that lives at the edge of your screen.
+But Zenith is also a **full PhD-level research intelligence platform**. Click Research — a cinematic dark-glass window opens. Ask a question in chat, or launch a fully autonomous 44-step pipeline that harvests papers from 7 databases, acquires PDFs via Sci-Hub, extracts PICO data, runs meta-analyses, generates forest plots, and writes publication-ready manuscripts — all configurable down to each agent's system prompt.
 
-> **175+ features. 40+ file actions. 5 AI providers. Generative AI image editor. Zenith Research v6.1 — 44-step autonomous research pipeline with 50+ free academic data tools. Shazam music recognition. Zero window switching.**
+> **200+ features · 40+ file actions · 5 AI providers · 44-step autonomous research pipeline · 50+ free academic APIs · Shazam music recognition · Zero window switching.**
 
 ---
 
-## &#10024; Core Features
+## 📸 Screenshots
+
+### The Bubble — Drag & Drop Command Center
+
+> The main entry point. A tiny floating pill on the edge of your screen that expands into a full action panel when files are dragged near it.
+
+<p align="center">
+  <img src="screenshots/TheBubble_start.png" alt="The Bubble — collapsed floating pill showing the time" width="180"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="screenshots/TheBubble_options.png" alt="The Bubble — expanded panel with a staged file and action buttons" width="460"/>
+</p>
+
+*Left: The collapsed pill — barely visible, always on top, zero screen real estate. Right: Drop a file and the full action panel expands with 40+ instant actions (Convert, EXIF, Palette, Resize, Base64, OCR, Scan, Reveal, Editor, Archive, Email, AI Rename, and more).*
+
+---
+
+### Zenith Research Window — Chat Mode
+
+> Interactive AI research assistant with 30+ live academic tools. Search 7 databases simultaneously, download papers, verify citations, and draft sections — all from a single conversation.
+
+<p align="center">
+  <img src="screenshots/ZenithResearch_chat.png" alt="Zenith Research — Chat mode showing search results and AI-drafted content" width="900"/>
+</p>
+
+*Chat mode: the AI dispatches multi-database searches (PubMed, Semantic Scholar, OpenAlex, ClinicalTrials, Europe PMC), surfaces relevant papers with tool-call badges, and drafts structured responses with full GFM markdown rendering — tables, citations, and code blocks included. The left sidebar shows date-grouped research threads; the right panel is the inline configuration drawer.*
+
+---
+
+### Zenith Research Window — Pipeline Mode
+
+> Autonomous 44-step research pipeline. One research question → publication-ready manuscript with embedded figures, tables, and bibliography.
+
+<p align="center">
+  <img src="screenshots/ZenithResearch_pipeline.png" alt="Zenith Research — Pipeline mode showing the agent activity feed and manuscript preview" width="900"/>
+</p>
+
+*Pipeline mode: the left column shows the live Agent Activity Feed with per-step status badges (Gatekeeper → Query Architect → Multi-DB Harvest → Triage → PDF Acquire → Extract → Blueprint → Draft → Figures → Verify → Smooth → Compile). The main panel shows the completed manuscript rendered in the 4-tab Manuscript Preview (Manuscript / Figures / Tables / Bibliography). The progress bar at the top tracks the 44-step pipeline in real time.*
+
+---
+
+## 🫧 The Bubble — Main Entry Point
+
+The **Bubble** is Zenith's floating command center — a tiny, always-visible pill that sits at the edge of your screen and never gets in your way.
 
 ### Drag & Drop Pipeline
+
 - **Drag IN** — Drop files, folders, or entire directory trees onto the floating pill to stage them (zero-copy — stores paths only)
 - **Drag OUT** — Drag processed files back out to Explorer, Photoshop, Slack, Discord, etc. via native Win32 OLE `DoDragDrop`
 - **Deep folder parsing** — Dropped directories recursively expand via Rust `walkdir`, flattening hundreds of files while retaining path context
 - **Multi-select** — Click to select, batch-process, or drag multiple items at once
 
 ### Glassmorphic UI
-- **Pill &#8596; Panel** — Magnetic hover expands a minimal floating pill into a full dark-glass panel with spring-physics animations (Framer Motion)
+
+- **Pill ↔ Panel** — Magnetic hover expands a minimal floating pill into a full dark-glass panel with spring-physics animations (Framer Motion)
 - **Click-through mode** — Collapsed pill is invisible to your mouse; zero interference with your workflow
 - **Pin mode** — Pin the panel open while you work; unpin to auto-collapse
 - **Dynamic preview drawer** — Preview images, video, audio, code, CSV, JSON, and PDFs inline without leaving the panel
 
-### 40+ Built-in Actions
+### 40+ Built-in File Actions
 
 | Category | Actions |
 |----------|---------|
 | **Image** | Convert Format, Resize (+ fill color for ratio changes), EXIF Strip/Preview, Color Palette + WCAG + Ink Dropper, Base64 (Raw/HTML/CSS/TXT), OCR (Vision AI + Tesseract), Open in Generative Editor |
-| **AI Image Gen** | Zenith Generative Editor — text-to-image, image-to-image, conversational multi-turn editing, 3 models (Nano Banana 2/Pro, GPT-Image 1.5), thread/session management, 10 aspect ratios, 9 style presets, image size control, prompt library, cost tracking |
-| **PDF** | Compress, Merge (multi-PDF), PDF &#8594; CSV (LLM-powered structured extraction) |
-| **Audio** | Shazam Music Recognition (fingerprint &#8594; identify &#8594; metadata) |
+| **AI Image Gen** | Zenith Generative Editor — text-to-image, image-to-image, conversational multi-turn editing, 3 models, thread management, 10 aspect ratios, 9 style presets, prompt library, cost tracking |
+| **PDF** | Compress, Merge (multi-PDF), PDF → CSV (LLM-powered structured extraction) |
+| **Audio** | Shazam Music Recognition (fingerprint → identify → metadata) |
 | **Media** | FFmpeg Convert (MP4, MP3, WebM, WAV, GIF) |
 | **Archive** | Zip / 7z with compression level (1–9), AES-256 Encrypt, Split File into chunks |
 | **Communication** | Email with Attachments (native mailto) + LLM auto-draft Subject/Body |
-| **AI-Powered** | Smart Rename (3-suggestion shimmer flow), Smart Sort, Auto-Studio Organize + Undo, Translate (15+ languages), Ask Data (RAG Q&A), Summarize, Super Summary (multi-doc with citations), Generate Dashboard (CSV &#8594; interactive Chart.js HTML), Prompt Enhancement |
-| **Security** | VirusTotal deep scan (file hash &#8594; upload &#8594; poll), VirusTotal URL scan, batch scan |
+| **AI-Powered** | Smart Rename, Smart Sort, Auto-Studio Organize + Undo, Translate (15+ languages), Ask Data (RAG Q&A), Summarize, Super Summary, Generate Dashboard (CSV → interactive Chart.js HTML) |
+| **Security** | VirusTotal deep scan (file hash → upload → poll), URL scan, batch scan |
 | **Utility** | QR Code generator, File Preview, Copy Path, Reveal in Explorer |
 
 ### Clipboard Superpowers
+
 - **Stack Mode** — Toggle on, hit `Ctrl+C` multiple times, then merge all clipboard entries with one click
 - **Text & URL staging** — Paste any text or URL directly into Zenith as a card
 - **Image paste** — Hit PrintScreen then `Ctrl+V` inside Zenith to stage a screenshot as a PNG card instantly
 - **Global shortcut** — `Ctrl+Shift+V` stages clipboard content instantly from anywhere
 
 ### Self-Destruct & Ephemeral Files
+
 - Set **5 min / 30 min / 1 hour / 24 hour** self-destruct timers on any staged item
 - Live countdown badge with automatic cleanup
 
-### Crash-Resilient State
-- Every add/remove is persisted to `state.json` — restart, crash, or reboot without losing anything
-- Automatic rehydration on launch
-
 ---
 
-## &#127916; Auto-Studio — The Review Panel
-
-> *Drop 50 messy files. Click one button. Review a beautiful plan. Execute with one click. Undo with one click.*
-
-The **Auto-Studio** is Zenith's flagship feature — a sliding auxiliary panel that turns chaotic file dumps into perfectly organized media libraries.
-
-### How It Works
-
-1. **Drop** a messy folder (or 50 mixed files) into Zenith
-2. Click **&#10024; Smart Organize** — the Review Studio panel slides out
-3. A progress bar tracks API lookups as Zenith analyzes every file
-4. You see a **tree view** of proposed changes:
-   - &#127925; `The Weeknd - After Hours (2020)/` — renamed MP3s + fetched album art
-   - &#127916; `Dune Part Two (2024)/` — renamed MKV + downloaded OMDB posters
-   - &#128196; `Financial/` — 4 renamed PDF invoices (AI-categorized)
-   - &#128248; `Photos - 2026-03/` — 10 photos grouped by EXIF date
-5. **Tweak** any name with inline editing, toggle items on/off, pick grouping options
-6. Click **&#128640; Execute Plan** — all disk operations happen transactionally
-7. Changed your mind? Click **&#8617; Undo** — everything reverts perfectly
-
-### Media Intelligence Engine
-
-| File Type | Intelligence | API |
-|-----------|-------------|-----|
-| **Music** (.mp3, .flac, .wav, .ogg, .aac, .m4a) | Album, year, artist, genre, cover art lookup &#8594; Shazam fingerprint fallback | [TheAudioDB](https://www.theaudiodb.com) + [Shazam](https://www.shazam.com) via [SongRec](https://github.com/marin-m/SongRec) |
-| **Video** (.mp4, .mkv, .avi, .mov, .webm) | Title, year, director, rating, poster download; SxxExx series detection | [OMDB](https://www.omdbapi.com) |
-| **Images** (.jpg, .png, .gif, .webp, .heic) | EXIF date grouping **or** AI Vision semantic titles | LLM Vision |
-| **Documents** (.pdf, .docx, .txt, .csv, .xlsx) | Semantic categorization (Business/Financial/Legal/Personal) **or** type grouping **or** date grouping | LLM Analysis |
-
-### Grouping Options (User-Controlled)
-
-Dropdowns in the Review Studio let you choose how files are organized:
-
-- **Images:** *By Date* (EXIF month) or *By AI Vision* (semantic descriptive names)
-- **Documents:** *By Category* (LLM semantic), *By Type* (PDFs, Spreadsheets, etc.), or *By Date* (modification month)
-
-### Safety & Undo
-
-- Every execution saves a **Transaction JSON** (`tx_UUID.json`) with full move history + poster paths
-- **1-click Undo** reverts all file moves, deletes downloaded posters, and removes empty folders
-- Recursive empty folder cleanup (deepest-first traversal)
-
----
-
-## &#127775; Zenith Generative Editor
-
-> *Drop an image, click Editor. Type a prompt. Watch the AI repaint it. Chain 10 edits. Compare. Save. Stage.*
-
-The **Zenith Generative Editor** is a full-window AI image creation and editing studio that opens alongside your main workspace.
-
-### Two Ways to Open
-
-- **From a staged image card** → click the **Editor** action button to open the image pre-loaded
-- **From the panel header** → click **✨ Canvas** to open in blank text-to-image mode
-
-### Supported Models
-
-| Model | API String | Provider | Best For |
-|-------|-----------|----------|----------|
-| **Nano Banana 2** | `gemini-3.1-flash-image-preview` | Google | Fast iterations, daily use |
-| **Nano Banana Pro** | `gemini-3-pro-image-preview` | Google | High-quality, deep thinking |
-| **GPT-Image 1.5** | `gpt-image-1.5` | OpenAI | Photorealism, high-adherence edits |
-
-### Key Features
-
-- **Thread / session management** — left panel has two tabs: **Threads** (all sessions with title, date, cost, delete) and **Images** (current thread's generations with thumbnails); create, switch, and delete threads freely
-- **Conversational editing** — each generation uses the current output as the next input; chain unlimited edits within a thread
-- **Thread auto-naming** — first generation's LLM auto-title becomes the thread name (e.g. "Cyberpunk Skyline")
-- **Persistent threads** — metadata survives window close (localStorage); images saved to disk; max 30 threads × 50 images
-- **Before/After toggle** — hold the comparison pill to flip between original and current AI version
-- **Prompt enhancement (✨)** — rough idea → LLM rewrites to a detailed professional prompt automatically
-- **Prompt library** — save, load, rename, delete, and upload prompts; full management UI
-- **Session cost tracker** — live cumulative USD cost in the Command Deck; per-thread totals in Threads tab
-- **Model controls** — aspect ratio (10 options for Google, 3 for OpenAI), image size (512/1K/2K/4K), 9 style presets, thinking level (Pro), resolution and adherence (GPT)
-- **Send to Stage** — save current canvas to temp and stage it back into the main panel with one click; instant sync via Tauri event
-- **New Canvas** — creates a new thread and switches to blank canvas; current thread auto-saved
-- **Reset** — clears all threads, canvas, cost tracker, and all temp files
-
----
-
-## &#128300; Zenith Research Window — v6.1
+## 🔬 Zenith Research Window — v6.1
 
 > *Click Research. Ask a question — or launch a full autonomous 44-step pipeline. Get papers, PICO extractions, meta-analyses, forest plots, PRISMA flowcharts, and publication-ready manuscripts — fully configurable down to each agent's system prompt.*
 
@@ -176,35 +138,61 @@ The **Zenith Research Window v6.1** is a PhD-level autonomous research intellige
 ### How to Open
 
 - Click the **Research** button in the main panel header
+- The window opens at **70% of your monitor width × 84% of monitor height** — fully resizable, always above the taskbar
+
+---
+
+### Visual Design System
+
+The Research Window uses a **"Clinical Laboratory Command Center"** aesthetic:
+
+- **Full light/dark mode toggle** — persisted across sessions; all CSS variables switch cleanly via `data-theme` attribute
+- **Cinematic effects layer** (togglable): Aurora background blobs · Floating squares grid · Glow orbs · Floating particles · Click sparks · Spotlight cards · Star-border header
+- **Framer Motion** spring animations throughout; all transitions 150ms
+- **Geist Sans + Geist Mono** typography; `#06080d` void background, `#22d3ee` cyan accents, `#10b981` emerald success states
 
 ---
 
 ### Dual-Mode Operation
 
 #### Chat Mode (Interactive)
-Conversational AI with LLM-driven tool dispatch. Access all 30+ research tools directly from the chat interface. Ask questions, search 6 databases simultaneously, verify citations with NLI cross-encoders, check retractions, run meta-analyses, generate plots, and draft sections interactively.
+
+Conversational AI with LLM-driven tool dispatch. Access all 30+ research tools directly from the chat interface.
+
+**Message bubble features (new):**
+- **Full GFM markdown rendering** — `react-markdown` + `remark-gfm`: tables, code blocks, bold/italic, superscripts, links
+- **Hover action bar** on every bubble: Copy · Edit (user messages) · Retry · Quote-copy (assistant)
+- **Stop button** appears in the input bar while the AI is generating
+- **Inline cost display** — tokens used + estimated USD cost per message
+- Auto-rename thread title from first message
 
 #### Pipeline Mode (Autonomous v6.1 — 44 Atomic Steps)
-Launch a fully automated systematic research pipeline. **Each step does exactly one thing** — the output of step N is the exact input of step N+1. Zero compound operations.
+
+Launch a fully automated systematic research pipeline. **Each step does exactly one thing** — the output of step N is the exact input of step N+1.
+
+**Pipeline features (new):**
+- **Thread restore** — switching to an old research thread re-populates the query and restores the manuscript view automatically
+- **Manuscript auto-focus** — tab switches to Manuscript when pipeline completes
+- **Stop / Retry / Continue from checkpoint** buttons always visible in pipeline header
 
 ---
 
 ### The 44-Step Atomic Pipeline
 
-#### &#128269; Search Phase (Steps 1–8)
+#### 🔍 Search Phase (Steps 1–8)
 
 | Step | Agent | Action | Output |
 |------|-------|--------|--------|
 | 1 | **Gatekeeper** | Validate research question for specificity, scope, ethics | `{is_valid, domain, keywords, pico}` |
 | 2 | **Query Architect** | Generate Boolean/MeSH search strings per database | `{queries: [{db, query_string}]}` |
-| 3 | **PubMed Searcher** | Search MEDLINE via E-utilities with MeSH terms | `{pubmed_papers[]}` |
-| 4 | **S2 Searcher** | Search Semantic Scholar API | `{s2_papers[]}` |
-| 5 | **OpenAlex Searcher** | Search OpenAlex (10K/day free) | `{oa_papers[]}` |
+| 3 | **PubMed Searcher** | Search MEDLINE via E-utilities with MeSH terms (50 results/query) | `{pubmed_papers[]}` |
+| 4 | **S2 Searcher** | Search Semantic Scholar API (25 results/query) | `{s2_papers[]}` |
+| 5 | **OpenAlex Searcher** | Search OpenAlex 240M+ works (10K/day free) | `{oa_papers[]}` |
 | 6 | **arXiv Searcher** | Search arXiv preprints | `{arxiv_papers[]}` |
-| 7 | **Europe PMC Searcher** | Search Europe PMC REST API | `{epmc_papers[]}` |
+| 7 | **Europe PMC Searcher** | Search Europe PMC REST API (50 results/query) | `{epmc_papers[]}` |
 | 8 | **Deduplicator** | Merge + deduplicate across all sources | `{unique_papers[], duplicates_removed}` |
 
-#### &#128203; Screen Phase (Steps 9–12)
+#### 📋 Screen Phase (Steps 9–12)
 
 | Step | Agent | Action | Output |
 |------|-------|--------|--------|
@@ -213,16 +201,16 @@ Launch a fully automated systematic research pipeline. **Each step does exactly 
 | 11 | **Retraction Checker** | Check DOIs via CrossRef + Retraction Watch CSV | `{papers[] + retraction_status}` |
 | 12 | **Journal Checker** | Check Beall's predatory journal list | `{papers[] + journal_quality}` |
 
-#### &#128229; Acquire Phase (Steps 13–16)
+#### 📥 Acquire Phase (Steps 13–16)
 
 | Step | Agent | Action | Output |
 |------|-------|--------|--------|
 | 13 | **Unpaywall Fetcher** | Check open-access availability per DOI | `{oa_urls[], not_oa_dois[]}` |
 | 14 | **OA Downloader** | Download PDFs from OA URLs | `{downloaded_pdfs[], failed[]}` |
-| 15 | **Sci-Hub Fetcher** | Try Sci-Hub mirrors for remaining DOIs | `{scihub_pdfs[], captcha_needed[]}` |
+| 15 | **Sci-Hub Fetcher** | Try configurable Sci-Hub mirrors for remaining DOIs | `{scihub_pdfs[], captcha_needed[]}` |
 | 16 | **PMC Fetcher** | Fetch structured XML from PubMed Central | `{pmc_texts[]}` |
 
-#### &#128196; Parse Phase (Steps 17–19)
+#### 📄 Parse Phase (Steps 17–19)
 
 | Step | Agent | Action | Output |
 |------|-------|--------|--------|
@@ -230,7 +218,7 @@ Launch a fully automated systematic research pipeline. **Each step does exactly 
 | 18 | **Section Parser** | Parse raw text into structured sections | `{structured_papers[{sections[]}]}` |
 | 19 | **Reference Extractor** | Extract reference list from full text | `{papers[] + references_raw}` |
 
-#### &#128200; Store Phase (Steps 20–22)
+#### 📊 Store Phase (Steps 20–22)
 
 | Step | Agent | Action | Output |
 |------|-------|--------|--------|
@@ -238,7 +226,7 @@ Launch a fully automated systematic research pipeline. **Each step does exactly 
 | 21 | **Vector Ingestor** | Embed & store chunks in ChromaDB | `{chunks_stored, collection_size}` |
 | 22 | **BM25 Indexer** | Build keyword index for hybrid search | `{bm25_index_ready}` |
 
-#### &#128202; Extract Phase (Steps 23–26)
+#### 📈 Extract Phase (Steps 23–26)
 
 | Step | Agent | Action | Output |
 |------|-------|--------|--------|
@@ -247,7 +235,7 @@ Launch a fully automated systematic research pipeline. **Each step does exactly 
 | 25 | **Drug Profiler** | Extract drug names, doses, regimens (RxNorm) | `{drug_profiles[]}` |
 | 26 | **AE Extractor** | Extract adverse events (OpenFDA) | `{adverse_events[]}` |
 
-#### &#9878;&#65039; Assess Phase (Steps 27–29)
+#### ⚖️ Assess Phase (Steps 27–29)
 
 | Step | Agent | Action | Output |
 |------|-------|--------|--------|
@@ -255,20 +243,20 @@ Launch a fully automated systematic research pipeline. **Each step does exactly 
 | 28 | **GRADE Assessor** | Rate certainty per outcome (⊕⊕⊕⊕ scale) | `{grade_table[]}` |
 | 29 | **Publication Bias Detector** | Egger's + Begg's + trim-fill | `{pub_bias_result}` |
 
-#### &#128221; Synthesize Phase (Steps 30–37)
+#### 📝 Synthesize Phase (Steps 30–37)
 
 | Step | Agent | Action | Output |
 |------|-------|--------|--------|
 | 30 | **Meta-Analyst** | DerSimonian-Laird pooled effect calculation | `{pooled_effect, ci, i_squared, tau²}` |
-| 31 | **Blueprint Architect** | Design manuscript structure per guidelines | `{sections[], figure_plan[], table_plan[]}` |
-| 32 | **Section Drafter** | Draft ONE section (loops N times) | `{section_text, citations_used[]}` |
-| 33 | **Table Generator** | Generate comparison / summary tables | `{tables[]}` |
-| 34 | **Forest Plot Generator** | matplotlib forest plot → base64 PNG | `{image_base64}` |
-| 35 | **Funnel Plot Generator** | Egger's / Begg's funnel plot | `{image_base64, egger_p}` |
-| 36 | **PRISMA Generator** | PRISMA 2020 flow diagram | `{image_base64, svg}` |
-| 37 | **RoB Plot Generator** | Risk of bias traffic-light grid | `{image_base64}` |
+| 31 | **Blueprint Architect** | Design manuscript structure + specific figure/table descriptions | `{sections[], figure_plan[], table_plan[]}` |
+| 32 | **Section Drafter** | Draft ONE section with inline citations (loops N times) | `{section_text, citations_used[]}` |
+| 33 | **Table Generator** | Generate comparison / summary tables (exec-based, stdout-captured) | `{tables[]}` |
+| 34 | **Forest Plot Generator** | matplotlib forest plot → PNG | `{image_path, caption}` |
+| 35 | **Funnel Plot Generator** | Egger's / Begg's funnel plot | `{image_path, egger_p}` |
+| 36 | **PRISMA Generator** | PRISMA 2020 flow diagram | `{image_path}` |
+| 37 | **RoB Plot Generator** | Risk of bias traffic-light grid | `{image_path}` |
 
-#### &#9989; Verify Phase (Steps 38–41)
+#### ✅ Verify Phase (Steps 38–41)
 
 | Step | Agent | Action | Output |
 |------|-------|--------|--------|
@@ -277,13 +265,49 @@ Launch a fully automated systematic research pipeline. **Each step does exactly 
 | 40 | **Consistency Checker** | Text-vs-table contradiction detection | `{inconsistencies[]}` |
 | 41 | **Final Retraction Check** | Re-verify all cited DOIs pre-publish | `{all_clear, retractions_found[]}` |
 
-#### &#10024; Polish Phase (Steps 42–44)
+#### ✨ Polish Phase (Steps 42–44)
 
 | Step | Agent | Action | Output |
 |------|-------|--------|--------|
-| 42 | **Prose Smoother** | Unify voice, fix grammar, add transitions | `{polished_sections[]}` |
+| 42 | **Prose Smoother** | Unify voice, fix grammar, add transitions; preserves `[FIGURE_N]` tags for figure injection | `{polished_manuscript}` |
 | 43 | **Citation Formatter** | Format bibliography (Vancouver/APA/MLA) | `{bibliography, bibtex}` |
-| 44 | **LaTeX Compiler** | Compile final document | `{tex, pdf_path}` |
+| 44 | **Exporter** | Build PDF (reportlab) + DOCX (python-docx) with embedded figures | `{pdf_path, docx_path}` |
+
+---
+
+### Figure & Table Embedding Pipeline
+
+Figures and tables are **real files embedded directly into the exported PDF and DOCX**, not placeholders:
+
+1. **Blueprint** generates specific chart descriptions: *"Bar chart comparing mean effect sizes across 8 RCTs, x-axis: study author, y-axis: SMD (95% CI), color: blue"*
+2. **Figure Generator** runs matplotlib code → saves `.png` to `Research/charts/`
+3. **Prose Smoother** receives `[FIGURE_N]` tags and is explicitly instructed to preserve them verbatim — any dropped tags are re-injected before the References section
+4. Post-LLM: `[FIGURE_N]` → `![Figure N: caption](assets/chart_xxx.png)` markdown
+5. **PDF builder** parses `![alt](path)` syntax and embeds the actual image via `reportlab.platypus.Image`
+6. **DOCX builder** parses the same syntax and embeds via `python-docx add_picture`
+7. Export copies all assets to `~/Documents/Zenith Exports/<title>/assets/`
+
+---
+
+### Manuscript Export Package
+
+Exported to `~/Documents/Zenith Exports/<research_title>_<timestamp>/`:
+
+```
+📁 My_Research_Export_20260411_143022/
+├── manuscript.md          — Full polished manuscript (GFM)
+├── manuscript.pdf         — PDF with embedded figures + tables (reportlab)
+├── manuscript.docx        — Editable Word document with embedded figures (python-docx)
+├── bibliography.bib       — BibTeX references
+├── papers.json            — All harvested papers with metadata
+├── pipeline_log.txt       — Full step-by-step audit trail
+├── chat_history.md        — Chat conversation export
+├── telemetry.json         — Token usage, cost, timing per phase
+├── sections/              — Individual section markdown files
+├── assets/                — All generated figures + tables as PNG files
+├── references/            — Acquired PDFs
+└── prompts/               — Full input/output log for every agent call
+```
 
 ---
 
@@ -305,7 +329,7 @@ Launch a fully automated systematic research pipeline. **Each step does exactly 
 | **Retraction Watch CSV** | `RETRACTION_CHECK` | Retraction status, reason, date for 50K+ papers |
 | **Beall's List Mirror** | Predatory Journal Check | Flag predatory/questionable journals |
 | **Unpaywall** | OA Fetcher | Legal open-access PDF links by DOI |
-| **Sci-Hub** | Acquisition | Full-text PDF download (6 mirrors + CAPTCHA dialog) |
+| **Sci-Hub** | Acquisition | Full-text PDF download via user-managed mirror list |
 | **DuckDuckGo / Brave / Tavily / Firecrawl** | `WEB_SEARCH` | Grey literature, clinical guidelines, news |
 
 ---
@@ -342,74 +366,141 @@ All tools run locally — no external API, no data leaves your machine.
 
 ---
 
-### Component Architecture — "Clinical Laboratory Command Center"
-
-The Research Window was rebuilt from a 2,000-line monolith into 14 focused, independently maintainable components:
+### Component Architecture
 
 ```
 src/components/research/
-├── ZenithResearch.tsx          — Shell: layout, routing, settings, toast (~180 lines)
+├── ZenithResearch.tsx          — Shell: layout, routing, settings, toast, theme/FX toggles
 ├── HeaderBar.tsx               — Mode toggle, title editing, export dropdown, sidebar toggles
-├── ThreadSidebar.tsx           — Date-grouped threads, search, inline delete
-├── ChatView.tsx                — Multi-turn chat + MessageBubble (tool badge, copy, edit)
-├── PipelineView.tsx            — 44-step pipeline orchestration with progress tracking
-├── AgentActivityFeed.tsx       — Dynamic event timeline replacing hardcoded phase list
+├── ThreadSidebar.tsx           — Date-grouped threads (Today/Yesterday/Older), search, delete
+├── ChatView.tsx                — Multi-turn chat with react-markdown GFM rendering
+│                                  MessageBubble: Copy · Edit · Retry · Quote · Stop · Cost badge
+├── PipelineView.tsx            — 44-step pipeline orchestrator with checkpoint resume
+│                                  Stop · Retry · Continue from checkpoint · Thread restore
+├── AgentActivityFeed.tsx       — Live event timeline replacing hardcoded phase list
 ├── PaperBrowser.tsx            — Sortable/filterable paper list with expandable abstracts
 ├── ExtractionTable.tsx         — PICO data grid with monospace statistics columns
-├── ManuscriptPreview.tsx       — 4-tab viewer: manuscript / figures / tables / bibliography
-├── SettingsPanel.tsx           — Full per-agent configurator (prompts, temp, tokens, thinking)
-└── shared/
-    ├── constants.ts            — THEME design tokens, PROVIDER_MODELS, PRICING, RESEARCH_TOOLS
-    ├── types.ts                — AiPrompts, ZenithSettings, AgentEvent, PICOExtraction
-    └── helpers.ts              — uid(), fmtCost(), estimateCost(), trackTokenUsage()
+├── ManuscriptPreview.tsx       — 4-tab viewer: Manuscript (react-markdown+GFM) / Figures / Tables / Bibliography
+├── SettingsPanel.tsx           — Full per-agent configurator in-window
+└── effects/
+    ├── AuroraBg.tsx            — rAF-driven radial gradient blob animation
+    ├── SquaresBg.tsx           — Canvas animated grid with wave shimmer + mouse glow
+    ├── GlowOrbs.tsx            — 5 sinusoidal floating orbs
+    ├── ClickSpark.tsx          — SVG spark burst on every click
+    ├── SpotlightCard.tsx       — Mouse-following radial spotlight overlay
+    ├── ShinyText.tsx           — CSS background-clip shimmer sweep
+    ├── GradientText.tsx        — Animated gradient text via background-position
+    ├── StarBorder.tsx          — Rotating conic-gradient border
+    ├── FloatingParticles.tsx   — Canvas 22-particle upward drift system
+    └── GlareHover.tsx          — 3D perspective tilt + glare overlay
 ```
 
-**Design system:** Dark "Clinical Laboratory" aesthetic — `#06080d` void background, `#22d3ee` cyan accents, `#10b981` emerald for success states, Geist Sans + Geist Mono typography, animated AgentActivityFeed timeline with pulse rings and glow borders on active agents.
+---
+
+### Sci-Hub Mirror Management
+
+The mirror list used for PDF acquisition is **fully manageable** from Settings → API Keys → Sci-Hub Mirrors:
+
+- **Add** custom mirrors (any `https://` URL)
+- **Remove** any mirror from the list
+- **Reorder** with up/down arrows — first reachable mirror is tried first
+- **Ping individual** mirrors — shows live latency in ms or "unreachable"
+- **Ping All** — checks all mirrors simultaneously
+- **Reset** to the built-in defaults (11 mirrors)
+- Changes persist to `settings.json` and take effect on the next pipeline run
+
+---
+
+### Token & Cost Tracking
+
+- **Per-message** cost shown inline in every chat bubble (tokens used + `$0.00045`)
+- **Pipeline session** total shown in the status bar during/after a run
+- **Cumulative all-time** cost shown next to the session cost: `$0.0234 / $2.1456 total`
+- **Settings → Token Usage** tab: per-provider breakdown with input/output token counts and USD cost
+- All data persists to `settings.json` via `trackTokenUsage()` → Rust `save_settings`
 
 ---
 
 ### Full Settings Configurability (Zero Hardcoded Prompts)
 
-Every pipeline parameter is loaded from `%APPDATA%/Zenith/settings.json` and editable in the Settings panel. **Nothing is hardcoded.**
+Every pipeline parameter is loaded from `%APPDATA%/Zenith/settings.json` and editable in Settings. **Nothing is hardcoded.**
 
 | Setting | Where | What |
 |---------|-------|------|
-| **Pipeline Prompts** | Prompts tab → Pipeline | Per-design system prompt (research_pipeline, subject_review, educational, case_study, comparative, exploratory) |
-| **Chat System Prompt** | Prompts tab → Chat Mode | The AI's persona for interactive chat |
-| **Per-Agent System Prompt** | Agents tab → select agent | Step-specific override (empty = use global pipeline prompt) |
-| **Per-Agent Model Tier** | Agents tab | Fast (cheap screening) vs Strong (capable drafting) |
-| **Per-Agent Temperature** | Agents tab | 0.0–1.0 per agent |
-| **Per-Agent Max Tokens** | Agents tab | 512–65,536 per agent |
-| **Per-Agent Thinking** | Agents tab | Enable extended thinking + budget per agent |
-| **Structured Output** | Agents tab | Force JSON schema for gatekeeper/triage/query-architect |
-| **API Keys** | Model tab | Per-provider keys (OpenAI, Anthropic, Google, DeepSeek, Groq) |
-| **Web Search Keys** | Model tab | Tavily, Brave, Firecrawl |
-| **Tool Toggles** | Tools tab | Enable/disable each of the 28+ research tools for chat mode |
+| **Pipeline Study Design Prompts** | Settings → Research Agents | Per-design system prompt (9 designs) |
+| **Chat System Prompt** | Settings → AI Prompts → Research | The AI's persona for interactive chat |
+| **Per-Agent System Prompt** | Settings → Research Agents → select agent | Step-specific override (empty = use global) |
+| **Per-Agent Model Tier** | Settings → Research Agents | Fast (cheap screening) vs Strong (capable drafting) |
+| **Per-Agent Temperature** | Settings → Research Agents | 0.0–1.0 per agent |
+| **Per-Agent Max Tokens** | Settings → Research Agents | 512–65,536 per agent |
+| **Per-Agent Thinking** | Settings → Research Agents | Enable extended thinking + budget per agent |
+| **Per-Agent Tools** | Settings → Research Agents | Enable/disable tools per agent |
+| **Sci-Hub Mirrors** | Settings → API Keys → Sci-Hub Mirrors | Add/edit/delete/reorder/ping mirrors |
+| **API Keys** | Settings → API Keys | Per-provider keys (OpenAI, Anthropic, Google, DeepSeek, Groq) |
+| **Web Search Keys** | Settings → API Keys | Tavily, Brave, Firecrawl |
 
 **Agents configurable:** Gatekeeper · Query Architect · Triage Agent · Blueprint Architect · Lead Author · Citation Verifier · Guidelines Checker · Prose Smoother
 
 ---
 
-### Research Window Features
+## ✨ Auto-Studio — The Review Panel
 
-- **44 atomic pipeline steps** — each does exactly one thing; full audit trail
-- **50+ free data tools** — zero paid academic APIs required
-- **6 new statistical visualization tools** — forest/funnel plots, PRISMA flowchart, RoB grid, GRADE table, meta-analysis — all running locally with matplotlib/scipy
-- **Dynamic Agent Activity Feed** — live timeline showing each agent's phase, tool calls, results, and errors; replaces static progress bar
-- **Paper Browser** — sortable by title/year/citations; source filter pills (PubMed/S2/OpenAlex/Europe PMC/arXiv); expandable rows with abstract, DOI, OA link, acquisition status
-- **PICO Extraction Table** — structured grid: Population · Intervention · Comparator · Outcome · N · Effect Size · 95% CI · p-value per included study
-- **Manuscript Preview** — 4-tab viewer with lightweight markdown renderer; no external markdown library
-- **Export (5 formats)** — Markdown (`.md`), LaTeX (`.tex`), BibTeX (`.bib`), JSON — saved to `%TEMP%/Zenith/Research/exports/` with toast confirmation
-- **Multi-turn chat** — full conversation history + auto-rename on first message
-- **Thread management** — date-grouped sidebar (Today / Yesterday / Older); inline delete; search filter
-- **Token + cost tracking** — per-pipeline and total; syncs to Settings token usage via Rust `save_settings`
-- **CAPTCHA dialog** — pipeline pauses when Sci-Hub requires CAPTCHA; dialog shows URL with copy button and browser-open shortcut
-- **Test Connection** — one-click API key verification before running pipeline
-- **Retraction alerts** — any retracted paper in the citation list is flagged before export
+> *Drop 50 messy files. Click one button. Review a beautiful plan. Execute with one click. Undo with one click.*
+
+The **Auto-Studio** is Zenith's flagship file organization feature — a sliding auxiliary panel that turns chaotic file dumps into perfectly organized media libraries.
+
+### How It Works
+
+1. **Drop** a messy folder (or 50 mixed files) into Zenith
+2. Click **✨ Smart Organize** — the Review Studio panel slides out
+3. A progress bar tracks API lookups as Zenith analyzes every file
+4. You see a **tree view** of proposed changes:
+   - 🎵 `The Weeknd - After Hours (2020)/` — renamed MP3s + fetched album art
+   - 🎬 `Dune Part Two (2024)/` — renamed MKV + downloaded OMDB posters
+   - 📄 `Financial/` — 4 renamed PDF invoices (AI-categorized)
+   - 📷 `Photos - 2026-03/` — 10 photos grouped by EXIF date
+5. **Tweak** any name with inline editing, toggle items on/off, pick grouping options
+6. Click **🚀 Execute Plan** — all disk operations happen transactionally
+7. Changed your mind? Click **↩ Undo** — everything reverts perfectly
+
+### Media Intelligence Engine
+
+| File Type | Intelligence | API |
+|-----------|-------------|-----|
+| **Music** (.mp3, .flac, .wav, .ogg, .aac, .m4a) | Album, year, artist, genre, cover art + Shazam fingerprint fallback | [TheAudioDB](https://www.theaudiodb.com) + [Shazam](https://www.shazam.com) via [SongRec](https://github.com/marin-m/SongRec) |
+| **Video** (.mp4, .mkv, .avi, .mov, .webm) | Title, year, director, rating, poster download; SxxExx series detection | [OMDB](https://www.omdbapi.com) |
+| **Images** (.jpg, .png, .gif, .webp, .heic) | EXIF date grouping **or** AI Vision semantic titles | LLM Vision |
+| **Documents** (.pdf, .docx, .txt, .csv, .xlsx) | Semantic categorization (Business/Financial/Legal/Personal) or type grouping | LLM Analysis |
 
 ---
 
-## &#10024; Smart Rename Engine
+## 🌟 Zenith Generative Editor
+
+> *Drop an image, click Editor. Type a prompt. Watch the AI repaint it. Chain 10 edits. Compare. Save. Stage.*
+
+The **Zenith Generative Editor** is a full-window AI image creation and editing studio.
+
+### Supported Models
+
+| Model | Provider | Best For |
+|-------|----------|----------|
+| **Nano Banana 2** (`gemini-3.1-flash-image-preview`) | Google | Fast iterations, daily use |
+| **Nano Banana Pro** (`gemini-3-pro-image-preview`) | Google | High-quality, deep thinking |
+| **GPT-Image 1.5** (`gpt-image-1.5`) | OpenAI | Photorealism, high-adherence edits |
+
+### Key Features
+
+- **Thread / session management** — left panel has Threads + Images tabs; create, switch, delete freely
+- **Conversational editing** — each generation uses the current output as the next input; chain unlimited edits
+- **Before/After toggle** — hold the comparison pill to flip between original and AI version
+- **Prompt enhancement (✨)** — rough idea → LLM rewrites to a detailed professional prompt
+- **Prompt library** — save, load, rename, delete prompts; full management UI
+- **Session cost tracker** — live cumulative USD cost in the Command Deck; per-thread totals in Threads tab
+- **Send to Stage** — save current canvas to temp and stage it back into the main panel with one click
+
+---
+
+## ✨ Smart Rename Engine
 
 Zenith doesn't just rename files — it **reads their soul**.
 
@@ -421,31 +512,30 @@ Zenith doesn't just rename files — it **reads their soul**.
 
 ### The UX Flow
 
-- **Single file:** Click &#10024; — the filename transforms into a shimmering skeleton loader, then smoothly morphs into `2026_03_DEWA_Utility_Bill.pdf`
-- **3 inline controls:** &#9989; Accept &bull; &#127922; Cycle alternate suggestion &bull; &#9999;&#65039; Manual edit
-- **Batch rename:** Select 15 files &#8594; click &#10024; Batch Rename &#8594; diff-like list view with `Old Name &#8594; New Name` for every file
-- **Undo/Redo:** Permanent &#8617;/&#8618; icons in the header — one click reverts actual files on disk
+- **Single file:** Click ✨ — the filename transforms into a shimmering skeleton loader, then morphs into `2026_03_DEWA_Utility_Bill.pdf`
+- **3 inline controls:** ✅ Accept · 🎲 Cycle alternate suggestion · ✏️ Manual edit
+- **Batch rename:** Select 15 files → click ✨ Batch Rename → diff-like list view with `Old Name → New Name` for every file
+- **Undo/Redo:** Permanent ↩/↪ icons in the header — one click reverts actual files on disk
 
 ---
 
-## &#128737;&#65039; Security & Scanning
+## 🛡️ Security & Scanning
 
 ### VirusTotal Deep Integration
 
 Not just a hash lookup — Zenith implements the **full VirusTotal v3 pipeline**:
 
-- **Files:** SHA-256 hash check &#8594; if unknown, **uploads the file** &#8594; polls analysis &#8594; full detection report
-- **URLs:** Base64 lookup &#8594; if unknown, **submits for scanning** &#8594; polls analysis &#8594; verdict
-- **Folders:** Recursively finds and scans the first file inside
+- **Files:** SHA-256 hash check → if unknown, **uploads the file** → polls analysis → full detection report
+- **URLs:** Base64 lookup → if unknown, **submits for scanning** → polls analysis → verdict
 - **Batch scanning** from the multi-select toolbar
-- **Results:** &#128994; Safe / &#128308; Malicious badge with detection count, engine names, and community score
+- **Results:** 🟢 Safe / 🔴 Malicious badge with detection count, engine names, and community score
 - Supports files up to **650MB** via the large-file upload endpoint
 
 ---
 
-## &#129302; AI & LLM Integrations
+## 🤖 AI & LLM Integrations
 
-Zenith connects to **5 LLM providers** with **16+ models**. API keys are stored locally and never leave your machine except to the provider you choose.
+Zenith connects to **5 LLM providers** with **18+ models**. API keys are stored locally and never leave your machine except to the provider you choose.
 
 | Provider | Models | Best For |
 |----------|--------|----------|
@@ -455,47 +545,28 @@ Zenith connects to **5 LLM providers** with **16+ models**. API keys are stored 
 | **DeepSeek** | Chat (V3), Reasoner (R1) | Budget-friendly bulk processing, reasoning steps |
 | **Groq** | Llama 3.3 70B, Llama 3.1 8B, Gemma 2 9B | Ultra-fast screening and triage phases |
 
-### AI Features at a Glance
-
-- **Token tracking** with real-time per-provider cost estimation (USD) — synced to Rust settings via `save_settings`
-- **16+ customizable prompts** — tune every AI behavior from Settings (chat mode, all 9 pipeline study designs, all 8 pipeline agents)
-- **Model picker** with live pricing info per provider
-- **Per-agent model tier** — assign Fast vs Strong independently for each pipeline step
-- **Extended Thinking** — enable Claude's extended reasoning with configurable budget per agent
-- **Smart cost optimization** — use cheap models for bulk screening, premium for drafting
-
 ---
 
-## &#128204; Settings Hub
+## 📌 Settings Hub
 
-A **full-featured settings panel** with 9 tabs for the main app, plus an in-window configuration panel for the Research module:
-
-### Main Settings (9 Tabs)
+A full-featured settings panel with 10 tabs for the main app:
 
 | Tab | What You Control |
 |-----|-----------------|
-| **General** | Launch at startup, tray icon, update checks |
+| **General** | Launch at startup, tray icon, update checks, plugins directory |
 | **Appearance** | Accent color, opacity, blur intensity, corner radius, font size, border glow, aurora background, spotlight cards |
 | **Behavior** | Collapse delay, hover/drag expand triggers, max items, duplicate detection, screen position |
 | **Processing** | Image quality, WebP quality, resize %, PDF compression level, split chunk size |
-| **API Keys** | Per-provider key management with model selection, pricing display, OMDB/VirusTotal/Brave/Firecrawl/Tavily/Firecrawl keys |
+| **API Keys** | Per-provider key management · pricing display · OMDB/VirusTotal/Brave/Firecrawl/Tavily keys · **Sci-Hub mirror manager (add/edit/delete/reorder/ping)** |
 | **AI Prompts** | All 16 system prompts editable (File Management, Document Intelligence, Vision & Data, Research pipeline per design) |
-| **Token Usage** | Per-provider usage cards with cost breakdown, total spend tracking, reset |
+| **Research Agents** | Per-agent: system prompt override · model tier · temperature · max tokens · extended thinking + budget · structured output · enabled tools |
+| **Token Usage** | Per-provider usage cards with cost breakdown · total spend tracking · reset button |
 | **Shortcuts** | Configurable keyboard shortcuts (stage clipboard, toggle window, clear all) |
 | **Scripts** | WASM plugin manager with enable/disable toggles |
 
-### Research Settings Panel (in-window, 4 tabs)
-
-| Tab | What You Control |
-|-----|-----------------|
-| **Model** | Provider, model, API key, Tavily/Brave/Firecrawl keys, temperature, max tokens, connection test |
-| **Tools** | Enable/disable each of 28 research tools for chat mode (with toggle switches) |
-| **Prompts** | Chat system prompt + all 6 pipeline study design prompts (expandable, editable) |
-| **Agents** | Per-agent: system prompt override, model tier, temperature, max tokens, extended thinking toggle + budget, structured output |
-
 ---
 
-## &#128640; Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
 
@@ -504,10 +575,10 @@ A **full-featured settings panel** with 9 tabs for the main app, plus an in-wind
 | **Node.js** | 18+ | Frontend build tooling |
 | **Rust** | stable (via [rustup](https://rustup.rs)) | Tauri backend |
 | **Python** | 3.10+ | AI & file processing sidecar |
-| **scipy + matplotlib** | latest | Meta-analysis & statistical plots (Research v6.1) |
-| **chromadb** | latest | Local vector database for RAG (Research v6.1) |
+| **scipy + matplotlib + numpy** | latest | Meta-analysis & statistical plots |
+| **chromadb** | latest | Local vector database for RAG |
 | Tesseract OCR | *optional* | Local OCR fallback (free) |
-| FFmpeg | *optional* | Media conversion (`.mov` &#8594; `.mp4`, etc.) |
+| FFmpeg | *optional* | Media conversion |
 
 ### One-Click Start (Windows)
 
@@ -532,8 +603,8 @@ npm install
 # 3. Install Python dependencies
 pip install -r scripts/requirements.txt
 
-# 4. (Optional) Install research dependencies for statistical analysis
-pip install scipy matplotlib numpy chromadb
+# 4. Research statistical analysis dependencies
+pip install scipy matplotlib numpy chromadb reportlab python-docx pdfplumber
 
 # 5. Run in dev mode
 npm run tauri dev
@@ -549,7 +620,7 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
 
 ---
 
-## &#9881;&#65039; Architecture
+## ⚙️ Architecture
 
 ```
  React 19 (UI)  ────  Rust / Tauri v2 (OS layer)  ────  Python sidecar (AI + processing)
@@ -557,17 +628,18 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
  Framer Motion 12        Native OLE drag-drop           50+ file actions
  Tailwind CSS 4          Multi-window architecture      5 LLM providers + image gen
  Zustand 5               Clipboard interception         TheAudioDB / OMDB / imdbapi.dev
-                         Clipboard image paste          Shazam fingerprint recognition
- Font Awesome 7          WASM plugin engine (wasmtime)  PDF / Image / Media / OCR
-                         HTTP API server (:7890)         VirusTotal v3 integration
-                         Transactional file I/O          Research v6.1 engine:
-                         walkdir recursive traversal       ├── 44-step atomic pipeline
-                         Rust settings ↔ Python args       ├── 50+ free academic APIs
-                         (no hardcoded prompts)            ├── Statistical analysis engine
-                                                           │   (scipy/matplotlib/numpy)
-                                                           ├── ChromaDB local vector DB
-                                                           ├── Retraction Watch checker
-                                                           └── GRADE/RoB/PRISMA tools
+ react-markdown          Clipboard image paste          Shazam fingerprint recognition
+ remark-gfm              WASM plugin engine (wasmtime)  PDF / Image / Media / OCR
+ Font Awesome 7          HTTP API server (:7890)         VirusTotal v3 integration
+                         reqwest async HTTP             Research v6.1 engine:
+                         Transactional file I/O           ├── 44-step atomic pipeline
+                         walkdir recursive traversal      ├── 50+ free academic APIs
+                         Rust settings ↔ Python args      ├── Statistical analysis engine
+                         Monitor-aware window sizing      │   (scipy/matplotlib/numpy)
+                         (70% width, 84% height)          ├── ChromaDB local vector DB
+                                                          ├── Figure/table PDF embedding
+                                                          ├── Sci-Hub mirror management
+                                                          └── GRADE/RoB/PRISMA tools
 ```
 
 ### Tech Stack
@@ -575,206 +647,104 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
 | Layer | Technology |
 |-------|------------|
 | **Framework** | [Tauri v2](https://v2.tauri.app) |
-| **Backend** | Rust (serde, serde_json, walkdir, wasmtime, image, uuid, tauri-plugin-drag) |
-| **Frontend** | React 19, TypeScript 5.8, Framer Motion 12 |
-| **Styling** | Tailwind CSS 4, Glassmorphism + Clinical Laboratory dark theme |
-| **State** | Zustand 5 |
-| **AI / Processing** | Python 3 (Pillow, pdfplumber, pikepdf, pytesseract, reportlab, qrcode, requests, numpy, pydub, scipy, matplotlib, chromadb) |
-| **Research APIs** | PubMed E-utilities, Semantic Scholar, OpenAlex, arXiv, Europe PMC, ClinicalTrials.gov v2, OpenFDA, NLM MeSH, NLM RxNorm, CrossRef, Retraction Watch, Unpaywall, Sci-Hub |
-| **Statistics** | scipy (meta-analysis, Egger's test), matplotlib (forest/funnel/PRISMA/RoB plots), numpy |
-| **Vector DB** | ChromaDB (local, no API key) |
-| **Media APIs** | [TheAudioDB](https://www.theaudiodb.com) (music), [OMDB](https://www.omdbapi.com) (movies/series), [imdbapi.dev](https://imdbapi.dev) (primary movie lookup) |
-| **Audio Recognition** | [SongRec](https://github.com/marin-m/SongRec) algorithm (Shazam-compatible fingerprinting) |
-| **Security** | [VirusTotal API v3](https://docs.virustotal.com) |
-| **Icons** | Font Awesome 7 Pro |
+| **Backend** | Rust (serde, serde_json, walkdir, wasmtime, image, uuid, reqwest) |
+| **Frontend** | React 19, TypeScript, Tailwind CSS 4, Framer Motion 12 |
+| **State** | Zustand 5 with localStorage persistence |
+| **Markdown** | react-markdown + remark-gfm (full GFM: tables, code blocks, footnotes) |
+| **AI Python** | OpenAI / Anthropic / Google GenAI / DeepSeek / Groq SDKs |
+| **Research Stats** | scipy, matplotlib, numpy, pdfplumber |
+| **Vector DB** | ChromaDB (local, no server) |
+| **Export** | reportlab (PDF), python-docx (DOCX), BibTeX |
+| **OCR** | Tesseract (local) + LLM Vision fallback |
+| **Media** | FFmpeg (convert), SongRec (Shazam fingerprint) |
+| **Plugins** | wasmtime (WASM sandbox) |
 
 ---
 
-## &#127760; REST API
+## 🌐 REST API
 
-Zenith exposes a **local HTTP API** on `http://127.0.0.1:7890` for automation, scripting, and integration with other tools.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/items` | List all staged items |
-| `POST` | `/stage/file` | Stage a file by path |
-| `POST` | `/stage/text` | Stage text/URL |
-| `DELETE` | `/items/:id` | Remove a staged item |
-| `POST` | `/process` | Run any processing action |
-| `GET` | `/settings` | Read current settings |
-| `PUT` | `/settings` | Update settings |
-| `GET` | `/health` | Health check |
-
-Full documentation: [`docs/API.md`](docs/API.md)
-
----
-
-## &#129513; Plugin System (WASM)
-
-Extend Zenith with WebAssembly plugins:
-
-- **wasmtime engine** — Load `.wasm` plugins from `%APPDATA%/Zenith/plugins/`
-- **Host API** — Plugins access staged items via `zenith_get_items()`
-- **Settings UI** — Enable/disable and manage plugins from the Scripts tab
-
----
-
-## &#128193; Project Structure
+Zenith exposes a local HTTP API on port **7890** for plugin and external integration use:
 
 ```
-zenith-app/
-├── src/                           # React frontend
-│   ├── components/
-│   │   ├── Bubble.tsx             # Floating pill/panel + batch actions + pin mode + ✨ Canvas button
-│   │   ├── StagedItemCard.tsx     # File card with 40+ per-item actions
-│   │   ├── ZenithEditor.tsx       # Generative AI image editor (full window, /editor route)
-│   │   ├── ZenithResearch.tsx     # Research shell: layout, routing, settings, toast (~180 lines)
-│   │   ├── ReviewStudio.tsx       # Auto-Studio auxiliary panel (tree view + execute)
-│   │   ├── PreviewDrawer.tsx      # Dynamic multi-format preview panel
-│   │   ├── Settings.tsx           # Full settings modal (9 tabs)
-│   │   ├── FolderTree.tsx         # Recursive navigable folder tree
-│   │   ├── ScriptWindow.tsx       # WASM plugin runner UI
-│   │   └── research/              # Research v6.1 components (14 files)
-│   │       ├── HeaderBar.tsx      # Mode toggle, title editing, export, toggles
-│   │       ├── ThreadSidebar.tsx  # Date-grouped threads, search, delete
-│   │       ├── ChatView.tsx       # Multi-turn chat + tool badge MessageBubble
-│   │       ├── PipelineView.tsx   # 44-step pipeline orchestration
-│   │       ├── AgentActivityFeed.tsx # Dynamic event timeline (replaces hardcoded phases)
-│   │       ├── PaperBrowser.tsx   # Sortable/filterable paper list
-│   │       ├── ExtractionTable.tsx # PICO data grid
-│   │       ├── ManuscriptPreview.tsx # 4-tab manuscript/figures/tables/bibliography
-│   │       ├── SettingsPanel.tsx  # Per-agent configurator (prompts/temp/tokens/thinking)
-│   │       └── shared/
-│   │           ├── constants.ts   # THEME tokens, PROVIDER_MODELS, PRICING, RESEARCH_TOOLS
-│   │           ├── types.ts       # AiPrompts, ZenithSettings, AgentEvent, PICOExtraction
-│   │           └── helpers.ts     # uid(), fmtCost(), estimateCost(), trackTokenUsage()
-│   ├── store.ts                   # Zustand store (items, studio, previews, settings, tokens)
-│   ├── stores/
-│   │   └── useResearchStore.ts    # Research Zustand store (threads, params, pipeline state)
-│   ├── utils.ts                   # Helpers (icons, colors, formatting)
-│   └── App.tsx                    # Root component
-├── src-tauri/
-│   └── src/
-│       ├── lib.rs                 # 38+ Tauri commands (file ops, studio, walk, rename, editor, clipboard)
-│       ├── api_server.rs          # HTTP REST API server (:7890)
-│       ├── settings.rs            # Settings structs with 16+ AI prompts + 8 pipeline step configs
-│       └── plugins.rs             # WASM plugin engine (wasmtime)
-├── scripts/
-│   ├── process_files.py           # 55+ Python processing actions + Auto-Studio + export_content
-│   ├── research_engine.py         # Research v6.1 engine (6,000+ lines):
-│   │                              #   44-step pipeline, 50+ free API tools,
-│   │                              #   meta-analysis, forest/funnel/PRISMA/RoB plots,
-│   │                              #   GRADE, PICO extraction, retraction check
-│   ├── shazam_recognize.py        # Shazam audio fingerprinting (adapted from SongRec)
-│   └── requirements.txt           # Python dependencies
-├── Zenith v6.1.md                 # Research engine blueprint (44-step pipeline + architecture)
-├── docs/
-│   └── API.md                     # Full REST API documentation
-├── .claude/
-│   └── launch.json                # Dev server configurations (Vite :1420, Tauri dev)
-├── zenith.bat                     # Unified launcher (build/launch/dev with 5s auto-select)
-├── package.json
-└── README.md
+GET  /api/status          — Health check
+GET  /api/staged          — List all staged items
+POST /api/stage           — Stage a file path
+POST /api/action          — Execute any action (json body: {action, item_id, options})
+GET  /api/settings        — Read current settings
+POST /api/settings        — Update settings
 ```
 
 ---
 
-## &#128230; Storage Locations
+## 🔌 Plugin System (WASM)
 
-| Data | Path |
-|------|------|
-| Settings (all prompts + pipeline configs) | `%APPDATA%/Zenith/settings.json` |
-| Staged items | `%LOCALAPPDATA%/Zenith/state.json` |
-| WASM plugins | `%APPDATA%/Zenith/plugins/` |
-| Temp / output files | `%TEMP%/Zenith/` |
-| Undo history | `%TEMP%/Zenith/mapping_history.json` |
-| Studio transactions | `%TEMP%/Zenith/tx_*.json` |
-| Editor generated images | `%TEMP%/Zenith/Zenith_Editor/` |
-| Clipboard pastes | `%TEMP%/Zenith/clipboard_paste_*.png` |
-| Research exports (.md / .tex / .bib) | `%TEMP%/Zenith/Research/exports/` |
-| Research PDFs (acquired) | `%TEMP%/Zenith/Research/papers/` |
-| Research vector database | `%TEMP%/Zenith/Research/vector_db/` |
-| Research experiments | `%TEMP%/Zenith/Research/experiments/` |
-| Retraction Watch cache | `scripts/retraction_watch_cache.csv` |
-| Beall's list cache | `scripts/bealls_list_cache.txt` |
-| Editor prompt library | `localStorage` key `zenith_editor_prompts` |
-| Editor threads | `localStorage` keys `zenith_editor_threads`, `zenith_editor_active_thread` |
-| Research threads | `localStorage` keys `zenith_research_threads`, `zenith_research_active_thread`, `zenith_research_params` |
+Zenith supports **sandboxed WASM plugins** via [wasmtime](https://wasmtime.dev):
+
+- Drop a `.wasm` file into Settings → Scripts
+- Enable/disable with a toggle
+- Plugins run in a sandboxed environment with no filesystem access outside approved paths
+- Example plugins: custom file transformers, webhook senders, report generators
 
 ---
 
-## &#128202; Feature Coverage Matrix
+## 📋 Changelog
 
-| Capability | Single File | Folder | Multi-Select | Global | URL | Text |
-|:-----------|:----------:|:------:|:------------:|:------:|:---:|:----:|
-| AI Smart Rename | &#9989; | &#9989; | &#9989; | &#9989; | — | — |
-| Convert / Resize / EXIF / Palette | &#9989; (Image) | — | — | — | — | — |
-| Generative Editor (Image-to-image) | &#9989; (Image) | — | — | — | — | — |
-| Generative Editor (Text-to-image) | — | — | — | &#9989; (Canvas btn) | — | — |
-| Zip / Encrypt / Split / Archive | &#9989; | &#9989; | &#9989; | &#9989; | — | — |
-| VirusTotal Scan | &#9989; | &#9989; | &#9989; | — | &#9989; | — |
-| OCR | &#9989; | — | — | — | — | — |
-| Ask Data / Summarize / Translate | &#9989; | — | — | — | — | — |
-| Generate Dashboard | &#9989; | — | — | — | — | — |
-| Merge PDFs | — | — | &#9989; | &#9989; | — | — |
-| Auto-Studio Organize | — | — | — | &#9989; | — | — |
-| Super Summary | — | — | — | &#9989; | — | — |
-| QR Code | — | — | — | &#9989; | &#9989; | — |
-| Preview | &#9989; | &#9989; | — | — | &#9989; | &#9989; |
-| Self-Destruct Timer | &#9989; | &#9989; | — | — | — | — |
-| Clipboard Image Paste | — | — | — | &#9989; (Ctrl+V) | — | — |
-| Research Chat (30+ tools) | — | — | — | &#9989; (Research btn) | — | — |
-| 44-Step Pipeline | — | — | — | &#9989; (Research) | — | — |
-| Meta-Analysis + Forest Plot | — | — | — | &#9989; (Research) | — | — |
-| PRISMA Flowchart | — | — | — | &#9989; (Research) | — | — |
-| GRADE Assessment | — | — | — | &#9989; (Research) | — | — |
-| ClinicalTrials Search | — | — | — | &#9989; (Research) | — | — |
-| Drug AE / Label Lookup | — | — | — | &#9989; (Research) | — | — |
-| Export (MD/LaTeX/BibTeX/JSON) | — | — | — | &#9989; (Research) | — | — |
+### v6.2 (latest)
+
+**Research Window — UI & Architecture**
+- ✅ Full **light/dark mode toggle** — sun/moon button with amber/indigo icons; CSS custom properties switch all 25 design tokens via `data-theme`; persisted to localStorage
+- ✅ **react-bits visual effects** — 10 animated components: Aurora · Squares · GlowOrbs · ClickSpark · SpotlightCard · ShinyText · GradientText · StarBorder · FloatingParticles · GlareHover; global on/off toggle
+- ✅ **GFM markdown in chat** — `react-markdown` + `remark-gfm` for all assistant and tool messages; tables, code blocks, links, superscripts all render correctly
+- ✅ **Message action buttons** — hover to reveal: Copy (with checkmark confirmation) · Edit · Retry · Quote-copy · Stop (in input bar while generating) · per-message token + cost badge
+- ✅ **Pipeline thread restore** — switching to an old research thread re-populates the query field and auto-switches to Manuscript tab if content exists
+- ✅ **Monitor-aware window sizing** — Research window opens at 70% monitor width × 84% monitor height, respecting the taskbar; min 960×640, fully resizable
+- ✅ **Theme toggle visibility** — fixed: button now uses hardcoded contrast-aware colors (amber sun/indigo moon) in both modes
+
+**Research Window — Pipeline**
+- ✅ **Figure insertion fixed** — Prose Smoother now explicitly instructed to preserve `[FIGURE_N]` tags verbatim; fallback injects missing tags before References
+- ✅ **Blueprint specificity** — `figure_description` and `table_description` fields added to `_SCHEMA_BLUEPRINT`; LLM required to produce specific chart type + axes + data description (not just "Figure for Results")
+- ✅ **Higher paper counts** — per-query caps raised: PubMed 20→50, Europe PMC 20→50, Literature Search 5→25, max_results ×3 dedup pool
+- ✅ **Export path fixed** — changed from `AppData/Local/Temp/Zenith/...` (blocked by opener plugin ACL) to `~/Documents/Zenith Exports/` via `reveal_in_folder` Rust command
+- ✅ **Status bar cost tracking** — shows session cost + cumulative all-time cost from settings
+
+**Settings**
+- ✅ **Sci-Hub mirror manager** — full UI: add/edit/delete/reorder (up/down arrows)/ping individual/Ping All/Reset to defaults; `scihub_mirrors: Vec<String>` persisted in `settings.json`
+- ✅ **`ping_url` Tauri command** — async `reqwest` HEAD request with 8s timeout, returns latency in ms
+- ✅ **Mirrors wired to engine** — `scihub_mirrors` from settings passed to `acquire` phase → overrides `_SCIHUB_MIRRORS` in `research_engine.py` without restart
+
+### v6.1
+
+- 44-step autonomous research pipeline
+- 50+ free academic APIs
+- Statistical analysis engine (scipy/matplotlib/numpy)
+- ChromaDB vector database
+- GRADE/RoB/PRISMA tools
+- Dynamic Agent Activity Feed
+- Paper Browser + PICO Extraction Table
+- 4-tab Manuscript Preview
+- Thread management with date grouping
+- CAPTCHA dialog for Sci-Hub
+
+### v5.6
+
+- Modular component architecture (14 components)
+- Per-agent configurability (prompt, temp, tokens, thinking)
+- Checkpoint resume for failed pipelines
+- Auto-rename thread titles
+- Token + cost tracking synced to Rust settings
 
 ---
 
-## &#129309; Contributing
+## 📄 License
 
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
-
-## &#128220; License
-
-This project is licensed under the **Zenith Personal Use License** — free for personal, non-commercial use. Commercial use requires a separate license. See the [LICENSE](LICENSE) file for full terms.
-
----
-
-## &#128588; Acknowledgments
-
-- **[AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw)** by [Aiming Lab](https://github.com/aiming-lab) — Autonomous research pipeline architecture. Zenith's Research Window is inspired by AutoResearchClaw's research pipeline design and uses select concepts from its codebase for literature search, citation verification, and experiment sandbox capabilities.
-- **[SongRec](https://github.com/marin-m/SongRec)** by [marin-m](https://github.com/marin-m) — Open-source Shazam client and audio fingerprinting algorithm. Zenith's music recognition module (`scripts/shazam_recognize.py`) is adapted from SongRec's Python implementation. Licensed under [GPL-3.0](https://github.com/marin-m/SongRec/blob/main/LICENSE).
-- **[TheAudioDB](https://www.theaudiodb.com)** — Music metadata API (album, artist, year, genre, cover art).
-- **[imdbapi.dev](https://imdbapi.dev)** — Primary movie/series metadata lookup API.
-- **[OMDB API](https://www.omdbapi.com)** — Fallback movie/series metadata (ratings, plot, director).
-- **[VirusTotal](https://www.virustotal.com)** — File and URL security scanning.
-- **[PubMed E-utilities](https://www.ncbi.nlm.nih.gov/home/develop/api/)** — MEDLINE literature search and MeSH vocabulary (National Library of Medicine).
-- **[Europe PMC](https://europepmc.org/RestfulWebService)** — Full-text biomedical literature REST API (EMBL-EBI).
-- **[OpenAlex](https://openalex.org)** — Open catalog of the global research system.
-- **[Semantic Scholar API](https://api.semanticscholar.org)** — Academic paper search and citation graphs (Allen Institute for AI).
-- **[ClinicalTrials.gov v2 API](https://clinicaltrials.gov/data-api/api)** — Registry of clinical studies (U.S. National Library of Medicine).
-- **[OpenFDA API](https://open.fda.gov/apis/)** — Drug adverse events and prescribing labels (U.S. FDA).
-- **[NLM RxNorm API](https://lhncbc.nlm.nih.gov/RxNav/)** — Drug nomenclature and classification (National Library of Medicine).
-- **[Unpaywall](https://unpaywall.org/products/api)** — Legal open-access paper discovery by DOI.
+MIT — see [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
 
-**Built with Rust &#9881;&#65039;, React &#9889;, Python &#128013;, and mass amounts of caffeine &#9749;**
+Built with ⚡ by the Zenith team · Tauri v2 · React 19 · Rust · Python
 
-*175+ features. 5 AI providers. Generative image editor. Research v6.1 — 44-step pipeline, 50+ free APIs, statistical engine. Shazam music ID. 1 invisible tool that does everything.*
-
-**&#11088; Star this repo if Zenith blew your mind!**
+*The only desktop app that does your files AND your PhD.*
 
 </div>

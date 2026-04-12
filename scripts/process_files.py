@@ -2864,7 +2864,7 @@ def generate_image(args):
     image_size = args.get("image_size", "1K")
     quality = args.get("quality", "standard")       # OpenAI "standard" | "hd"
     style = args.get("style", "")                   # style hint text for Gemini
-    thinking_level = args.get("thinking_level", "")  # "minimal"|"High" (Pro only)
+    thinking_level = args.get("thinking_level", "")  # "minimal"|"low"|"medium"|"high" (Flash only)
     temperature = args.get("temperature", None)
 
     if not api_key:
@@ -3073,10 +3073,18 @@ def enhance_prompt(args):
     if not prompt.strip():
         return {"error": "No prompt provided."}
 
-    system = ("You are an expert image prompt engineer. Rewrite the user's rough image description "
-              "into a highly detailed, professional prompt for an AI image generator. "
-              "Include: lighting, composition, style, mood, camera angle, and quality keywords. "
-              "Return ONLY the enhanced prompt text, nothing else.")
+    system = (
+        "You are a visual storytelling expert. Rewrite the user's rough image idea as 2–4 clear, "
+        "descriptive natural language sentences — the kind a film director or photographer would use "
+        "to describe a shot.\n\n"
+        "Rules:\n"
+        "- Write complete sentences, NOT comma-separated keyword lists\n"
+        "- Do NOT include quality tags like 'masterpiece', '8k', 'ultra-detailed', 'best quality', 'highly detailed'\n"
+        "- Do NOT use Stable Diffusion syntax\n"
+        "- Describe: subject, environment, lighting, mood, color palette, composition, and style naturally\n"
+        "- Keep it under 150 words\n\n"
+        "Return ONLY the enhanced description, nothing else."
+    )
 
     result = _call_llm(provider, api_key, model, prompt, system_prompt=system)
     if "error" in result:

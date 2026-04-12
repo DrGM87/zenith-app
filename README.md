@@ -28,6 +28,10 @@
 
 **[The Bubble](#-the-bubble--main-entry-point)** &bull; **[Research Window](#-zenith-research-window--v61)** &bull; **[Auto-Studio](#-auto-studio--the-review-panel)** &bull; **[Generative Editor](#-zenith-generative-editor)** &bull; **[Smart Rename](#-smart-rename-engine)** &bull; **[Settings](#-settings-hub)** &bull; **[Quick Start](#-quick-start)** &bull; **[Architecture](#%EF%B8%8F-architecture)**
 
+[![Editor](https://img.shields.io/badge/Editor-v2-8b5cf6?style=flat-square)]()
+[![Effects](https://img.shields.io/badge/React--Bits_Effects-8-ec4899?style=flat-square)]()
+[![Theme](https://img.shields.io/badge/Dark_%2F_Light_Theme-✓-22d3ee?style=flat-square)]()
+
 </div>
 
 ---
@@ -82,6 +86,18 @@ But Zenith is also a **full PhD-level research intelligence platform**. Click Re
 
 ---
 
+### Zenith Generative Editor — Chat Mode
+
+> The full-window AI image studio. Conversational multi-turn generation, thread history, react-bits effects, dark/light theme, and natural-language prompt enhancement.
+
+<p align="center">
+  <img src="screenshots/ZenithEditor_chat.png" alt="Zenith Generative Editor — conversational image editing with thread panel, aurora background, and parameter controls" width="900"/>
+</p>
+
+*The editor with a generated image in the chat timeline. Left: thread list with cost and image count badges. Center: user prompt bubble + AI image response with Copy / Edit from here / Stage actions. Right: aspect ratio grid, image size, style picker, Thinking level toggle, and session summary. Bottom: model selector, session cost, prompt textarea with ✨ enhance, negative prompt toggle, and the Generate button.*
+
+---
+
 ## 🫧 The Bubble — Main Entry Point
 
 The **Bubble** is Zenith's floating command center — a tiny, always-visible pill that sits at the edge of your screen and never gets in your way.
@@ -105,7 +121,7 @@ The **Bubble** is Zenith's floating command center — a tiny, always-visible pi
 | Category | Actions |
 |----------|---------|
 | **Image** | Convert Format, Resize (+ fill color for ratio changes), EXIF Strip/Preview, Color Palette + WCAG + Ink Dropper, Base64 (Raw/HTML/CSS/TXT), OCR (Vision AI + Tesseract), Open in Generative Editor |
-| **AI Image Gen** | Zenith Generative Editor — text-to-image, image-to-image, conversational multi-turn editing, 3 models, thread management, 10 aspect ratios, 9 style presets, prompt library, cost tracking |
+| **AI Image Gen** | Zenith Generative Editor v2 — text-to-image, image-to-image, conversational multi-turn editing, 3 models, thread management, 10 aspect ratios, 9 style presets, prompt library, cost tracking, dark/light theme, react-bits effects, negative prompt, clipboard copy, inline rename, per-item delete |
 | **PDF** | Compress, Merge (multi-PDF), PDF → CSV (LLM-powered structured extraction) |
 | **Audio** | Shazam Music Recognition (fingerprint → identify → metadata) |
 | **Media** | FFmpeg Convert (MP4, MP3, WebM, WAV, GIF) |
@@ -478,25 +494,90 @@ The **Auto-Studio** is Zenith's flagship file organization feature — a sliding
 
 > *Drop an image, click Editor. Type a prompt. Watch the AI repaint it. Chain 10 edits. Compare. Save. Stage.*
 
-The **Zenith Generative Editor** is a full-window AI image creation and editing studio.
+The **Zenith Generative Editor** is a full-window AI image creation and editing studio — redesigned with a cinematic dark/light theme system, live react-bits visual effects, and a natural-language prompt intelligence layer.
+
+### Screenshot
+
+<p align="center">
+  <img src="screenshots/ZenithEditor_chat.png" alt="Zenith Generative Editor — conversational image editing with thread history, parameter panel, and animated aurora background" width="900"/>
+</p>
+
+*The editor in action: the left panel shows the thread list (double-click to rename) and per-thread image history with hover trash. The center chat timeline shows user prompt bubbles and AI-generated image responses with Copy / Edit from here / Stage actions on each. The right panel exposes aspect ratio, image size, style grid, and a 4-level Thinking toggle. The command deck at the bottom has the model selector, session cost, prompt textarea with enhance (✨) and revert, negative prompt toggle, and the Generate button wrapped in an animated star-border glow.*
+
+---
 
 ### Supported Models
 
 | Model | Provider | Best For |
 |-------|----------|----------|
-| **Nano Banana 2** (`gemini-3.1-flash-image-preview`) | Google | Fast iterations, daily use |
-| **Nano Banana Pro** (`gemini-3-pro-image-preview`) | Google | High-quality, deep thinking |
+| **Nano Banana 2** (`gemini-3.1-flash-image-preview`) | Google | Fast iterations, daily use, 4-level thinking |
+| **Nano Banana Pro** (`gemini-3-pro-image-preview`) | Google | High-quality, deep reasoning |
 | **GPT-Image 1.5** (`gpt-image-1.5`) | OpenAI | Photorealism, high-adherence edits |
 
-### Key Features
+---
 
-- **Thread / session management** — left panel has Threads + Images tabs; create, switch, delete freely
-- **Conversational editing** — each generation uses the current output as the next input; chain unlimited edits
-- **Before/After toggle** — hold the comparison pill to flip between original and AI version
-- **Prompt enhancement (✨)** — rough idea → LLM rewrites to a detailed professional prompt
-- **Prompt library** — save, load, rename, delete prompts; full management UI
-- **Session cost tracker** — live cumulative USD cost in the Command Deck; per-thread totals in Threads tab
+### Core Features
+
+- **Conversational multi-turn editing** — each generation uses the current output as the next input; chain unlimited edits across threads
+- **Thread management** — create, switch, and delete named sessions; thread titles auto-generated from first prompt
+- **Before/After compare** — hold the "Compare Original" pill to flip between original and AI-edited version
 - **Send to Stage** — save current canvas to temp and stage it back into the main panel with one click
+- **Session cost tracker** — live cumulative USD cost in the Command Deck; per-thread totals in the Threads tab
+- **Background removal** — two-step AI green-screen + local chroma-key; powered by Gemini vision
+
+---
+
+### New in This Release — Editor v2
+
+#### 🎨 Visual Effects Layer (react-bits)
+All effects use components already bundled with Zenith — zero new dependencies.
+
+| Effect | Where |
+|--------|-------|
+| **AuroraBg** | Animated color aurora drifts behind the chat timeline |
+| **GlowOrbs** | Soft ambient orbs float behind the left and right panels |
+| **SpotlightCard** | Cursor spotlight follows mouse across each thread card |
+| **ClickSpark** | Particle burst fires on every click in the editor window |
+| **ShinyText** | "Zenith Editor" title has a live metallic shimmer sweep |
+| **GlareHover** | Subtle 3D glare + tilt effect on each image thumbnail |
+| **StarBorder** | Rotating conic-gradient star border wraps the Generate button |
+| **FloatingParticles** | Glowing particles drift up in the empty canvas state |
+
+- **Effects toggle** (✦ button, header) — disable all react-bits effects for low-power or distraction-free mode; persisted to localStorage
+
+#### 🌗 Dark / Light Theme
+- **Theme toggle** (☀/☾ button, header) — full dark ↔ light switch; persisted to localStorage
+- All colors drive from `--ed-*` CSS variables on the root div — no inline hardcoded hex values
+- Light theme uses `#f0f0f8` backgrounds, dark text, and lightened violet/emerald accents
+
+#### ✨ Natural Language Prompt Enhancer
+- Rewritten system prompt: produces **2–4 flowing descriptive sentences** — the kind a film director would use
+- Explicitly forbids SD-style comma tags, quality boosters (`masterpiece`, `8k`, `ultra-detailed`), and keyword lists
+- **Revert button** appears after enhancement so you can restore your original phrasing with one click
+
+#### 🧠 Thinking Level — 4-Option Toggle
+- Replaced the misleading binary slider with a clean **Minimal · Low · Med · High** button group
+- Maps directly to the Gemini API's lowercase string values (`minimal` / `low` / `medium` / `high`)
+- Only shown for the Gemini 3.1 Flash model that supports it
+
+#### ⌨️ New Interaction Features
+- **Copy to clipboard** — copies the current image as PNG directly to the system clipboard (header button + per-bubble button)
+- **Thread rename** — double-click any thread title to rename it inline; Escape cancels, Enter commits
+- **Delete individual generations** — hover any thumbnail in the Images tab to reveal a trash button
+- **Negative prompt** — collapsible field below the main prompt, passed directly to the generation backend
+- **Prompt history** — press ↑ / ↓ in the textarea to cycle through the last 50 prompts (terminal-style)
+- **Keyboard shortcuts** — `Escape` closes all modals/dropdowns, `Ctrl+Z` undo, `Ctrl+Shift+Z` redo
+
+#### 🐛 Bug Fixes
+- **Aspect ratio auto-reset** — switching from Gemini to OpenAI now resets to `1:1` if the current ratio is incompatible
+- **Cost tracking fixed** — background removal no longer hardcodes provider as `"google"`; uses the actual provider
+- **Cost fallback fixed** — fallback cost uses `currentModel.cost` instead of hardcoded Gemini Flash price
+- **Disk save warning** — failed image saves now show a toast instead of silently losing the generation on restart
+- **Thread title race condition** — `syncActiveThread` now fires after auto-title resolves, preventing "Untitled" overwrites
+- **Non-null assertion removed** — `currentModel` falls back to `MODELS[0]` instead of crashing on unknown model ID
+- **Pricing table deduplicated** — imports from the shared `research/shared/constants.ts` instead of duplicating the table
+- **Cancel button honesty** — cancelling shows "generation still running in background" since Tauri `invoke` is not interruptible
+- **Typed toasts** — errors show red, successes show green, warnings show amber — with matching icons
 
 ---
 

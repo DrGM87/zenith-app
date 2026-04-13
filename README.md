@@ -656,8 +656,6 @@ A full-featured settings panel with 10 tabs for the main app:
 | **Node.js** | 18+ | Frontend build tooling |
 | **Rust** | stable (via [rustup](https://rustup.rs)) | Tauri backend |
 | **Python** | 3.10+ | AI & file processing sidecar |
-| **scipy + matplotlib + numpy** | latest | Meta-analysis & statistical plots |
-| **chromadb** | latest | Local vector database for RAG |
 | Tesseract OCR | *optional* | Local OCR fallback (free) |
 | FFmpeg | *optional* | Media conversion |
 
@@ -681,15 +679,24 @@ cd zenith-app
 # 2. Install Node dependencies
 npm install
 
-# 3. Install Python dependencies
+# 3. Install all Python dependencies (single command)
 pip install -r scripts/requirements.txt
 
-# 4. Research statistical analysis dependencies
-pip install scipy matplotlib numpy chromadb reportlab python-docx pdfplumber
-
-# 5. Run in dev mode
+# 4. Run in dev mode
 npm run tauri dev
 ```
+
+#### Python dependency groups (all in `scripts/requirements.txt`)
+
+| Group | Key packages | Used by |
+|-------|-------------|---------|
+| **Core** | `requests`, `Pillow`, `numpy`, `beautifulsoup4` | Most scripts |
+| **PDF** | `pdfplumber`, `pymupdf`, `pypdf`, `pikepdf`, `reportlab` | `pdf_parser.py`, research export |
+| **RAG** | `chromadb`, `sentence-transformers`, `rank-bm25`, `nltk` | `RAG_engine.py` |
+| **Research** | `scipy`, `matplotlib`, `python-docx` | `research_engine.py` (meta-analysis, plots) |
+| **Audio** | `pydub`, `mutagen` | `shazam_recognize.py` |
+| **Files** | `qrcode`, `pyminizip` | `process_files.py` |
+| **GLM-OCR** *(disabled)* | `torch`, `transformers>=5.3.0` | `pdf_parser.py` Tier 1 — uncomment in `requirements.txt` to enable |
 
 ### Build for Production
 

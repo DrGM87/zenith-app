@@ -1,32 +1,71 @@
 # Zenith — Python sidecar dependencies
-# Install: pip install -r scripts/requirements.txt
+# Single install: pip install -r scripts/requirements.txt
+#
+# Script coverage:
+#   process_files.py  · pdf_parser.py    · RAG_engine.py      · research_engine.py
+#   scihub.py         · shazam_recognize.py · clinical_trials.py · fda_drug_label.py
+#   ai_summarizer.py  · duplicate_finder.py · zenith_api.py
 
-# ── Core (required) ──
-Pillow>=10.0.0            # Image processing (compress, resize, EXIF strip, WebP, palette)
-qrcode[pil]>=7.4          # QR code generation from URLs/text
-beautifulsoup4
-retrying
-# ── PDF Processing ──
-pdfplumber>=0.10.0         # PDF text extraction (primary)
-PyPDF2>=3.0.0              # PDF merge/compress (fallback)
-pikepdf>=8.0.0             # PDF compression (preferred, faster)
-reportlab>=4.0.0           # PDF generation (OCR → searchable PDF)
+# ══════════════════════════════════════════════════════
+# CORE — required by multiple scripts
+# ══════════════════════════════════════════════════════
 
-# ── OCR ──
-pytesseract>=0.3.10        # Tesseract OCR Python wrapper (requires Tesseract binary)
+requests>=2.31.0          # HTTP client — clinical_trials, fda_drug_label, scihub, shazam, research_engine
+urllib3>=1.26.0           # HTTP internals — scihub, research_engine (SSL warning suppression)
+beautifulsoup4>=4.12.0    # HTML parsing — scihub.py
+Pillow>=10.0.0            # Image processing — process_files.py, pdf_parser.py
+numpy>=1.24.0             # Numeric arrays — shazam_recognize.py, RAG_engine.py
+packaging>=23.0           # Version comparison — pdf_parser.py (_detect_available_libs)
 
-# ── Audio Recognition & Metadata ──
-requests>=2.31.0           # HTTP client (TheAudioDB API, cover art download)
-mutagen>=1.47.0            # Audio metadata reading/writing (ID3, Vorbis, MP4, ASF)
+# ══════════════════════════════════════════════════════
+# PDF PROCESSING — pdf_parser.py
+# ══════════════════════════════════════════════════════
 
-# ── Image Processing (advanced) ──
-numpy>=1.24.0              # Chroma-key background removal (array ops)
+pdfplumber>=0.10.0        # PDF text + table extraction (Tier 2)
+pymupdf>=1.24.0           # Fast layout-aware extraction + PDF→PNG raster (Tier 3)
+pypdf>=3.0.0              # Pure-Python extraction, last resort (Tier 4)
+pikepdf>=8.0.0            # PDF compression (lossless, faster than PyMuPDF for that)
+reportlab>=4.0.0          # PDF generation — research export, OCR→searchable PDF
 
-# ── Optional (enhanced features) ──
-pyminizip>=0.2.6           # Encrypted ZIP (AES-256) — fallback if 7z not available
+# ══════════════════════════════════════════════════════
+# RAG ENGINE — RAG_engine.py
+# ══════════════════════════════════════════════════════
 
-# ── Research Engine (Zenith Research Window) ──
-# Note: research_engine.py uses only stdlib (urllib, xml, json, re, subprocess)
-# for core functionality. The following are optional for enhanced features:
-# pdfplumber (already listed above) — PDF text extraction for research
-# reportlab (already listed above) — PDF export for research conversations
+chromadb>=0.4.0           # Local vector store
+sentence-transformers>=2.7.0  # Embedding models (SPECTER2 / NOMIC / MedEmbed)
+rank-bm25>=0.2.2          # BM25 sparse retrieval
+nltk>=3.8.0               # Tokenisation for BM25 + text chunking
+
+# ══════════════════════════════════════════════════════
+# RESEARCH ENGINE — research_engine.py
+# ══════════════════════════════════════════════════════
+
+scipy>=1.11.0             # Meta-analysis statistics (effect sizes, heterogeneity)
+matplotlib>=3.8.0         # Forest plots, funnel plots, figure generation
+python-docx>=1.0.0        # .docx manuscript export
+retrying>=1.3.4           # Retry decorator — scihub.py download retries
+
+# ══════════════════════════════════════════════════════
+# AUDIO — shazam_recognize.py
+# ══════════════════════════════════════════════════════
+
+pydub>=0.25.1             # Audio file loading / format conversion
+mutagen>=1.47.0           # Audio metadata reading/writing (ID3, MP4, Vorbis, ASF)
+
+# ══════════════════════════════════════════════════════
+# FILE PROCESSING — process_files.py
+# ══════════════════════════════════════════════════════
+
+qrcode[pil]>=7.4          # QR code generation from URLs / text
+pyminizip>=0.2.6          # Encrypted ZIP (AES-256) — fallback when 7-Zip not available
+
+# ══════════════════════════════════════════════════════
+# GLM-OCR (TIER 1 — DISABLED)
+# Set _GLM_OCR_ENABLED = True in pdf_parser.py to activate.
+# GPU strongly recommended; ~44 min/page on CPU.
+# Uncomment to install:
+# ══════════════════════════════════════════════════════
+
+# torch>=2.0.0
+# transformers>=5.3.0
+# accelerate>=0.26.0

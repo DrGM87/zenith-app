@@ -412,6 +412,12 @@ pub struct ZenithSettings {
     pub shazam_auto_recognize: bool,
     #[serde(default = "default_scihub_mirrors")]
     pub scihub_mirrors: Vec<String>,
+    #[serde(default = "default_embedding_model")]
+    pub embedding_model: String,
+}
+
+fn default_embedding_model() -> String {
+    "allenai/specter2".to_string()
 }
 
 fn default_scihub_mirrors() -> Vec<String> {

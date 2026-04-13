@@ -314,6 +314,12 @@ export function ZenithResearch() {
           isDark={isDark}
           onToggleTheme={toggleTheme}
           totalCostUsd={settings?.token_usage?.total_cost_usd ?? 0}
+          embeddingModel={settings?.embedding_model ?? "allenai/specter2"}
+          onEmbeddingModelChange={(m) => {
+            const updated = { ...settings, embedding_model: m } as ZenithSettings;
+            handleSettingsChange(updated);
+            invoke("save_settings", { newSettings: updated }).catch(console.error);
+          }}
         />
 
         {/* ── CAPTCHA dialog ─────────────────────────────────────────────── */}
@@ -455,8 +461,15 @@ export function ZenithResearch() {
 
 // ── Status Bar ───────────────────────────────────────────────────────────────
 
+const EMBEDDING_OPTIONS = [
+  { id: "allenai/specter2",              label: "SPECTER2", title: "SPECTER2 — Scientific papers (110M, 768-dim, 512 tok)" },
+  { id: "nomic-ai/nomic-embed-text-v1.5", label: "NOMIC",    title: "Nomic Embed v1.5 — Long-context general (137M, 768-dim, 8192 tok)" },
+  { id: "abhinand/MedEmbed-base-v0.1",   label: "MedEmbed", title: "MedEmbed — Clinical/biomedical (110M, 768-dim, 512 tok)" },
+] as const;
+
 function StatusBar({
   phase, progress, statusMessage, tokens, papersCount, fxEnabled, onToggleFx, isDark, onToggleTheme, totalCostUsd,
+  embeddingModel, onEmbeddingModelChange,
 }: {
   phase: string; progress: number; statusMessage: string;
   tokens: { input: number; output: number; cost: number };
@@ -466,6 +479,8 @@ function StatusBar({
   isDark: boolean;
   onToggleTheme: () => void;
   totalCostUsd: number;
+  embeddingModel: string;
+  onEmbeddingModelChange: (model: string) => void;
 }) {
   const isActive = phase !== "idle" && phase !== "complete" && phase !== "error";
   const isError = phase === "error";
@@ -570,6 +585,37 @@ function StatusBar({
           / {fmtCost(totalCostUsd)} total
         </span>
       )}
+
+      {/* ── Embedding model selector ─────────────────────────────────────── */}
+      <div className="flex items-center gap-0.5" title="RAG embedding model">
+        <span className="text-[8px] mr-1" style={{ color: "rgba(255,255,255,0.18)", letterSpacing: "0.05em" }}>EMB</span>
+        {EMBEDDING_OPTIONS.map((opt) => {
+          const active = embeddingModel === opt.id;
+          return (
+            <button
+              key={opt.id}
+              onClick={() => onEmbeddingModelChange(opt.id)}
+              title={opt.title}
+              className="cursor-pointer transition-all duration-150 select-none"
+              style={{
+                background: active
+                  ? (fxEnabled ? "rgba(34,211,238,0.15)" : "rgba(34,211,238,0.12)")
+                  : "transparent",
+                border: `1px solid ${active ? (fxEnabled ? "rgba(34,211,238,0.45)" : "rgba(34,211,238,0.30)") : t.border.subtle}`,
+                borderRadius: 3,
+                padding: "1px 5px",
+                color: active ? t.accent.cyan : t.text.ghost,
+                fontSize: 7.5,
+                lineHeight: "15px",
+                fontFamily: t.font.mono,
+                boxShadow: active && fxEnabled ? "0 0 5px rgba(34,211,238,0.25)" : undefined,
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* ── Theme toggle ─────────────────────────────────────────────────── */}
       <button

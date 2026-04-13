@@ -104,112 +104,9 @@ def _get_prompt_logs():
     return result
 
 
-# ── ChromaDB Vector Store (lightweight local vector DB for GraphRAG) ──
-try:
-    import chromadb
-    _HAS_CHROMADB = True
-except ImportError:
-    _HAS_CHROMADB = False
-
-
-def _init_vector_collection(project_id: str):
-    """Initialize or get a ChromaDB collection for a research project."""
-    if not _HAS_CHROMADB:
-        return None
-    db_path = os.path.join(VECTORDB_DIR, project_id)
-    os.makedirs(db_path, exist_ok=True)
-    client = chromadb.PersistentClient(path=db_path)
-    collection = client.get_or_create_collection(
-        name="research_papers",
-        metadata={"hnsw:space": "cosine"},
-    )
-    return collection
-
-
-def _chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list:
-    """Split text into overlapping chunks for embedding."""
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunk = text[start:end]
-        if chunk.strip():
-            chunks.append(chunk.strip())
-        start += chunk_size - overlap
-    return chunks
-
-
-def ingest_into_vectordb(args):
-    """Phase 2.2 — Ingest extracted texts into ChromaDB vector store.
-    Args: {project_id, papers: [{title, doi, text}], query}
-    Returns: {ok, chunks_stored, collection_size}"""
-    project_id = args.get("project_id", "default")
-    papers = args.get("papers", [])
-    query = args.get("query", "")
-
-    if not _HAS_CHROMADB:
-        return {"ok": True, "chunks_stored": 0, "collection_size": 0,
-                "warning": "chromadb not installed. Install via: pip install chromadb. Proceeding without vector search."}
-
-    collection = _init_vector_collection(project_id)
-    if not collection:
-        return {"ok": True, "chunks_stored": 0, "collection_size": 0,
-                "warning": "Could not initialize vector DB."}
-
-    chunks_stored = 0
-    for pi, paper in enumerate(papers):
-        text = paper.get("text", "")
-        title = paper.get("title", f"Paper {pi}")
-        doi = paper.get("doi", "")
-        if not text or len(text) < 50:
-            continue
-        chunks = _chunk_text(text, chunk_size=1200, overlap=200)
-        ids = [f"p{pi}_c{ci}" for ci in range(len(chunks))]
-        metadatas = [{"paper_idx": pi, "title": title, "doi": doi, "chunk_idx": ci, "query": query} for ci in range(len(chunks))]
-        # Batch add (ChromaDB handles embeddings internally with default model)
-        try:
-            collection.add(documents=chunks, ids=ids, metadatas=metadatas)
-            chunks_stored += len(chunks)
-        except Exception as e:
-            # Duplicates or other issues — skip silently
-            if "already exists" not in str(e).lower():
-                pass
-
-    return {"ok": True, "chunks_stored": chunks_stored,
-            "collection_size": collection.count()}
-
-
-def query_vectordb(args):
-    """Query the vector DB for relevant chunks.
-    Args: {project_id, query, n_results, section_type}
-    Returns: {ok, results: [{text, title, doi, score}]}"""
-    project_id = args.get("project_id", "default")
-    query_text = args.get("query", "")
-    n_results = args.get("n_results", 10)
-    section_type = args.get("section_type", "")
-
-    if not _HAS_CHROMADB:
-        return {"ok": True, "results": [], "warning": "chromadb not installed"}
-
-    collection = _init_vector_collection(project_id)
-    if not collection or collection.count() == 0:
-        return {"ok": True, "results": []}
-
-    search_query = f"{section_type}: {query_text}" if section_type else query_text
-    try:
-        results = collection.query(query_texts=[search_query], n_results=min(n_results, collection.count()))
-        formatted = []
-        if results and results.get("documents"):
-            for i, doc in enumerate(results["documents"][0]):
-                meta = results["metadatas"][0][i] if results.get("metadatas") else {}
-                dist = results["distances"][0][i] if results.get("distances") else 0
-                formatted.append({
-                    "text": doc, "title": meta.get("title", ""),
-                    "doi": meta.get("doi", ""), "score": round(1 - dist, 4),
-                })
-        return {"ok": True, "results": formatted}
-    except Exception as e:
-        return {"ok": True, "results": [], "error": str(e)}
+# ── RAG Engine (vector store, hybrid retrieval, re-ranking, MMR) ──
+# All ChromaDB / BM25 / embedding logic lives in RAG_engine.py.
+from RAG_engine import ingest_into_vectordb, query_vectordb, _HAS_CHROMADB  # noqa: E402
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1720,7 +1617,8 @@ def draft_research_section(args):
     vector_context = ""
     if _HAS_CHROMADB:
         vdb_result = query_vectordb({"project_id": project_id, "query": query,
-                                     "section_type": section_type, "n_results": 8})
+                                     "section_type": section_type, "n_results": 8,
+                                     "embedding_model": args.get("embedding_model", "allenai/specter2")})
         if vdb_result.get("results"):
             vector_context = "\n\n## Retrieved full-text excerpts (from vector DB):\n"
             for vi, vr in enumerate(vdb_result["results"], 1):
@@ -1845,7 +1743,8 @@ def smooth_manuscript(args):
     # Retrieve vector DB context for richer evidence during smoothing
     vector_context = ""
     if _HAS_CHROMADB:
-        vdb_result = query_vectordb({"project_id": project_id, "query": query, "n_results": 12})
+        vdb_result = query_vectordb({"project_id": project_id, "query": query, "n_results": 12,
+                                     "embedding_model": args.get("embedding_model", "allenai/specter2")})
         if vdb_result.get("results"):
             vector_context = "\n\n## Full-text evidence from vector DB (use to verify claims):\n"
             for vi, vr in enumerate(vdb_result["results"], 1):

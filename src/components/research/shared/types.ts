@@ -49,6 +49,7 @@ export interface ZenithSettings {
   firecrawl_api_key?: string;
   vt_api_key?: string;
   omdb_api_key?: string;
+  embedding_model?: string;
   [key: string]: unknown;
 }
 

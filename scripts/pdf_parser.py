@@ -44,6 +44,8 @@ import sys
 import time
 import traceback
 import tempfile
+import multiprocessing
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
@@ -564,6 +566,117 @@ def _available_libs_summary() -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 # ██  MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
+
+def parse_pdf_parallel(
+    pdf_path: str,
+    settings: Optional[PDFParserSettings] = None,
+    max_workers: Optional[int] = None,
+) -> dict:
+    """
+    Parse a PDF with multithreading for parallel page processing.
+    
+    Args:
+        pdf_path: Path to PDF file
+        settings: Parser settings
+        max_workers: Number of worker threads (default: total cores - 2)
+    
+    Returns same dict as parse_pdf
+    """
+    if settings is None:
+        settings = PDFParserSettings()
+    
+    if max_workers is None:
+        max_workers = max(1, multiprocessing.cpu_count() - 2)
+    
+    pdf_path = str(Path(pdf_path).resolve())
+    if not os.path.isfile(pdf_path):
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+    
+    t0 = time.perf_counter()
+    errors: list[dict] = []
+    
+    metadata = _get_pdf_metadata(pdf_path)
+    total_pages = metadata.get("page_count", 0)
+    
+    if total_pages == 0:
+        raise ValueError(f"PDF has no pages: {pdf_path}")
+    
+    # Create settings for each page
+    page_settings = []
+    for page_num in range(1, total_pages + 1):
+        page_settings.append(PDFParserSettings(
+            model_id=settings.model_id,
+            ocr_device=settings.ocr_device,
+            max_new_tokens=settings.max_new_tokens,
+            task_mode=settings.task_mode,
+            dpi=settings.dpi,
+            extract_tables=settings.extract_tables,
+            extract_formulas=settings.extract_formulas,
+            pages=[page_num],
+            force_tier=settings.force_tier,
+        ))
+    
+    def _parse_page(idx: int, page_setting: PDFParserSettings) -> tuple:
+        """Parse a single page."""
+        try:
+            result = parse_pdf(pdf_path, page_setting)
+            return (idx, result, None)
+        except Exception as exc:
+            return (idx, None, str(exc))
+    
+    # Parse pages in parallel
+    results = {}
+    page_results = [None] * total_pages
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_parse_page, i, page_settings[i]): i
+            for i in range(total_pages)
+        }
+        
+        for future in as_completed(futures):
+            idx, result, error = future.result()
+            if error:
+                errors.append({
+                    "page": idx + 1,
+                    "error": error,
+                })
+            elif result:
+                page_results[idx] = result
+    
+    # Merge results
+    merged_result = {
+        "parser_used": page_results[0]["parser_used"] if page_results[0] else "none",
+        "parser_version": __version__,
+        "settings_used": asdict(settings),
+        "available_parsers": _available_libs_summary(),
+        "metadata": metadata,
+        "pages": [],
+        "full_text": "",
+        "full_markdown": "",
+        "warnings": [],
+        "errors": errors,
+        "processing_time_sec": time.perf_counter() - t0,
+        "multithreaded": True,
+        "max_workers": max_workers,
+    }
+    
+    # Merge pages
+    for page_result in page_results:
+        if page_result:
+            merged_result["pages"].extend(page_result.get("pages", []))
+            merged_result["warnings"].extend(page_result.get("warnings", []))
+    
+    # Merge full text
+    merged_result["full_text"] = "\n\n".join([
+        p.get("text", "") for p in merged_result["pages"]
+    ])
+    
+    merged_result["full_markdown"] = "\n\n".join([
+        p.get("markdown", "") for p in merged_result["pages"]
+    ])
+    
+    return merged_result
+
 
 def parse_pdf(
     pdf_path: str,

@@ -50,6 +50,7 @@ export interface ZenithSettings {
   vt_api_key?: string;
   omdb_api_key?: string;
   embedding_model?: string;
+  gemini_api_key?: string;
   [key: string]: unknown;
 }
 

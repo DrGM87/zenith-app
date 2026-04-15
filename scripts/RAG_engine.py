@@ -3,7 +3,11 @@
 RAG_engine.py — Zenith Enhanced Retrieval-Augmented Generation Engine
 ======================================================================
 Features:
-  • 3 user-selectable embedding models (SPECTER2, Nomic, MedEmbed)
+  • 4 user-selectable embedding models:
+      - SPECTER2  (local, scientific)
+      - Nomic     (local, long-context general)
+      - MedEmbed  (local, clinical/biomedical)
+      - Gemini    (API, text-embedding-004, batch file API for large corpora)
   • Section-aware sentence-boundary chunking (no mid-sentence cuts)
   • ChromaDB persistent HNSW vector store with custom embedding functions
   • Hybrid retrieval: Dense (HNSW) + BM25 merged via Reciprocal Rank Fusion
@@ -20,6 +24,7 @@ import re
 import json
 import pickle
 import time
+import hashlib
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 import tempfile
@@ -50,6 +55,14 @@ except ImportError:
     _HAS_CROSS_ENCODER = False
 
 try:
+    import torch
+    from transformers import AutoTokenizer
+    from adapters import AutoAdapterModel
+    _HAS_ADAPTERS = True
+except ImportError:
+    _HAS_ADAPTERS = False
+
+try:
     from rank_bm25 import BM25Okapi
     _HAS_BM25 = True
 except ImportError:
@@ -67,23 +80,45 @@ try:
 except ImportError:
     _HAS_NLTK = False
 
+try:
+    from google import genai as _genai
+    from google.genai import types as _genai_types
+    _HAS_GEMINI = True
+except ImportError:
+    _HAS_GEMINI = False
+
+# Module-level Gemini API key — set via set_gemini_api_key() or env var
+_GEMINI_API_KEY: str = ""
+
+
+def set_gemini_api_key(key: str) -> None:
+    """Set the Gemini API key for the current process (or read from env at call time)."""
+    global _GEMINI_API_KEY
+    _GEMINI_API_KEY = key
+
+
+def _resolve_gemini_key(override: str = "") -> str:
+    return (override or _GEMINI_API_KEY
+            or os.environ.get("GEMINI_API_KEY", "")
+            or os.environ.get("GOOGLE_API_KEY", ""))
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ██  MODEL REGISTRY
 # ══════════════════════════════════════════════════════════════════════════════
 
 EMBEDDING_MODELS = {
-    "allenai/specter2": {
-        "display": "SPECTER2",
-        "short": "sp2",
-        "dims": 768,
-        "max_chars": 1800,   # ≈ 450 tokens — fits within 512-token limit
-        "domain": "scientific",
-        "doc_prefix": "",
-        "query_prefix": "",
-        "trust_remote_code": False,
-        "description": "Best for scientific & academic papers (AllenAI)",
-    },
+    # "allenai/specter2": {
+    #     "display": "SPECTER2",
+    #     "short": "sp2",
+    #     "dims": 768,
+    #     "max_chars": 1800,   # ≈ 450 tokens — fits within 512-token limit
+    #     "domain": "scientific",
+    #     "doc_prefix": "",
+    #     "query_prefix": "",
+    #     "trust_remote_code": False,
+    #     "description": "Best for scientific & academic papers (AllenAI)",
+    # },
     "nomic-ai/nomic-embed-text-v1.5": {
         "display": "Nomic",
         "short": "nom",
@@ -95,16 +130,30 @@ EMBEDDING_MODELS = {
         "trust_remote_code": True,
         "description": "Long-context model, great for full-section retrieval",
     },
-    "abhinand/MedEmbed-base-v0.1": {
-        "display": "MedEmbed",
-        "short": "med",
+    # "abhinand/MedEmbed-base-v0.1": {
+    #     "display": "MedEmbed",
+    #     "short": "med",
+    #     "dims": 768,
+    #     "max_chars": 1800,   # ≈ 450 tokens
+    #     "domain": "medical",
+    #     "doc_prefix": "",
+    #     "query_prefix": "",
+    #     "trust_remote_code": False,
+    #     "description": "Specialized for clinical & biomedical literature",
+    # },
+    "models/gemini-embedding-2-preview": {
+        "display": "Gemini",
+        "short": "gem",
         "dims": 768,
-        "max_chars": 1800,   # ≈ 450 tokens
-        "domain": "medical",
+        "max_chars": 32000,
+        "domain": "general",
         "doc_prefix": "",
         "query_prefix": "",
         "trust_remote_code": False,
-        "description": "Specialized for clinical & biomedical literature",
+        "description": "Google Gemini gemini-embedding-2-preview — API-based long-context embeddings for large corpora",
+        "is_api": True,                          # uses Google API, not local model
+        "task_type_doc":   "RETRIEVAL_DOCUMENT",
+        "task_type_query": "RETRIEVAL_QUERY",
     },
 }
 
@@ -114,6 +163,7 @@ RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 # In-process model caches (survive within the same Python subprocess)
 _EMBEDDING_CACHE: dict = {}
 _RERANKER_CACHE: dict = {}
+_GEMINI_CLIENT_CACHE: dict = {}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -176,11 +226,22 @@ def _chunk_text_smart(text: str, max_chars: int = 1800, overlap_chars: int = 250
     if not text or len(text.strip()) < 50:
         return []
 
+    effective_max_chars = max_chars
+    if max_chars > 12000 and len(text) > 12000:
+        target_chunks = max(3, min(12, (len(text) + 23999) // 24000))
+        effective_max_chars = min(
+            max_chars,
+            max(8000, (len(text) + target_chunks - 1) // target_chunks),
+        )
+
+    overlap_chars = min(overlap_chars, max(250, effective_max_chars // 8))
+
     sentences = _split_sentences(text)
     if not sentences:
         # Fallback: hard split
-        return [{"text": text[i:i + max_chars], "section": "body", "char_start": i}
-                for i in range(0, len(text), max_chars - overlap_chars)]
+        step = max(500, effective_max_chars - overlap_chars)
+        return [{"text": text[i:i + effective_max_chars], "section": "body", "char_start": i}
+                for i in range(0, len(text), step)]
 
     chunks = []
     current_sents = []
@@ -198,7 +259,7 @@ def _chunk_text_smart(text: str, max_chars: int = 1800, overlap_chars: int = 250
             continue
 
         # Flush chunk when it would exceed the limit
-        if current_len + sent_len > max_chars and current_sents:
+        if current_len + sent_len > effective_max_chars and current_sents:
             chunk_text = " ".join(current_sents)
             # Detect section of the chunk's midpoint
             mid_section = _detect_section(text, char_offset - current_len // 2)
@@ -242,7 +303,7 @@ def _load_embedding_model(model_name: str):
     if model_name in _EMBEDDING_CACHE:
         return _EMBEDDING_CACHE[model_name]
 
-    if not _HAS_ST:
+    if model_name != "allenai/specter2" and not _HAS_ST:
         print("[RAG] sentence-transformers not installed. "
               "Run: pip install sentence-transformers", file=sys.stderr, flush=True)
         return None
@@ -262,7 +323,41 @@ def _load_embedding_model(model_name: str):
           f"({model_name})...", file=sys.stderr, flush=True)
     t0 = time.time()
     try:
-        model = SentenceTransformer(model_name, trust_remote_code=trust)
+        if model_name == "allenai/specter2":
+            if not _HAS_ADAPTERS:
+                print("[RAG] SPECTER2 requires the adapters library.", file=sys.stderr, flush=True)
+                return None
+
+            class _Specter2AdapterWrapper:
+                def __init__(self):
+                    self.tokenizer = AutoTokenizer.from_pretrained("allenai/specter2_base")
+                    self.model = AutoAdapterModel.from_pretrained("allenai/specter2_base")
+                    self.model.load_adapter("allenai/specter2", source="hf", load_as="specter2", set_active=True)
+                    self.model.eval()
+
+                def encode(self, texts, show_progress_bar=False, batch_size=16, normalize_embeddings=True):
+                    results = []
+                    for i in range(0, len(texts), batch_size):
+                        batch = texts[i:i + batch_size]
+                        inputs = self.tokenizer(
+                            batch,
+                            padding=True,
+                            truncation=True,
+                            return_tensors="pt",
+                            return_token_type_ids=False,
+                            max_length=512,
+                        )
+                        with torch.no_grad():
+                            output = self.model(**inputs)
+                            embs = output.last_hidden_state[:, 0, :]
+                            if normalize_embeddings:
+                                embs = torch.nn.functional.normalize(embs, p=2, dim=1)
+                            results.extend(embs.cpu().numpy())
+                    return np.array(results)
+
+            model = _Specter2AdapterWrapper()
+        else:
+            model = SentenceTransformer(model_name, trust_remote_code=trust)
         _EMBEDDING_CACHE[model_name] = model
         print(f"[RAG] Model ready in {time.time()-t0:.1f}s", file=sys.stderr, flush=True)
         return model
@@ -271,13 +366,25 @@ def _load_embedding_model(model_name: str):
         return None
 
 
-def _embed_texts(texts: list, model_name: str, is_query: bool = False) -> list:
-    """Embed a list of texts, applying task-specific prefixes if needed.
+def _embed_texts(texts: list, model_name: str, is_query: bool = False,
+                 gemini_api_key: str = "", progress_cb=None) -> list:
+    """Embed a list of texts.  Routes Gemini to the API, others to SentenceTransformer.
 
     Returns list of float lists, or [] on failure.
     """
     if not texts:
         return []
+
+    # ── Gemini API path ────────────────────────────────────────────────────────
+    if model_name == _GEMINI_MODEL:
+        return _embed_texts_gemini(
+            texts,
+            is_query=is_query,
+            api_key=gemini_api_key or _resolve_gemini_key(),
+            progress_cb=progress_cb,
+        )
+
+    # ── Local SentenceTransformer path ────────────────────────────────────────
     model = _load_embedding_model(model_name)
     if model is None:
         return []
@@ -300,21 +407,237 @@ def _embed_texts(texts: list, model_name: str, is_query: bool = False) -> list:
         return []
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ██  GEMINI EMBEDDING — text-embedding-004 via Google API (batch file API)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_GEMINI_MODEL   = "models/gemini-embedding-2-preview"
+_GEMINI_BATCH_THRESHOLD = 512
+_GEMINI_DIRECT_BATCH_SIZE = 32
+
+def _embed_texts_gemini(
+    texts: list,
+    is_query: bool = False,
+    api_key: str = "",
+    progress_cb=None,
+) -> list:
+    """Embed texts with Gemini text-embedding-004.
+
+    Strategy:
+      • ≤ 100 texts  → direct embedContent call (synchronous, instant)
+      • > 100 texts  → Gemini Batch File API (async JSONL upload/poll/download)
+
+    Args:
+        texts:       List of strings to embed.
+        is_query:    True → RETRIEVAL_QUERY task type, False → RETRIEVAL_DOCUMENT.
+        api_key:     Gemini API key (falls back to env var GEMINI_API_KEY).
+        progress_cb: Optional callable(dict) for batch progress events.
+
+    Returns:
+        List of float lists (one per text), or [] on failure.
+    """
+    if not _HAS_GEMINI:
+        print("[RAG] google-genai not installed.  Run: pip install google-genai",
+              file=sys.stderr, flush=True)
+        return []
+
+    key = _resolve_gemini_key(api_key)
+    if not key:
+        print("[RAG] Gemini API key not set. Provide via set_gemini_api_key() "
+              "or GEMINI_API_KEY env var.", file=sys.stderr, flush=True)
+        return []
+
+    if not texts:
+        return []
+
+    client    = _GEMINI_CLIENT_CACHE.get(key)
+    if client is None:
+        client = _genai.Client(api_key=key)
+        _GEMINI_CLIENT_CACHE[key] = client
+    task_type = "RETRIEVAL_QUERY" if is_query else "RETRIEVAL_DOCUMENT"
+    dims      = int(EMBEDDING_MODELS.get(_GEMINI_MODEL, {}).get("dims", 768))
+
+    # ── A. Small batch: single synchronous call ────────────────────────────────
+    if len(texts) <= _GEMINI_BATCH_THRESHOLD:
+        try:
+            result = []
+            for i in range(0, len(texts), _GEMINI_DIRECT_BATCH_SIZE):
+                batch = [t[:32000] for t in texts[i:i + _GEMINI_DIRECT_BATCH_SIZE]]
+                resp = client.models.embed_content(
+                    model=_GEMINI_MODEL,
+                    contents=batch,
+                    config=_genai_types.EmbedContentConfig(
+                        task_type=task_type,
+                        output_dimensionality=dims,
+                    ),
+                )
+                result.extend([list(e.values) for e in resp.embeddings])
+            return result
+        except Exception as exc:
+            print(f"[RAG] Gemini direct embed error: {exc}", file=sys.stderr, flush=True)
+            return []
+
+    # ── B. Large batch: async Batch File API ───────────────────────────────────
+    # Build JSONL input — one embed request per line
+    import tempfile as _tmp
+
+    lines = []
+    for i, text in enumerate(texts):
+        lines.append(json.dumps({
+            "key": f"t{i}",
+            "request": {
+                "content": {"parts": [{"text": text[:32000]}]},
+                "taskType": task_type,
+                "outputDimensionality": dims,
+            },
+        }))
+
+    tmp_fd, tmp_input = _tmp.mkstemp(suffix=".jsonl", prefix="zenith_gemini_")
+    try:
+        os.close(tmp_fd)
+        with open(tmp_input, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+
+        # 1. Upload input file
+        print(f"[RAG] Gemini batch: uploading {len(texts)} embeddings to Files API…",
+              file=sys.stderr, flush=True)
+        if progress_cb:
+            progress_cb({"event": "gemini_batch_upload", "total": len(texts)})
+        input_file = client.files.upload(file=tmp_input, mime_type="application/json")
+
+        # 2. Create batch job
+        batch = client.batches.create(
+            model=_GEMINI_MODEL,
+            src=input_file.name,
+        )
+        job_name = batch.name
+        print(f"[RAG] Gemini batch job created: {job_name}", file=sys.stderr, flush=True)
+        if progress_cb:
+            progress_cb({"event": "gemini_batch_created", "job": job_name, "total": len(texts)})
+
+        # 3. Poll until terminal state
+        terminal = {"JOB_STATE_SUCCEEDED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED"}
+        poll_interval = 15  # seconds between polls
+        max_polls     = 240 # 60-minute ceiling
+        polls         = 0
+
+        while batch.state.name not in terminal and polls < max_polls:
+            time.sleep(poll_interval)
+            polls += 1
+            batch = client.batches.get(name=job_name)
+            done = getattr(getattr(batch, "request_counts", None), "succeeded", 0) or 0
+            print(f"[RAG] Gemini batch poll {polls}: state={batch.state.name} "
+                  f"done={done}/{len(texts)}", file=sys.stderr, flush=True)
+            if progress_cb:
+                progress_cb({
+                    "event": "gemini_batch_poll",
+                    "job": job_name,
+                    "done": done,
+                    "total": len(texts),
+                    "state": batch.state.name,
+                })
+
+        if batch.state.name != "JOB_STATE_SUCCEEDED":
+            print(f"[RAG] Gemini batch ended in non-success state: {batch.state.name}",
+                  file=sys.stderr, flush=True)
+            return []
+
+        # 4. Download output JSONL and parse embeddings
+        dest = batch.dest
+        output_file_name = (
+            getattr(dest, "file_name", None)
+            or getattr(dest, "name", None)
+            or str(dest)
+        )
+        print(f"[RAG] Gemini batch complete. Downloading output: {output_file_name}",
+              file=sys.stderr, flush=True)
+
+        tmp_output = tmp_input + ".out.jsonl"
+        try:
+            with open(tmp_output, "wb") as out_f:
+                for chunk in client.files.download(name=output_file_name):
+                    out_f.write(chunk)
+
+            key_to_emb: dict = {}
+            with open(tmp_output, "r", encoding="utf-8") as out_f:
+                for line in out_f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj     = json.loads(line)
+                        k       = obj.get("key", "")
+                        resp_   = obj.get("response", {})
+                        vals    = resp_.get("embedding", {}).get("values", [])
+                        if vals and k.startswith("t"):
+                            key_to_emb[int(k[1:])] = vals
+                    except Exception:
+                        continue
+
+            # Assemble in original order; zero-vector for any missing key
+            result = [
+                key_to_emb.get(i, [0.0] * dims)
+                for i in range(len(texts))
+            ]
+            if progress_cb:
+                progress_cb({"event": "gemini_batch_complete", "job": job_name,
+                             "total": len(texts), "retrieved": len(key_to_emb)})
+            return result
+
+        finally:
+            try:
+                os.unlink(tmp_output)
+            except OSError:
+                pass
+
+    finally:
+        try:
+            os.unlink(tmp_input)
+        except OSError:
+            pass
+
+
 # ── ChromaDB embedding function adapter ──────────────────────────────────────
 
 class _ZenithEmbeddingFunction:
-    """Wraps our SentenceTransformer as a ChromaDB EmbeddingFunction."""
+    """Wraps SentenceTransformer or Gemini API as a ChromaDB EmbeddingFunction."""
 
-    def __init__(self, model_name: str):
-        self.model_name = model_name
+    def __init__(self, model_name: str, gemini_api_key: str = ""):
+        self.model_name     = model_name
+        self.gemini_api_key = gemini_api_key
+        self._name          = f"zenith_{EMBEDDING_MODELS.get(model_name, {}).get('short', 'unk')}"
+
+    def name(self) -> str:
+        """ChromaDB 1.x calls .name() on embedding functions."""
+        return self._name
+
+    def embed_query(self, input: list) -> list:
+        dims = EMBEDDING_MODELS.get(self.model_name, {}).get("dims", 768)
+
+        if self.model_name == _GEMINI_MODEL:
+            embs = _embed_texts_gemini(
+                input,
+                is_query=True,
+                api_key=self.gemini_api_key or _resolve_gemini_key(),
+            )
+        else:
+            embs = _embed_texts(input, self.model_name, is_query=True)
+
+        return embs if embs else [[0.0] * dims for _ in input]
 
     def __call__(self, input: list) -> list:
-        embs = _embed_texts(input, self.model_name, is_query=False)
-        if embs:
-            return embs
-        # ChromaDB requires a result — zero-vector fallback
         dims = EMBEDDING_MODELS.get(self.model_name, {}).get("dims", 768)
-        return [[0.0] * dims for _ in input]
+
+        if self.model_name == _GEMINI_MODEL:
+            embs = _embed_texts_gemini(
+                input,
+                is_query=False,
+                api_key=self.gemini_api_key or _resolve_gemini_key(),
+            )
+        else:
+            embs = _embed_texts(input, self.model_name, is_query=False)
+
+        return embs if embs else [[0.0] * dims for _ in input]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -471,7 +794,8 @@ def _collection_name(embedding_model: str) -> str:
     return f"research_papers_{short}"
 
 
-def _init_rag_collection(project_id: str, embedding_model: str):
+def _init_rag_collection(project_id: str, embedding_model: str,
+                         gemini_api_key: str = ""):
     """Initialize (or get) a ChromaDB collection for a project + model pair.
 
     Returns (collection, db_path) or (None, None) on failure.
@@ -484,27 +808,15 @@ def _init_rag_collection(project_id: str, embedding_model: str):
 
     try:
         client = chromadb.PersistentClient(path=db_path)
-        cname = _collection_name(embedding_model)
+        cname  = _collection_name(embedding_model)
 
-        if _HAS_ST:
-            ef = _ZenithEmbeddingFunction(embedding_model)
-            collection = client.get_or_create_collection(
-                name=cname,
-                metadata={
-                    "hnsw:space": "cosine",
-                    "embedding_model": embedding_model,
-                },
-                embedding_function=ef,
-            )
-        else:
-            # Fallback: ChromaDB built-in (all-MiniLM-L6-v2)
-            collection = client.get_or_create_collection(
-                name=cname,
-                metadata={
-                    "hnsw:space": "cosine",
-                    "embedding_model": "chroma-default",
-                },
-            )
+        collection = client.get_or_create_collection(
+            name=cname,
+            metadata={
+                "hnsw:space":      "cosine",
+                "embedding_model": embedding_model,
+            },
+        )
 
         return collection, db_path
     except Exception as e:
@@ -528,14 +840,26 @@ def ingest_into_vectordb(args: dict) -> dict:
     Returns:
         {ok, chunks_stored, collection_size, embedding_model, warning?}
     """
-    project_id = args.get("project_id", "default")
-    papers = args.get("papers", [])
-    query = args.get("query", "")
+    project_id      = args.get("project_id", "default")
+    papers          = args.get("papers", [])
+    query           = args.get("query", "")
     embedding_model = args.get("embedding_model", DEFAULT_EMBEDDING_MODEL)
+    gemini_api_key  = args.get("gemini_api_key", "")
+
+    # Accept gemini key from args and cache it for this process
+    if gemini_api_key:
+        set_gemini_api_key(gemini_api_key)
 
     # Normalise model name (handles display-name input from settings)
     if embedding_model not in EMBEDDING_MODELS:
         embedding_model = DEFAULT_EMBEDDING_MODEL
+
+    # Gemini requires API key
+    if embedding_model == _GEMINI_MODEL and not _resolve_gemini_key(gemini_api_key):
+        return {
+            "ok": True, "chunks_stored": 0, "collection_size": 0,
+            "warning": "Gemini API key not set. Provide gemini_api_key in args or GEMINI_API_KEY env var.",
+        }
 
     if not _HAS_CHROMADB:
         return {
@@ -546,14 +870,15 @@ def ingest_into_vectordb(args: dict) -> dict:
             ),
         }
 
-    collection, db_path = _init_rag_collection(project_id, embedding_model)
+    collection, db_path = _init_rag_collection(project_id, embedding_model,
+                                                gemini_api_key=gemini_api_key)
     if collection is None:
         return {"ok": True, "chunks_stored": 0, "collection_size": 0,
                 "warning": "Could not initialize RAG collection."}
 
     config = EMBEDDING_MODELS[embedding_model]
     max_chars = config["max_chars"]
-    overlap = min(300, max_chars // 5)
+    overlap = min(800, max_chars // 8)
 
     chunks_stored = 0
     all_texts_bm25: list = []
@@ -589,7 +914,8 @@ def ingest_into_vectordb(args: dict) -> dict:
                 prefix += f" Section: {section.title()}."
             enriched = prefix + " " + cd["text"]
 
-            chunk_id = f"p{pi}_c{ci}_{model_key}"
+            chunk_hash = hashlib.sha1(enriched.encode("utf-8", errors="ignore")).hexdigest()[:16]
+            chunk_id = f"{model_key}_{chunk_hash}"
             enriched_texts.append(enriched)
             ids.append(chunk_id)
             metadatas.append({
@@ -603,8 +929,23 @@ def ingest_into_vectordb(args: dict) -> dict:
                 "query": query[:200],
             })
 
+        embeddings = _embed_texts(
+            enriched_texts,
+            embedding_model,
+            is_query=False,
+            gemini_api_key=gemini_api_key,
+        )
+        if not embeddings or len(embeddings) != len(enriched_texts):
+            print(f"[RAG] Embedding failure ({title[:40]})", file=sys.stderr)
+            continue
+
         try:
-            collection.add(documents=enriched_texts, ids=ids, metadatas=metadatas)
+            collection.upsert(
+                documents=enriched_texts,
+                ids=ids,
+                metadatas=metadatas,
+                embeddings=embeddings,
+            )
             chunks_stored += len(enriched_texts)
             all_texts_bm25.extend(enriched_texts)
             all_ids_bm25.extend(ids)
@@ -617,8 +958,11 @@ def ingest_into_vectordb(args: dict) -> dict:
         try:
             prior_texts = existing_bm25.get("texts", [])
             prior_ids = existing_bm25.get("doc_ids", [])
-            merged_texts = prior_texts + all_texts_bm25
-            merged_ids = prior_ids + all_ids_bm25
+            merged_map = {doc_id: text for doc_id, text in zip(prior_ids, prior_texts)}
+            for doc_id, text in zip(all_ids_bm25, all_texts_bm25):
+                merged_map[doc_id] = text
+            merged_ids = list(merged_map.keys())
+            merged_texts = [merged_map[doc_id] for doc_id in merged_ids]
             tokenized = [_tokenize_bm25(t) for t in merged_texts]
             bm25_index = BM25Okapi(tokenized)
             _save_bm25({
@@ -668,14 +1012,18 @@ def query_vectordb(args: dict) -> dict:
     Returns:
         {ok, results: [{text, title, doi, section, year, score}]}
     """
-    project_id = args.get("project_id", "default")
-    query_text = args.get("query", "")
-    n_results = int(args.get("n_results", 10))
-    section_type = args.get("section_type", "")
+    project_id      = args.get("project_id", "default")
+    query_text      = args.get("query", "")
+    n_results       = int(args.get("n_results", 10))
+    section_type    = args.get("section_type", "")
     embedding_model = args.get("embedding_model", DEFAULT_EMBEDDING_MODEL)
-    use_reranker = args.get("use_reranker", True)
-    use_mmr = args.get("use_mmr", True)
-    use_hybrid = args.get("use_hybrid", True)
+    use_reranker    = args.get("use_reranker", False)  # Disabled by default
+    use_mmr         = args.get("use_mmr", True)
+    use_hybrid      = args.get("use_hybrid", True)
+    gemini_api_key  = args.get("gemini_api_key", "")
+
+    if gemini_api_key:
+        set_gemini_api_key(gemini_api_key)
 
     if embedding_model not in EMBEDDING_MODELS:
         embedding_model = DEFAULT_EMBEDDING_MODEL
@@ -683,7 +1031,8 @@ def query_vectordb(args: dict) -> dict:
     if not _HAS_CHROMADB:
         return {"ok": True, "results": [], "warning": "chromadb not installed"}
 
-    collection, db_path = _init_rag_collection(project_id, embedding_model)
+    collection, db_path = _init_rag_collection(project_id, embedding_model,
+                                                gemini_api_key=gemini_api_key)
     if collection is None or collection.count() == 0:
         return {"ok": True, "results": []}
 
@@ -694,6 +1043,15 @@ def query_vectordb(args: dict) -> dict:
     search_q = f"{section_type}: {query_text}" if section_type else query_text
 
     try:
+        q_embs = _embed_texts(
+            [search_q],
+            embedding_model,
+            is_query=True,
+            gemini_api_key=gemini_api_key,
+        )
+        if not q_embs:
+            return {"ok": True, "results": [], "error": "query_embedding_failed"}
+
         # ── 1. Dense HNSW retrieval ─────────────────────────────────────────
         where_filter = None
         if section_type and total > 15:
@@ -702,8 +1060,9 @@ def query_vectordb(args: dict) -> dict:
                 where_filter = {"section": {"$in": allowed}}
 
         dense_args = dict(
-            query_texts=[search_q],
+            query_embeddings=q_embs,
             n_results=n_dense,
+            include=["documents", "metadatas", "distances", "embeddings"],
         )
         if where_filter:
             dense_args["where"] = where_filter
@@ -716,6 +1075,7 @@ def query_vectordb(args: dict) -> dict:
             metas = raw.get("metadatas", [[]])[0]
             dists = raw.get("distances", [[]])[0]
             ids = raw.get("ids", [[]])[0]
+            embs = raw.get("embeddings", [[]])[0]
             for i, (doc, meta, dist, did) in enumerate(zip(docs, metas, dists, ids)):
                 candidates.append({
                     "id": did,
@@ -727,6 +1087,7 @@ def query_vectordb(args: dict) -> dict:
                     "dense_score": round(1.0 - float(dist), 4),
                     "score": round(1.0 - float(dist), 4),
                     "dense_rank": i,
+                    "embedding": embs[i] if i < len(embs) else None,
                 })
 
         if not candidates:
@@ -758,17 +1119,13 @@ def query_vectordb(args: dict) -> dict:
             pool = _rerank(search_q, pool, n_results * 2)
 
         # ── 4. MMR diversity selection ───────────────────────────────────────
-        if use_mmr and _HAS_ST and _HAS_NUMPY and pool:
-            q_embs = _embed_texts([search_q], embedding_model, is_query=True)
-            if q_embs:
-                doc_texts = [c["text"] for c in pool]
-                doc_embs = _embed_texts(doc_texts, embedding_model, is_query=False)
-                if doc_embs and len(doc_embs) == len(pool):
-                    for i, c in enumerate(pool):
-                        c["embedding"] = doc_embs[i]
-                    pool_with_emb = [c for c in pool if "embedding" in c]
-                    if pool_with_emb:
-                        pool = _mmr_select(q_embs[0], pool_with_emb, n_results, lambda_param=0.65)
+        mmr_ready = use_mmr and _HAS_NUMPY and pool and (
+            _HAS_ST or embedding_model == _GEMINI_MODEL
+        )
+        if mmr_ready and q_embs:
+            pool_with_emb = [c for c in pool if c.get("embedding") is not None]
+            if pool_with_emb:
+                pool = _mmr_select(q_embs[0], pool_with_emb, n_results, lambda_param=0.65)
 
         # ── 5. Final trim and format ─────────────────────────────────────────
         final = pool[:n_results]

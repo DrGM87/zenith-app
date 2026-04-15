@@ -136,6 +136,7 @@ export function PipelineView({ settings, onToast, setCaptchaUrl: _setCaptchaUrl 
       brave_api_key: (settings?.brave_api_key as string) ?? "",
       firecrawl_api_key: (settings?.firecrawl_api_key as string) ?? "",
       embedding_model: settings?.embedding_model ?? "allenai/specter2",
+      gemini_api_key: settings?.gemini_api_key ?? "",
     };
 
     // Snapshot stored intermediate data for resume
@@ -306,7 +307,8 @@ export function PipelineView({ settings, onToast, setCaptchaUrl: _setCaptchaUrl 
           text: e.text || "",
         }));
         const vr2 = await runPhase("ingest_vectordb", { project_id: projectId, papers: vdbPapers, query: q,
-          embedding_model: settings?.embedding_model ?? "allenai/specter2" });
+          embedding_model: settings?.embedding_model ?? "allenai/specter2",
+          gemini_api_key: settings?.gemini_api_key ?? "" });
         if (vr2.warning) log("vectordb", vr2.warning, "warn");
         else log("vectordb", `Stored ${vr2.chunks_stored ?? "?"} chunks`, "success");
         markGood("ingest");

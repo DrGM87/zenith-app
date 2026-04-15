@@ -414,6 +414,8 @@ pub struct ZenithSettings {
     pub scihub_mirrors: Vec<String>,
     #[serde(default = "default_embedding_model")]
     pub embedding_model: String,
+    #[serde(default)]
+    pub gemini_api_key: String,
 }
 
 fn default_embedding_model() -> String {

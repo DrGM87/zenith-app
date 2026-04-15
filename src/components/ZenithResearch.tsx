@@ -320,6 +320,10 @@ export function ZenithResearch() {
             handleSettingsChange(updated);
             invoke("save_settings", { newSettings: updated }).catch(console.error);
           }}
+          batchEmbeddingPending={
+            (settings?.embedding_model === "models/text-embedding-004") &&
+            (pipeline.phase === "ingest_vectordb" || pipeline.phase === "embedding")
+          }
         />
 
         {/* ── CAPTCHA dialog ─────────────────────────────────────────────── */}
@@ -462,14 +466,15 @@ export function ZenithResearch() {
 // ── Status Bar ───────────────────────────────────────────────────────────────
 
 const EMBEDDING_OPTIONS = [
-  { id: "allenai/specter2",              label: "SPECTER2", title: "SPECTER2 — Scientific papers (110M, 768-dim, 512 tok)" },
-  { id: "nomic-ai/nomic-embed-text-v1.5", label: "NOMIC",    title: "Nomic Embed v1.5 — Long-context general (137M, 768-dim, 8192 tok)" },
-  { id: "abhinand/MedEmbed-base-v0.1",   label: "MedEmbed", title: "MedEmbed — Clinical/biomedical (110M, 768-dim, 512 tok)" },
+  { id: "allenai/specter2",              label: "SPECTER2", title: "SPECTER2 — Scientific papers (110M, 768-dim, 512 tok)",             isApi: false },
+  { id: "nomic-ai/nomic-embed-text-v1.5", label: "NOMIC",    title: "Nomic Embed v1.5 — Long-context general (137M, 768-dim, 8192 tok)", isApi: false },
+  { id: "abhinand/MedEmbed-base-v0.1",   label: "MedEmbed", title: "MedEmbed — Clinical/biomedical (110M, 768-dim, 512 tok)",            isApi: false },
+  { id: "models/text-embedding-004",     label: "Gemini",   title: "Gemini text-embedding-004 — API-based, batch file API for large corpora (768-dim, 2048 tok). Requires GEMINI_API_KEY.", isApi: true  },
 ] as const;
 
 function StatusBar({
   phase, progress, statusMessage, tokens, papersCount, fxEnabled, onToggleFx, isDark, onToggleTheme, totalCostUsd,
-  embeddingModel, onEmbeddingModelChange,
+  embeddingModel, onEmbeddingModelChange, batchEmbeddingPending,
 }: {
   phase: string; progress: number; statusMessage: string;
   tokens: { input: number; output: number; cost: number };
@@ -481,6 +486,7 @@ function StatusBar({
   totalCostUsd: number;
   embeddingModel: string;
   onEmbeddingModelChange: (model: string) => void;
+  batchEmbeddingPending: boolean;
 }) {
   const isActive = phase !== "idle" && phase !== "complete" && phase !== "error";
   const isError = phase === "error";
@@ -508,7 +514,7 @@ function StatusBar({
               style={{ background: t.accent.cyan, animation: "ping 1.5s cubic-bezier(0,0,0.2,1) infinite", opacity: 0.4 }}
             />
             <div className="absolute inset-0.5 rounded-full" style={{ background: t.accent.cyan }} />
-            <style>{`@keyframes ping { 0%{transform:scale(1);opacity:.5} 75%,100%{transform:scale(2);opacity:0} }`}</style>
+            <style>{`@keyframes ping { 0%{transform:scale(1);opacity:.5} 75%,100%{transform:scale(2);opacity:0} } @keyframes zenith-pulse { 0%,100%{opacity:.85;box-shadow:0 0 4px rgba(34,211,238,.3)} 50%{opacity:1;box-shadow:0 0 10px rgba(34,211,238,.6)} }`}</style>
           </div>
         )}
         {isError && (
@@ -590,12 +596,13 @@ function StatusBar({
       <div className="flex items-center gap-0.5" title="RAG embedding model">
         <span className="text-[8px] mr-1" style={{ color: "rgba(255,255,255,0.18)", letterSpacing: "0.05em" }}>EMB</span>
         {EMBEDDING_OPTIONS.map((opt) => {
-          const active = embeddingModel === opt.id;
+          const active  = embeddingModel === opt.id;
+          const isBusy  = active && opt.isApi && batchEmbeddingPending;
           return (
             <button
               key={opt.id}
               onClick={() => onEmbeddingModelChange(opt.id)}
-              title={opt.title}
+              title={isBusy ? `${opt.title}\n⏳ Batch embedding in progress…` : opt.title}
               className="cursor-pointer transition-all duration-150 select-none"
               style={{
                 background: active
@@ -609,9 +616,11 @@ function StatusBar({
                 lineHeight: "15px",
                 fontFamily: t.font.mono,
                 boxShadow: active && fxEnabled ? "0 0 5px rgba(34,211,238,0.25)" : undefined,
+                animation: isBusy ? "zenith-pulse 1.2s ease-in-out infinite" : undefined,
+                opacity: isBusy ? 0.85 : 1,
               }}
             >
-              {opt.label}
+              {isBusy ? "⏳" : opt.label}
             </button>
           );
         })}

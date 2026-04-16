@@ -52,3 +52,5 @@ src-tauri/python_env/
 src-tauri/resources/
 
 
+scripts/.env
+*.pdf

@@ -5,7 +5,6 @@ import { ScriptWindow } from "./components/ScriptWindow";
 import { PreviewDrawer } from "./components/PreviewDrawer";
 import { ReviewStudio } from "./components/ReviewStudio";
 import { ZenithEditor } from "./components/ZenithEditor";
-import { ZenithResearch } from "./components/ZenithResearch";
 
 /* ── Error Boundary ── */
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -22,7 +21,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
             <pre style={{ background: "rgba(255,255,255,0.05)", padding: 16, borderRadius: 8, textAlign: "left", overflow: "auto", maxHeight: 300, fontSize: 12, color: "#fca5a5" }}>
               {this.state.error.message}{"\n"}{this.state.error.stack}
             </pre>
-            <button onClick={() => { localStorage.removeItem("zenith_research_pipeline"); this.setState({ error: null }); }}
+            <button onClick={() => { localStorage.clear(); this.setState({ error: null }); }}
               style={{ marginTop: 16, padding: "8px 24px", background: "rgba(34,211,238,0.15)", border: "1px solid rgba(34,211,238,0.3)", color: "#67e8f9", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>
               Clear Cache &amp; Retry
             </button>
@@ -39,31 +38,35 @@ function App() {
   const windowType = params.get("window");
 
   if (windowType === "settings") {
-    return <Settings />;
+    return (
+      <ErrorBoundary>
+        <Settings />
+      </ErrorBoundary>
+    );
   }
 
   if (windowType === "script") {
-    return <ScriptWindow />;
+    return (
+      <ErrorBoundary>
+        <ScriptWindow />
+      </ErrorBoundary>
+    );
   }
 
   if (windowType === "editor") {
-    return <ZenithEditor />;
-  }
-
-  if (windowType === "research") {
     return (
       <ErrorBoundary>
-        <ZenithResearch />
+        <ZenithEditor />
       </ErrorBoundary>
     );
   }
 
   return (
-    <>
+    <ErrorBoundary>
       <Bubble />
       <PreviewDrawer />
       <ReviewStudio />
-    </>
+    </ErrorBoundary>
   );
 }
 

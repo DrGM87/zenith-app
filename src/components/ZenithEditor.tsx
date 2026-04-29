@@ -2,15 +2,15 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
-import { AuroraBg } from "./research/effects/AuroraBg";
-import { GlowOrbs } from "./research/effects/GlowOrbs";
-import { SpotlightCard } from "./research/effects/SpotlightCard";
-import { ClickSpark } from "./research/effects/ClickSpark";
-import { ShinyText } from "./research/effects/ShinyText";
-import { GlareHover } from "./research/effects/GlareHover";
-import { StarBorder } from "./research/effects/StarBorder";
-import { FloatingParticles } from "./research/effects/FloatingParticles";
-import { PRICING } from "./research/shared/constants";
+import { AuroraBg } from "./effects/AuroraBg";
+import { GlowOrbs } from "./effects/GlowOrbs";
+import { SpotlightCard } from "./effects/SpotlightCard";
+import { ClickSpark } from "./effects/ClickSpark";
+import { ShinyText } from "./effects/ShinyText";
+import { GlareHover } from "./effects/GlareHover";
+import { StarBorder } from "./effects/StarBorder";
+import { FloatingParticles } from "./effects/FloatingParticles";
+import { useZenithStore } from "../store";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -167,37 +167,6 @@ function createThread(title?: string): EditorThread {
   return { id: uid(), title: title || "Untitled", createdAt: Date.now(), updatedAt: Date.now(), totalCost: 0, imageCount: 0 };
 }
 
-// ── Cost Tracking ────────────────────────────────────────────────────────────
-
-async function trackImageCost(provider: string, cost: number) {
-  try {
-    const s = await invoke<ZenithSettings>("get_settings");
-    const tu = s.token_usage ?? { entries: [], total_input_tokens: 0, total_output_tokens: 0, total_cost_usd: 0 };
-    const entries = [...tu.entries];
-    const idx = entries.findIndex((e) => e.provider === provider);
-    if (idx >= 0) entries[idx] = { ...entries[idx], cost_usd: entries[idx].cost_usd + cost };
-    else entries.push({ provider, input_tokens: 0, output_tokens: 0, cost_usd: cost });
-    await invoke("save_settings", { newSettings: { ...s, token_usage: { entries, total_input_tokens: tu.total_input_tokens, total_output_tokens: tu.total_output_tokens, total_cost_usd: tu.total_cost_usd + cost } } });
-  } catch (e) { console.error("trackImageCost:", e); }
-}
-
-async function trackTextTokenUsage(result: { token_usage?: { provider: string; model: string; input_tokens: number; output_tokens: number } }) {
-  if (!result.token_usage) return;
-  const { provider, model, input_tokens, output_tokens } = result.token_usage;
-  if (!input_tokens && !output_tokens) return;
-  try {
-    const s = await invoke<ZenithSettings>("get_settings");
-    const rates = PRICING[provider]?.[model] ?? { input: 1.00, output: 2.00 };
-    const cost = (input_tokens / 1_000_000) * rates.input + (output_tokens / 1_000_000) * rates.output;
-    const tu = s.token_usage ?? { entries: [], total_input_tokens: 0, total_output_tokens: 0, total_cost_usd: 0 };
-    const entries = [...tu.entries];
-    const idx = entries.findIndex((e) => e.provider === provider);
-    if (idx >= 0) entries[idx] = { ...entries[idx], input_tokens: entries[idx].input_tokens + input_tokens, output_tokens: entries[idx].output_tokens + output_tokens, cost_usd: entries[idx].cost_usd + cost };
-    else entries.push({ provider, input_tokens, output_tokens, cost_usd: cost });
-    await invoke("save_settings", { newSettings: { ...s, token_usage: { entries, total_input_tokens: tu.total_input_tokens + input_tokens, total_output_tokens: tu.total_output_tokens + output_tokens, total_cost_usd: tu.total_cost_usd + cost } } });
-  } catch (e) { console.error("trackTextTokenUsage:", e); }
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
 // ██  COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
@@ -275,6 +244,8 @@ export function ZenithEditor() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  const { trackTokenUsage } = useZenithStore();
 
   // ── Derived state
   const isBlankCanvas = history.length === 0 && !originalImageB64;
@@ -564,7 +535,7 @@ export function ZenithEditor() {
       setCurrentImageB64(newB64);
       const newSessionCost = sessionCost + cost;
       setSessionCost(newSessionCost);
-      trackImageCost(provider, cost);
+      trackTokenUsage(provider, selectedModel, 1, 0);
 
       const histItem: HistoryItem = { id: uid(), imageB64: newB64, prompt: p, title: "Generating title…", timestamp: Date.now(), cost, model: selectedModel };
       const newHist = [histItem, ...history];
@@ -602,7 +573,8 @@ export function ZenithEditor() {
             } else {
               syncActiveThread(newHist, newSessionCost);
             }
-            trackTextTokenUsage(tr);
+            const tu = tr.token_usage;
+            if (tu) trackTokenUsage(tu.provider, tu.model, tu.input_tokens, tu.output_tokens);
           } catch { syncActiveThread(newHist, newSessionCost); }
         }).catch(() => { syncActiveThread(newHist, newSessionCost); });
 
@@ -626,7 +598,8 @@ export function ZenithEditor() {
         setPrompt(r.enhanced_prompt);
         showToast("Prompt enhanced — click Revert to undo", "ok");
       } else showToast(r.error || "Enhancement failed", "err");
-      trackTextTokenUsage(r);
+      const tu = r.token_usage;
+      if (tu) trackTokenUsage(tu.provider, tu.model, tu.input_tokens, tu.output_tokens);
     } catch (e) { showToast(String(e), "err"); }
     finally { setIsEnhancing(false); }
   }, [prompt, getTextLlmCreds, showToast]);
@@ -674,7 +647,7 @@ export function ZenithEditor() {
       setCurrentImageB64(newB64);
       const newSessionCost = sessionCost + cost;
       setSessionCost(newSessionCost);
-      trackImageCost(provider, cost);
+      trackTokenUsage(provider, selectedModel, 1, 0);
       const histItem: HistoryItem = { id: uid(), imageB64: newB64, prompt: "Background removed", title: "BG Removed", timestamp: Date.now(), cost, model: selectedModel };
       const newHist = [histItem, ...history];
       setHistory(newHist); setHistoryIndex(0); setLeftTab("images");

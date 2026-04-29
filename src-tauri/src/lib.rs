@@ -114,7 +114,7 @@ pub fn get_mime_type(ext: &str) -> &'static str {
         "bmp" => "image/bmp",
         "webp" => "image/webp",
         "svg" => "image/svg+xml",
-        "ico" => "image/x-icon",
+        "ico" => "image/vnd.microsoft.icon",
         "pdf" => "application/pdf",
         "txt" | "log" | "md" => "text/plain",
         "html" | "htm" => "text/html",
@@ -595,48 +595,6 @@ async fn ping_url(url: String) -> Result<u64, String> {
         .map_err(|e| e.to_string())?;
     client.head(&url).send().await.map_err(|e| e.to_string())?;
     Ok(start.elapsed().as_millis() as u64)
-}
-
-#[tauri::command]
-async fn open_research_window(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri::Manager;
-    if let Some(win) = app.get_webview_window("zenith_research") {
-        win.set_focus().map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    // Compute 70% of primary monitor width, 84% of monitor height (leaves ~50px for taskbar).
-    // Fall back to sensible defaults if monitor info isn't available.
-    let (target_w, target_h) = {
-        // Use the main window to get the current monitor info
-        let (mw, mh) = app
-            .get_webview_window("main")
-            .and_then(|w| w.current_monitor().ok().flatten())
-            .map(|m| {
-                let sz = m.size();
-                (sz.width as f64, sz.height as f64)
-            })
-            .unwrap_or((1920.0, 1080.0));
-        let w = (mw * 0.70).round().max(1020.0);
-        let h = (mh * 0.84).round().max(700.0).min(mh - 60.0); // keep ≥ 60px from bottom
-        (w, h)
-    };
-
-    let _research = tauri::WebviewWindowBuilder::new(
-        &app,
-        "zenith_research",
-        tauri::WebviewUrl::App("/?window=research".into()),
-    )
-    .title("Zenith Research")
-    .inner_size(target_w, target_h)
-    .min_inner_size(960.0, 640.0)
-    .center()
-    .decorations(true)
-    .transparent(false)
-    .background_color(tauri::window::Color(10, 10, 15, 255))
-    .build()
-    .map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 #[tauri::command]
@@ -1548,7 +1506,6 @@ pub fn run() {
             get_rename_history_counts,
             read_file_preview,
             cancel_all_scripts,
-            open_research_window,
             open_editor_window,
             open_editor_window_blank,
             take_pending_editor_image,

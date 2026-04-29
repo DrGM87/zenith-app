@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main", "settings", "zenith_editor", "zenith_research"],
+  "windows": ["main", "settings", "zenith_editor", "script"],
   "permissions": [
     "core:default",
     "core:window:default",

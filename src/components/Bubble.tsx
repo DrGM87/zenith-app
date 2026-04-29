@@ -7,7 +7,6 @@ import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { useZenithStore, type AudioRecognitionResult } from "../store";
 import { StagedItemCard } from "./StagedItemCard";
 // PreviewDrawer now rendered independently in App.tsx
-import { useMagneticHover } from "../hooks/useMagneticHover";
 import { BorderGlow, SoftAurora, MagicRings } from "./ReactBits";
 // ReviewStudio now rendered independently in App.tsx
 
@@ -60,6 +59,7 @@ export function Bubble() {
   const [showBatchAudioConvert, setShowBatchAudioConvert] = useState(false);
   const [batchAudioBitrate, setBatchAudioBitrate] = useState("192");
   const [showFooterMore, setShowFooterMore] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const selectedItems = items.filter((i) => selectedIds.has(i.id));
   const selectedPaths = selectedItems.filter((i) => i.path.length > 0).map((i) => i.path);
@@ -138,7 +138,7 @@ export function Bubble() {
     });
 
     const unlistenEnter = listen("tauri://drag-enter", () => {
-      expand();
+      if (bh?.expand_on_drag !== false) expand();
       setDragOver(true);
     });
 
@@ -176,6 +176,24 @@ export function Bubble() {
         console.error("Clipboard read failed:", e);
       }
     }).catch((e) => console.error("Failed to register shortcut:", e));
+
+    if (sc?.toggle_window) {
+      register(sc.toggle_window, async () => {
+        const store = useZenithStore.getState();
+        if (store.isExpanded) {
+          setExpanded(false);
+          invoke("resize_window", { expanded: false });
+        } else {
+          expand();
+        }
+      }).catch((e) => console.error("Failed to register toggle shortcut:", e));
+    }
+
+    if (sc?.clear_all) {
+      register(sc.clear_all, async () => {
+        clearAll();
+      }).catch((e) => console.error("Failed to register clear shortcut:", e));
+    }
 
     return () => {
       unlisten.then((f) => f());
@@ -242,8 +260,6 @@ export function Bubble() {
     return () => window.removeEventListener("paste", handlePaste);
   }, [isExpanded, stageText, stageFile, expand]);
 
-  const magnetic = useMagneticHover({ strength: 0.25, radius: 120 });
-
   const handleZipAll = useCallback(async () => {
     const paths = items.filter((i) => i.path.length > 0).map((i) => i.path);
     if (paths.length === 0) return;
@@ -302,7 +318,7 @@ export function Bubble() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.85, y: 30 }}
             transition={spring}
-            onMouseEnter={expand}
+            onMouseEnter={() => { if (bh?.expand_on_hover !== false) expand(); }}
             onMouseLeave={scheduleCollapse}
             className="flex gap-2 items-end"
             style={{ maxHeight: "calc(100vh - 24px)", width: isStudioOpen ? "calc(100% + 340px)" : "100%" }}
@@ -364,26 +380,15 @@ export function Bubble() {
                 </div>
                 {/* Separator */}
                 <div className="w-px h-4 bg-white/[0.06] mx-1" />
-                {/* Windows — Canvas + Research */}
-                <div className="flex items-center rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
-                  <motion.button whileTap={{ scale: 0.92 }}
-                    onClick={() => invoke("open_editor_window_blank").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
-                    className="w-7 h-7 flex items-center justify-center transition-colors cursor-pointer hover:bg-white/[0.06]"
-                    style={{ background: "rgba(139,92,246,0.10)", color: "#c084fc" }}
-                    title="Open Generative Canvas"
-                  >
-                    <i className="fa-solid fa-wand-magic-sparkles text-[10px]" />
-                  </motion.button>
-                  <div className="w-px h-3.5 bg-white/[0.06]" />
-                  <motion.button whileTap={{ scale: 0.92 }}
-                    onClick={() => invoke("open_research_window").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
-                    className="w-7 h-7 flex items-center justify-center transition-colors cursor-pointer hover:bg-white/[0.06]"
-                    style={{ background: "rgba(34,211,238,0.08)", color: "#67e8f9" }}
-                    title="Open Research Window"
-                  >
-                    <i className="fa-solid fa-microscope text-[10px]" />
-                  </motion.button>
-                </div>
+                   {/* Generative Canvas */}
+                   <motion.button whileTap={{ scale: 0.92 }}
+                     onClick={() => invoke("open_editor_window_blank").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
+                     className="w-7 h-7 flex items-center justify-center transition-colors cursor-pointer hover:bg-white/[0.06] rounded-lg"
+                     style={{ background: "rgba(139,92,246,0.10)", color: "#c084fc", border: "1px solid rgba(255,255,255,0.06)" }}
+                     title="Open Generative Canvas"
+                   >
+                     <i className="fa-solid fa-wand-magic-sparkles text-[10px]" />
+                   </motion.button>
                 {/* Separator */}
                 <div className="w-px h-4 bg-white/[0.06] mx-1" />
                 {/* Utility controls */}
@@ -403,7 +408,7 @@ export function Bubble() {
                 </motion.button>
                 {items.length > 0 && (
                   <motion.button initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} whileTap={{ scale: 0.9 }}
-                    onClick={clearAll}
+                    onClick={() => { if (bh?.confirm_clear_all) { setShowClearConfirm(true); } else { clearAll(); } }}
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                     title="Clear all items"
                   >
@@ -1220,20 +1225,17 @@ export function Bubble() {
           {/* ReviewStudio now rendered independently in App.tsx */}
           </motion.div>
         ) : (
-          /* Collapsed pill with magnetic hover */
+          /* Collapsed pill */
           <motion.div
             key="collapsed"
-            ref={magnetic.ref as React.RefObject<HTMLDivElement>}
             initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.5 }}
             transition={spring}
             onMouseEnter={expand}
-            onMouseLeave={() => { scheduleCollapse(); magnetic.onMouseLeave(); }}
-            onMouseMove={magnetic.onMouseMove}
+            onMouseLeave={scheduleCollapse}
             whileHover={{ scale: 1.08 }}
             className="cursor-pointer select-none"
-            style={{ ...magnetic.style }}
           >
           <BorderGlow color1={`${accent}55`} color2="rgba(139,92,246,0.35)" borderRadius={Math.min(radius, 16)} speed={glowSpeed} enabled={glowEnabled}>
           <div
@@ -1258,6 +1260,37 @@ export function Bubble() {
             )}
           </div>
           </BorderGlow>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* Confirm clear all dialog */}
+      <AnimatePresence>
+        {showClearConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{ background: "rgba(0,0,0,0.70)", backdropFilter: "blur(4px)" }}
+            onClick={() => setShowClearConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="rounded-xl p-6 w-72"
+              style={{ background: "rgb(20, 20, 30)", border: "1px solid rgba(255,255,255,0.08)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-[14px] font-semibold text-white/90 mb-2">Clear all items?</h3>
+              <p className="text-[12px] text-white/40 mb-4">This will remove all {items.length} staged item{items.length !== 1 ? "s" : ""}.</p>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowClearConfirm(false)}
+                  className="px-4 py-1.5 rounded-lg text-[12px] font-medium text-white/40 hover:text-white/60 hover:bg-white/5 transition-colors">
+                  Cancel
+                </button>
+                <button onClick={() => { setShowClearConfirm(false); clearAll(); }}
+                  className="px-4 py-1.5 rounded-lg text-[12px] font-medium text-red-300 bg-red-500/15 hover:bg-red-500/25 transition-colors">
+                  Clear All
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

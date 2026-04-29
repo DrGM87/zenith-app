@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { PRICING } from "./shared/pricing";
 
 export interface StagedItem {
   id: string;
@@ -65,7 +66,6 @@ export interface AiPrompts {
   summarize: string;
   super_summary: string;
   dashboard: string;
-  research: string;
 }
 
 export interface TokenUsageEntry {
@@ -351,6 +351,13 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
 
   stageFile: async (path: string) => {
     try {
+      const s = get();
+      if (s.settings?.behavior?.duplicate_detection && s.items.some((i) => i.path === path)) {
+        throw new Error("File already staged (duplicate detection enabled)");
+      }
+      if (s.settings?.behavior?.max_staged_items && s.items.length >= s.settings.behavior.max_staged_items) {
+        throw new Error(`Maximum staged items (${s.settings.behavior.max_staged_items}) reached`);
+      }
       const item = await invoke<StagedItem>("stage_file", { path });
       set((state) => ({ items: [...state.items, item] }));
     } catch (e) {
@@ -476,16 +483,11 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
     const s = get().settings;
     if (!s || (inputTokens === 0 && outputTokens === 0)) return;
 
-    const PRICING: Record<string, Record<string, { input: number; output: number }>> = {
-      openai: { "gpt-4.1-nano": { input: 0.10, output: 0.40 }, "gpt-4o-mini": { input: 0.15, output: 0.60 }, "gpt-4.1-mini": { input: 0.40, output: 1.60 }, "o3-mini": { input: 1.10, output: 4.40 }, "o4-mini": { input: 1.10, output: 4.40 }, "gpt-4.1": { input: 2.00, output: 8.00 }, "gpt-4o": { input: 2.50, output: 10.00 } },
-      anthropic: { "claude-haiku-4-5-20250514": { input: 1.00, output: 5.00 }, "claude-sonnet-4-20250514": { input: 3.00, output: 15.00 }, "claude-opus-4-20250918": { input: 5.00, output: 25.00 } },
-      google: { "gemini-3.1-flash-lite-preview": { input: 0.15, output: 0.60 }, "gemini-3-flash-preview": { input: 0.50, output: 3.00 }, "gemini-2.5-pro": { input: 1.25, output: 10.00 }, "gemini-3.1-pro-preview": { input: 2.00, output: 12.00 } },
-      deepseek: { "deepseek-chat": { input: 0.27, output: 1.10 }, "deepseek-reasoner": { input: 0.55, output: 2.19 } },
-      groq: { "llama-3.3-70b-versatile": { input: 0.59, output: 0.79 }, "llama-3.1-8b-instant": { input: 0.05, output: 0.08 }, "gemma2-9b-it": { input: 0.20, output: 0.20 } },
-    };
-
     const rates = PRICING[provider]?.[model] || { input: 1.00, output: 2.00 };
-    const cost = (inputTokens / 1_000_000) * rates.input + (outputTokens / 1_000_000) * rates.output;
+    const isImageGen = rates.output === 0;
+    const cost = isImageGen
+      ? rates.input * inputTokens
+      : (inputTokens / 1_000_000) * rates.input + (outputTokens / 1_000_000) * rates.output;
 
     const tu = s.token_usage ?? { entries: [], total_input_tokens: 0, total_output_tokens: 0, total_cost_usd: 0 };
     const entries = [...tu.entries];

@@ -75,35 +75,6 @@ interface AiPrompts {
   summarize: string;
   super_summary: string;
   dashboard: string;
-  research: string;
-  research_pipeline: string;
-  subject_review: string;
-  educational: string;
-  case_study: string;
-  comparative: string;
-  exploratory: string;
-}
-
-interface PipelineStepConfig {
-  system_prompt: string;
-  model_tier: string;
-  max_tokens: number;
-  temperature: number;
-  use_structured_output: boolean;
-  use_thinking: boolean;
-  thinking_budget?: number;
-  enabled_tools?: string[];
-}
-
-interface PipelineConfig {
-  gatekeeper: PipelineStepConfig;
-  query_architect: PipelineStepConfig;
-  triage_agent: PipelineStepConfig;
-  blueprint_agent: PipelineStepConfig;
-  lead_author: PipelineStepConfig;
-  citation_verifier: PipelineStepConfig;
-  guidelines_compliance: PipelineStepConfig;
-  smoothing_pass: PipelineStepConfig;
 }
 
 interface TokenUsageEntry {
@@ -129,17 +100,12 @@ interface ZenithSettings {
   api_keys: ApiKeyEntry[];
   processing: ProcessingDefaults;
   ai_prompts: AiPrompts;
-  pipeline_config: PipelineConfig;
   token_usage: TokenUsage;
   vt_api_key: string;
   omdb_api_key: string;
   audiodb_api_key: string;
   imdb_api_key: string;
-  tavily_api_key: string;
-  brave_api_key: string;
-  firecrawl_api_key: string;
   shazam_auto_recognize: boolean;
-  scihub_mirrors: string[];
 }
 
 interface PluginInfo {
@@ -148,7 +114,7 @@ interface PluginInfo {
   loaded: boolean;
 }
 
-type TabId = "general" | "appearance" | "behavior" | "shortcuts" | "processing" | "api_keys" | "ai_tools" | "research_agents" | "token_usage" | "scripts";
+type TabId = "general" | "appearance" | "behavior" | "shortcuts" | "processing" | "api_keys" | "ai_tools" | "token_usage" | "scripts";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "general", label: "General", icon: "fa-solid fa-sliders" },
@@ -157,19 +123,11 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "processing", label: "Processing", icon: "fa-solid fa-compress" },
   { id: "api_keys", label: "API Keys", icon: "fa-solid fa-key" },
   { id: "ai_tools", label: "AI Prompts", icon: "fa-solid fa-wand-magic-sparkles" },
-  { id: "research_agents", label: "Research Agents", icon: "fa-solid fa-microscope" },
   { id: "token_usage", label: "Token Usage", icon: "fa-solid fa-chart-line" },
   { id: "shortcuts", label: "Shortcuts", icon: "fa-solid fa-keyboard" },
   { id: "scripts", label: "Scripts", icon: "fa-solid fa-puzzle-piece" },
 ];
 
-const RESEARCH_TOOLS = [
-  { id: "web_search", label: "Web Search" },
-  { id: "code_execution", label: "Code Execution" },
-  { id: "generate_chart", label: "Generate Chart" },
-  { id: "generate_table", label: "Generate Table" },
-  { id: "experiment", label: "Experiment Sandbox" },
-];
 const LLM_PROVIDERS = [
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
@@ -244,8 +202,6 @@ export function Settings() {
   const [saved, setSaved] = useState(false);
   const [pluginOutput, setPluginOutput] = useState<string | null>(null);
   const [runningScripts, setRunningScripts] = useState<Record<string, boolean>>({});
-  const [mirrorPingStatus, setMirrorPingStatus] = useState<Record<string, { status: "idle"|"pinging"|"ok"|"fail"; ms?: number }>>({});
-  const [newMirrorUrl, setNewMirrorUrl] = useState("");
 
   useEffect(() => {
     invoke<ZenithSettings>("get_settings").then((s) => {
@@ -320,14 +276,6 @@ export function Settings() {
     save(updated);
   };
 
-  const updatePipelineStep = (step: keyof PipelineConfig, field: keyof PipelineStepConfig, value: unknown) => {
-    if (!settings) return;
-    const pc = settings.pipeline_config || {} as PipelineConfig;
-    const current = pc[step] || {} as PipelineStepConfig;
-    const updated = { ...settings, pipeline_config: { ...pc, [step]: { ...current, [field]: value } } };
-    save(updated);
-  };
-
   const addApiKey = () => {
     if (!settings) return;
     const entry: ApiKeyEntry = { provider: "openai", label: "", key: "", model: "", is_default: settings.api_keys.length === 0 };
@@ -350,50 +298,6 @@ export function Settings() {
     if (!settings) return;
     const keys = settings.api_keys.map((k, i) => ({ ...k, is_default: i === idx }));
     save({ ...settings, api_keys: keys });
-  };
-
-  const DEFAULT_MIRRORS = [
-    "https://sci-hub.ru","https://sci-hub.st","https://sci-hub.se","https://sci-hub.su",
-    "https://sci-hub.box","https://sci-hub.red","https://sci-hub.al","https://sci-hub.mk",
-    "https://sci-hub.ee","https://sci-hub.in","https://sci-hub.shop",
-  ];
-
-  const addMirror = (url: string) => {
-    if (!settings || !url.trim()) return;
-    const normalized = url.trim().replace(/\/$/, "");
-    if ((settings.scihub_mirrors ?? []).includes(normalized)) return;
-    save({ ...settings, scihub_mirrors: [...(settings.scihub_mirrors ?? []), normalized] });
-  };
-
-  const removeMirror = (url: string) => {
-    if (!settings) return;
-    save({ ...settings, scihub_mirrors: (settings.scihub_mirrors ?? []).filter((m) => m !== url) });
-  };
-
-  const moveMirror = (url: string, dir: -1 | 1) => {
-    if (!settings) return;
-    const arr = [...(settings.scihub_mirrors ?? [])];
-    const idx = arr.indexOf(url);
-    if (idx < 0) return;
-    const to = idx + dir;
-    if (to < 0 || to >= arr.length) return;
-    [arr[idx], arr[to]] = [arr[to], arr[idx]];
-    save({ ...settings, scihub_mirrors: arr });
-  };
-
-  const pingMirror = async (url: string) => {
-    setMirrorPingStatus((p) => ({ ...p, [url]: { status: "pinging" } }));
-    try {
-      const ms = await invoke<number>("ping_url", { url });
-      setMirrorPingStatus((p) => ({ ...p, [url]: { status: "ok", ms } }));
-    } catch {
-      setMirrorPingStatus((p) => ({ ...p, [url]: { status: "fail" } }));
-    }
-  };
-
-  const pingAllMirrors = async () => {
-    const mirrors = settings?.scihub_mirrors ?? DEFAULT_MIRRORS;
-    await Promise.all(mirrors.map((m) => pingMirror(m)));
   };
 
   const runPlugin = async (path: string) => {
@@ -879,36 +783,6 @@ export function Settings() {
               />
               <p className="text-[10px] text-white/20 mt-1">Get a free key at <a href="https://www.virustotal.com/gui/my-apikey" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">virustotal.com/gui/my-apikey</a></p>
             </SettingGroup>
-            <SettingGroup title="Tavily (Research Web Search)">
-              <p className="text-[11px] text-white/30 mb-2">AI-powered web search used by the Research Window. Falls back to DuckDuckGo if no key is set.</p>
-              <input
-                type="password" placeholder="Tavily API Key (optional)"
-                value={settings.tavily_api_key ?? ""}
-                onChange={(e) => save({ ...settings, tavily_api_key: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-cyan-400/40 transition-colors font-mono"
-              />
-              <p className="text-[10px] text-white/20 mt-1">Get a key at <a href="https://tavily.com" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">tavily.com</a> — free tier available. Powers Research Window web search.</p>
-            </SettingGroup>
-            <SettingGroup title="Brave Search (Research)">
-              <p className="text-[11px] text-white/30 mb-2">High-quality web search via Brave Search API. Results are aggregated with other search providers and deduplicated.</p>
-              <input
-                type="password" placeholder="Brave Search API Key (optional)"
-                value={settings.brave_api_key ?? ""}
-                onChange={(e) => save({ ...settings, brave_api_key: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-orange-400/40 transition-colors font-mono"
-              />
-              <p className="text-[10px] text-white/20 mt-1">Get a key at <a href="https://brave.com/search/api/" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">brave.com/search/api</a> — free tier: 2,000 queries/month.</p>
-            </SettingGroup>
-            <SettingGroup title="Firecrawl (Research Deep Scraping)">
-              <p className="text-[11px] text-white/30 mb-2">Deep web scraping and search. Extracts full page content as markdown for richer research context.</p>
-              <input
-                type="password" placeholder="Firecrawl API Key (optional)"
-                value={settings.firecrawl_api_key ?? ""}
-                onChange={(e) => save({ ...settings, firecrawl_api_key: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-orange-400/40 transition-colors font-mono"
-              />
-              <p className="text-[10px] text-white/20 mt-1">Get a key at <a href="https://www.firecrawl.dev" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">firecrawl.dev</a> — free tier: 500 credits.</p>
-            </SettingGroup>
             <SettingGroup title="IMDb API (Movies & Series) — Primary">
               <p className="text-[11px] text-white/30 mb-2">Primary API for movie/series identification. Free tier available, premium key optional.</p>
               <input
@@ -953,93 +827,6 @@ export function Settings() {
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
               <p className="text-[10px] text-white/20 mt-1">API: <a href="https://www.theaudiodb.com/free_music_api" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">theaudiodb.com/free_music_api</a> — free key <code className="text-white/40">523532</code> used by default</p>
-            </SettingGroup>
-            {/* ── Sci-Hub Mirrors ────────────────────────────────────────── */}
-            <SettingGroup title="Sci-Hub Mirrors">
-              <p className="text-[11px] text-white/30 mb-3 -mt-1">
-                Ordered list of Sci-Hub mirrors used by the Research Pipeline for paper acquisition.
-                The first reachable mirror is used. Drag to reorder (use arrows), ping to check live status.
-              </p>
-
-              {/* Ping all button */}
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] text-white/25">{(settings.scihub_mirrors ?? DEFAULT_MIRRORS).length} mirrors configured</span>
-                <button
-                  onClick={pingAllMirrors}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors bg-cyan-500/10 text-cyan-400/70 hover:bg-cyan-500/20 hover:text-cyan-300 border border-cyan-500/20 cursor-pointer"
-                >
-                  <i className="fa-solid fa-wifi text-[9px]" /> Ping All
-                </button>
-              </div>
-
-              {/* Mirror list */}
-              <div className="space-y-1.5 mb-3">
-                {(settings.scihub_mirrors ?? DEFAULT_MIRRORS).map((url, i) => {
-                  const ps = mirrorPingStatus[url];
-                  return (
-                    <div key={url} className="flex items-center gap-2 px-3 py-2 rounded-lg group"
-                      style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.05)" }}>
-                      {/* Order badge */}
-                      <span className="text-[9px] w-4 text-center flex-shrink-0" style={{ color: "rgba(255,255,255,0.2)", fontFamily: "monospace" }}>{i + 1}</span>
-                      {/* URL */}
-                      <span className="flex-1 text-[11px] font-mono truncate" style={{ color: "rgba(255,255,255,0.65)" }}>{url}</span>
-                      {/* Ping status */}
-                      <div className="flex-shrink-0 w-20 text-right">
-                        {!ps || ps.status === "idle" ? (
-                          <span className="text-[9px]" style={{ color: "rgba(255,255,255,0.15)" }}>—</span>
-                        ) : ps.status === "pinging" ? (
-                          <span className="text-[9px] text-cyan-400/50"><i className="fa-solid fa-circle-notch fa-spin mr-1" />...</span>
-                        ) : ps.status === "ok" ? (
-                          <span className="text-[9px] text-emerald-400">{ps.ms}ms</span>
-                        ) : (
-                          <span className="text-[9px] text-red-400/70">unreachable</span>
-                        )}
-                      </div>
-                      {/* Action buttons */}
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => pingMirror(url)} title="Ping" className="text-[9px] px-1.5 py-0.5 rounded text-cyan-400/60 hover:text-cyan-300 hover:bg-cyan-500/15 transition-colors cursor-pointer">
-                          <i className="fa-solid fa-wifi" />
-                        </button>
-                        <button onClick={() => moveMirror(url, -1)} disabled={i === 0} title="Move up" className="text-[9px] px-1 py-0.5 rounded text-white/30 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer">
-                          <i className="fa-solid fa-chevron-up" />
-                        </button>
-                        <button onClick={() => moveMirror(url, 1)} disabled={i === (settings.scihub_mirrors ?? DEFAULT_MIRRORS).length - 1} title="Move down" className="text-[9px] px-1 py-0.5 rounded text-white/30 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer">
-                          <i className="fa-solid fa-chevron-down" />
-                        </button>
-                        <button onClick={() => removeMirror(url)} title="Remove" className="text-[9px] px-1.5 py-0.5 rounded text-red-400/40 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer">
-                          <i className="fa-solid fa-trash" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Add new mirror */}
-              <div className="flex gap-2">
-                <input
-                  type="url"
-                  value={newMirrorUrl}
-                  onChange={(e) => setNewMirrorUrl(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { addMirror(newMirrorUrl); setNewMirrorUrl(""); } }}
-                  placeholder="https://sci-hub.example.com"
-                  className="flex-1 px-3 py-1.5 rounded-lg text-[12px] font-mono outline-none placeholder:text-white/15 bg-white/5 border border-white/10 text-white/80 focus:border-cyan-500/40 transition-colors"
-                />
-                <button
-                  onClick={() => { addMirror(newMirrorUrl); setNewMirrorUrl(""); }}
-                  className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors cursor-pointer"
-                >
-                  <i className="fa-solid fa-plus text-[9px] mr-1" />Add
-                </button>
-                <button
-                  onClick={() => save({ ...settings!, scihub_mirrors: DEFAULT_MIRRORS })}
-                  title="Reset to defaults"
-                  className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-white/5 text-white/30 border border-white/10 hover:text-white/60 transition-colors cursor-pointer"
-                >
-                  Reset
-                </button>
-              </div>
-              <p className="text-[10px] text-white/15 mt-2">First mirror in list is tried first. Working mirrors detected via ping.</p>
             </SettingGroup>
 
             <div className="mt-4 p-4 rounded-xl bg-white/3 border border-white/6">
@@ -1142,19 +929,6 @@ export function Settings() {
               </div>
             </SettingGroup>
 
-            <SettingGroup title="Research Window">
-              <div className="space-y-5">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <i className="fa-solid fa-microscope text-[10px] text-cyan-400" />
-                    <span className="text-[12px] font-medium text-white/70">Research Chat Assistant</span>
-                  </div>
-                  <p className="text-[10px] text-white/25 mb-1.5">System prompt for the Research chat mode. For pipeline agent prompts, see the <button onClick={() => setActiveTab("research_agents")} className="text-cyan-400/60 hover:text-cyan-400 underline cursor-pointer">Research Agents</button> tab.</p>
-                  <TextArea label="" description="" value={settings.ai_prompts?.research ?? ""} onChange={(v) => updateAiPrompt("research", v)} rows={4} />
-                </div>
-              </div>
-            </SettingGroup>
-
             {(!settings.api_keys || settings.api_keys.length === 0) && (
               <div className="mt-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
                 <p className="text-[12px] text-amber-300 font-medium">
@@ -1169,144 +943,6 @@ export function Settings() {
                 </button>
               </div>
             )}
-          </TabPanel>
-        )}
-
-        {activeTab === "research_agents" && (
-          <TabPanel title="Research Agents" description="Configure each pipeline agent's behavior, model tier, and system prompts for the autonomous research pipeline">
-            {/* Study Design Prompts */}
-            <SettingGroup title="Study Design Prompts">
-              <p className="text-[10px] text-white/25 mb-3 -mt-1">Each study design has a tailored system prompt. These are used as the top-level pipeline instruction when running that specific design type.</p>
-              <div className="space-y-4">
-                {([
-                  { key: "research_pipeline" as const, label: "Systematic Review / Meta-Analysis", icon: "fa-list-check", desc: "PRISMA-guided pipeline for systematic reviews and meta-analyses. Focuses on exhaustive search, strict inclusion/exclusion criteria, and quantitative synthesis." },
-                  { key: "subject_review" as const, label: "Subject Review", icon: "fa-book-open", desc: "Comprehensive literature survey of a field. Covers historical evolution, theoretical frameworks, current debates, and future directions." },
-                  { key: "educational" as const, label: "Educational", icon: "fa-graduation-cap", desc: "Pedagogically structured learning resource. Includes objectives, prerequisites, worked examples, practice questions, and progressive complexity." },
-                  { key: "case_study" as const, label: "Case Study", icon: "fa-magnifying-glass-chart", desc: "Structured case analysis with problem framing, stakeholder analysis, evidence-based findings, and actionable recommendations." },
-                  { key: "comparative" as const, label: "Comparative Analysis", icon: "fa-code-compare", desc: "Systematic comparison of methods, approaches, or technologies. Uses structured criteria, comparison tables, and contextual recommendations." },
-                  { key: "exploratory" as const, label: "Exploratory Research", icon: "fa-compass", desc: "Open-ended, hypothesis-generating investigation. Maps the topic landscape, identifies knowledge gaps, and proposes methodologies." },
-                ]).map(({ key, label, icon, desc }) => (
-                  <div key={key}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <i className={`fa-solid ${icon} text-[10px] text-cyan-400`} />
-                      <span className="text-[12px] font-medium text-white/70">{label}</span>
-                    </div>
-                    <p className="text-[10px] text-white/25 mb-1.5">{desc}</p>
-                    <TextArea label="" description="" value={settings.ai_prompts?.[key] ?? ""} onChange={(v) => updateAiPrompt(key, v)} rows={3} />
-                  </div>
-                ))}
-              </div>
-            </SettingGroup>
-
-            {/* Pipeline Agent Configs */}
-            <SettingGroup title="Pipeline Agent Configuration">
-              <p className="text-[10px] text-white/25 mb-3 -mt-1">Configure each agent in the autonomous research pipeline. Each agent has its own system prompt, model tier, token budget, and behavior settings.</p>
-              <div className="space-y-5">
-                {([
-                  { key: "gatekeeper" as const, label: "Gatekeeper", icon: "fa-shield-halved", desc: "Validates research questions for specificity, scope, and feasibility before the pipeline begins." },
-                  { key: "query_architect" as const, label: "Query Architect", icon: "fa-diagram-project", desc: "Generates optimized MeSH/Boolean search strings for PubMed, Semantic Scholar, OpenAlex, and arXiv." },
-                  { key: "triage_agent" as const, label: "Triage Agent", icon: "fa-filter", desc: "Screens papers for relevance using title/abstract analysis against inclusion/exclusion criteria." },
-                  { key: "blueprint_agent" as const, label: "Blueprint Agent", icon: "fa-sitemap", desc: "Plans the paper structure — sections, requirements, figure/table placements per reporting guidelines." },
-                  { key: "lead_author" as const, label: "Lead Author", icon: "fa-pen-nib", desc: "Drafts publication-ready sections with inline citations, data tables, and figure placeholders." },
-                  { key: "citation_verifier" as const, label: "Citation Verifier", icon: "fa-check-double", desc: "Cross-references every citation against the paper list. Flags hallucinated or misattributed references." },
-                  { key: "guidelines_compliance" as const, label: "Guidelines Compliance", icon: "fa-clipboard-check", desc: "Checks manuscript against PRISMA, STROBE, CONSORT, or other reporting guidelines." },
-                  { key: "smoothing_pass" as const, label: "Smoothing Pass", icon: "fa-wand-magic-sparkles", desc: "Final editorial polish — harmonizes voice, adds transitions, writes Abstract and Conclusion." },
-                ]).map(({ key, label, icon, desc }) => {
-                  const step = settings.pipeline_config?.[key];
-                  return (
-                    <div key={key} className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <i className={`fa-solid ${icon} text-[11px] text-cyan-400/70`} />
-                        <span className="text-[12px] font-semibold text-white/75">{label}</span>
-                      </div>
-                      <p className="text-[10px] text-white/25 mb-2">{desc}</p>
-                      <TextArea label="System Prompt" description="" value={step?.system_prompt ?? ""} onChange={(v) => updatePipelineStep(key, "system_prompt", v)} rows={3} />
-                      <div className="grid grid-cols-2 gap-3 mt-2">
-                        <div>
-                          <label className="text-[10px] text-white/35 block mb-1">Model Tier</label>
-                          <select value={step?.model_tier ?? "strong"}
-                            onChange={(e) => updatePipelineStep(key, "model_tier", e.target.value)}
-                            className="w-full px-2 py-1.5 rounded-lg text-[11px] text-white/80 outline-none appearance-none cursor-pointer"
-                            style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                            <option value="strong" style={{ background: "#151520" }}>Strong (Pro/Opus)</option>
-                            <option value="fast" style={{ background: "#151520" }}>Fast (Flash/Haiku)</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-white/35 block mb-1">Max Tokens</label>
-                          <input type="number" value={step?.max_tokens ?? 4096}
-                            onChange={(e) => updatePipelineStep(key, "max_tokens", parseInt(e.target.value) || 4096)}
-                            className="w-full px-2 py-1.5 rounded-lg text-[11px] text-white/80 outline-none"
-                            style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }} />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-white/35 block mb-1">Temperature ({(step?.temperature ?? 0.3).toFixed(1)})</label>
-                          <input type="range" min="0" max="1" step="0.1" value={step?.temperature ?? 0.3}
-                            onChange={(e) => updatePipelineStep(key, "temperature", parseFloat(e.target.value))}
-                            className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                            style={{ background: "rgba(255,255,255,0.1)" }} />
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <label className="flex items-center gap-1.5 cursor-pointer">
-                            <input type="checkbox" checked={step?.use_thinking ?? false}
-                              onChange={(e) => updatePipelineStep(key, "use_thinking", e.target.checked)}
-                              className="rounded accent-cyan-500" />
-                            <span className="text-[10px] text-white/40">Thinking</span>
-                          </label>
-                          <label className="flex items-center gap-1.5 cursor-pointer">
-                            <input type="checkbox" checked={step?.use_structured_output ?? false}
-                              onChange={(e) => updatePipelineStep(key, "use_structured_output", e.target.checked)}
-                              className="rounded accent-cyan-500" />
-                            <span className="text-[10px] text-white/40">Structured</span>
-                          </label>
-                        </div>
-                      </div>
-                      
-                      {step?.use_thinking && (
-                        <div className="mt-3 pt-3 border-t border-white/5">
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="text-[10px] text-white/35">Thinking Budget (Tokens)</label>
-                            <span className="text-[10px] text-white/50 font-mono">{step.thinking_budget ?? 8192}</span>
-                          </div>
-                          <input type="range" min="1024" max="32768" step="1024" value={step.thinking_budget ?? 8192}
-                            onChange={(e) => updatePipelineStep(key, "thinking_budget", parseInt(e.target.value))}
-                            className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                            style={{ background: "rgba(255,255,255,0.1)" }} />
-                        </div>
-                      )}
-
-                      <div className="mt-3 pt-3 border-t border-white/5">
-                        <label className="text-[10px] text-white/35 block mb-2">Enabled Tools</label>
-                        <div className="flex flex-wrap gap-2">
-                          {RESEARCH_TOOLS.map((tool) => {
-                            const enabled = (step?.enabled_tools || []).includes(tool.id);
-                            return (
-                              <button
-                                key={tool.id}
-                                onClick={() => {
-                                  const currentTools = step?.enabled_tools || [];
-                                  const newTools = enabled 
-                                    ? currentTools.filter(t => t !== tool.id)
-                                    : [...currentTools, tool.id];
-                                  updatePipelineStep(key, "enabled_tools", newTools);
-                                }}
-                                className={`px-2 py-1 rounded text-[10px] transition-colors border ${
-                                  enabled 
-                                    ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30" 
-                                    : "bg-white/5 text-white/40 border-white/10 hover:bg-white/10 hover:text-white/60"
-                                }`}
-                              >
-                                {tool.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </SettingGroup>
           </TabPanel>
         )}
 
@@ -1420,15 +1056,13 @@ export function Settings() {
               ) : (
                 <div className="space-y-3">
                   {(settings.scripts || []).map((script) => {
-                    const isRunning = runningScripts[script.id] || false;
-                    const iconMap: Record<string, string> = {
-                      ai_summarizer: "fa-solid fa-robot",
-                      duplicate_finder: "fa-solid fa-clone",
-                    };
-                    const colorMap: Record<string, string> = {
-                      ai_summarizer: "bg-violet-500/15 text-violet-400",
-                      duplicate_finder: "bg-amber-500/15 text-amber-400",
-                    };
+                   const isRunning = runningScripts[script.id] || false;
+                   const iconMap: Record<string, string> = {
+                     duplicate_finder: "fa-solid fa-clone",
+                   };
+                   const colorMap: Record<string, string> = {
+                     duplicate_finder: "bg-amber-500/15 text-amber-400",
+                   };
                     return (
                       <div
                         key={script.id}

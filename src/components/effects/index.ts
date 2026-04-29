@@ -5,6 +5,6 @@ export { ClickSpark } from "./ClickSpark";
 export { SpotlightCard } from "./SpotlightCard";
 export { ShinyText } from "./ShinyText";
 export { GradientText } from "./GradientText";
+export { GlareHover } from "./GlareHover";
 export { StarBorder } from "./StarBorder";
 export { FloatingParticles } from "./FloatingParticles";
-export { GlareHover } from "./GlareHover";

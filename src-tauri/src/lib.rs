@@ -12,6 +12,7 @@ use tauri::{
 };
 
 mod api_server;
+mod crypto;
 mod plugins;
 mod settings;
 
@@ -62,6 +63,10 @@ pub struct ScriptProcessState {
 /// atomically returns and clears the value.
 pub struct EditorImageState {
     pub pending: Mutex<Option<String>>,
+}
+
+pub struct VaultState {
+    pub vault: Mutex<crypto::Vault>,
 }
 
 #[tauri::command]
@@ -1345,6 +1350,418 @@ fn chrono_id() -> String {
     format!("{}{:03}", d.as_secs(), d.subsec_millis())
 }
 
+/* ═════════════════════ Vault Commands ════════════════════════ */
+
+#[tauri::command]
+fn has_vault(state: tauri::State<'_, SettingsState>) -> Result<bool, String> {
+    let s = state.settings.lock().map_err(|e| e.to_string())?;
+    Ok(!s.vault_salt.is_empty())
+}
+
+#[tauri::command]
+fn is_vault_locked(vault_state: tauri::State<'_, VaultState>) -> Result<bool, String> {
+    let v = vault_state.vault.lock().map_err(|e| e.to_string())?;
+    Ok(v.is_locked())
+}
+
+#[tauri::command]
+fn create_vault(
+    state: tauri::State<'_, SettingsState>,
+    vault_state: tauri::State<'_, VaultState>,
+    password: String,
+) -> Result<bool, String> {
+    let salt = crypto::Vault::create_salt();
+    let hash = crypto::hash_for_verification(&password, &salt);
+    let salt_b64 = base64::engine::general_purpose::STANDARD.encode(&salt);
+    let hash_hex = hex::encode(&hash);
+
+    let mut v = vault_state.vault.lock().map_err(|e| e.to_string())?;
+    v.unlock(&password, &salt)?;
+
+    let mut s = state.settings.lock().map_err(|e| e.to_string())?;
+    s.vault_salt = salt_b64;
+    s.vault_password_hash = hash_hex;
+    // Encrypt existing plaintext keys if any
+    if !s.api_keys.is_empty() {
+        let json = serde_json::to_string(&s.api_keys).map_err(|e| e.to_string())?;
+        s.encrypted_keys = Some(v.encrypt(&json)?);
+    }
+    if !s.vt_api_key.is_empty() {
+        s.encrypted_vt_key = Some(v.encrypt(&s.vt_api_key)?);
+        s.vt_api_key = String::new();
+    }
+    if !s.omdb_api_key.is_empty() {
+        s.encrypted_omdb_key = Some(v.encrypt(&s.omdb_api_key)?);
+        s.omdb_api_key = String::new();
+    }
+    if !s.audiodb_api_key.is_empty() {
+        s.encrypted_audiodb_key = Some(v.encrypt(&s.audiodb_api_key)?);
+        s.audiodb_api_key = String::new();
+    }
+    if !s.imdb_api_key.is_empty() {
+        s.encrypted_imdb_key = Some(v.encrypt(&s.imdb_api_key)?);
+        s.imdb_api_key = String::new();
+    }
+    s.save()?;
+    Ok(true)
+}
+
+#[tauri::command]
+fn unlock_vault(
+    state: tauri::State<'_, SettingsState>,
+    vault_state: tauri::State<'_, VaultState>,
+    password: String,
+) -> Result<bool, String> {
+    let s = state.settings.lock().map_err(|e| e.to_string())?;
+    let salt_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&s.vault_salt)
+        .map_err(|e| e.to_string())?;
+    let expected_hash = hex::decode(&s.vault_password_hash).map_err(|e| e.to_string())?;
+    let actual_hash = crypto::hash_for_verification(&password, &salt_bytes);
+    if actual_hash != expected_hash {
+        return Err("Invalid password".into());
+    }
+    let mut v = vault_state.vault.lock().map_err(|e| e.to_string())?;
+    v.unlock(&password, &salt_bytes)?;
+    Ok(true)
+}
+
+#[tauri::command]
+fn lock_vault(vault_state: tauri::State<'_, VaultState>) -> Result<(), String> {
+    let mut v = vault_state.vault.lock().map_err(|e| e.to_string())?;
+    v.lock();
+    Ok(())
+}
+
+#[tauri::command]
+fn get_decrypted_keys(
+    state: tauri::State<'_, SettingsState>,
+    vault_state: tauri::State<'_, VaultState>,
+) -> Result<Vec<settings::ApiKeyEntry>, String> {
+    let s = state.settings.lock().map_err(|e| e.to_string())?;
+    let v = vault_state.vault.lock().map_err(|e| e.to_string())?;
+    if v.is_locked() { return Err("Vault is locked".into()); }
+    if let Some(ref enc) = s.encrypted_keys {
+        let json = v.decrypt(enc)?;
+        let keys: Vec<settings::ApiKeyEntry> = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+        return Ok(keys);
+    }
+    // Fallback: return plaintext keys from settings
+    Ok(s.api_keys.clone())
+}
+
+#[tauri::command]
+fn save_encrypted_keys(
+    state: tauri::State<'_, SettingsState>,
+    vault_state: tauri::State<'_, VaultState>,
+    keys_json: String,
+) -> Result<(), String> {
+    let v = vault_state.vault.lock().map_err(|e| e.to_string())?;
+    if v.is_locked() { return Err("Vault is locked".into()); }
+    let encrypted = v.encrypt(&keys_json)?;
+    let mut s = state.settings.lock().map_err(|e| e.to_string())?;
+    s.encrypted_keys = Some(encrypted);
+    s.api_keys.clear();
+    s.save()?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_decrypted_secret(
+    state: tauri::State<'_, SettingsState>,
+    vault_state: tauri::State<'_, VaultState>,
+    key: String,
+) -> Result<String, String> {
+    let s = state.settings.lock().map_err(|e| e.to_string())?;
+    let v = vault_state.vault.lock().map_err(|e| e.to_string())?;
+    if v.is_locked() { return Err("Vault is locked".into()); }
+    let encrypted = match key.as_str() {
+        "vt" => s.encrypted_vt_key.as_ref(),
+        "omdb" => s.encrypted_omdb_key.as_ref(),
+        "audiodb" => s.encrypted_audiodb_key.as_ref(),
+        "imdb" => s.encrypted_imdb_key.as_ref(),
+        _ => return Err("Unknown key".into()),
+    };
+    match encrypted {
+        Some(enc) => v.decrypt(enc),
+        None => Ok(String::new()),
+    }
+}
+
+#[tauri::command]
+fn save_encrypted_secret(
+    state: tauri::State<'_, SettingsState>,
+    vault_state: tauri::State<'_, VaultState>,
+    key_name: String,
+    value: String,
+) -> Result<(), String> {
+    let v = vault_state.vault.lock().map_err(|e| e.to_string())?;
+    if v.is_locked() { return Err("Vault is locked".into()); }
+    let encrypted = v.encrypt(&value)?;
+    let mut s = state.settings.lock().map_err(|e| e.to_string())?;
+    match key_name.as_str() {
+        "vt" => { s.encrypted_vt_key = Some(encrypted); s.vt_api_key = String::new(); }
+        "omdb" => { s.encrypted_omdb_key = Some(encrypted); s.omdb_api_key = String::new(); }
+        "audiodb" => { s.encrypted_audiodb_key = Some(encrypted); s.audiodb_api_key = String::new(); }
+        "imdb" => { s.encrypted_imdb_key = Some(encrypted); s.imdb_api_key = String::new(); }
+        _ => return Err("Unknown key".into()),
+    }
+    s.save()?;
+    Ok(())
+}
+
+#[tauri::command]
+fn change_vault_password(
+    state: tauri::State<'_, SettingsState>,
+    vault_state: tauri::State<'_, VaultState>,
+    old_password: String,
+    new_password: String,
+) -> Result<bool, String> {
+    let s = state.settings.lock().map_err(|e| e.to_string())?;
+    let salt_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&s.vault_salt)
+        .map_err(|e| e.to_string())?;
+    let expected_hash = hex::decode(&s.vault_password_hash).map_err(|e| e.to_string())?;
+    if crypto::hash_for_verification(&old_password, &salt_bytes) != expected_hash {
+        return Err("Invalid current password".into());
+    }
+    // Collect encrypted data while vault is open with old key
+    let v = vault_state.vault.lock().map_err(|e| e.to_string())?;
+    let encrypted_keys_val = s.encrypted_keys.clone();
+    let enc_vt = s.encrypted_vt_key.clone();
+    let enc_omdb = s.encrypted_omdb_key.clone();
+    let enc_audiodb = s.encrypted_audiodb_key.clone();
+    let enc_imdb = s.encrypted_imdb_key.clone();
+    drop(s);
+    drop(v);
+    // Re-derive vault with new password
+    let new_salt = crypto::Vault::create_salt();
+    let new_hash = crypto::hash_for_verification(&new_password, &new_salt);
+    let mut v = vault_state.vault.lock().map_err(|e| e.to_string())?;
+    // First unlock with old password to decrypt, then re-unlock with new
+    v.unlock(&old_password, &salt_bytes)?;
+    let mut s = state.settings.lock().map_err(|e| e.to_string())?;
+    if let Some(ref enc) = encrypted_keys_val {
+        if let Ok(json) = v.decrypt(enc) {
+            v.unlock(&new_password, &new_salt)?;
+            s.encrypted_keys = Some(v.encrypt(&json)?);
+        }
+    }
+    let reencrypt = |v: &mut crypto::Vault, s: &mut ZenithSettings, enc: &Option<String>, field: &str| {
+        if let Some(ref e) = enc {
+            if let Ok(val) = v.decrypt(e) {
+                if let Ok(new_enc) = v.encrypt(&val) {
+                    match field { "vt" => s.encrypted_vt_key = Some(new_enc), "omdb" => s.encrypted_omdb_key = Some(new_enc), "audiodb" => s.encrypted_audiodb_key = Some(new_enc), "imdb" => s.encrypted_imdb_key = Some(new_enc), _ => {} }
+                }
+            }
+        }
+    };
+    v.unlock(&old_password, &salt_bytes)?;
+    reencrypt(&mut v, &mut s, &enc_vt, "vt");
+    reencrypt(&mut v, &mut s, &enc_omdb, "omdb");
+    reencrypt(&mut v, &mut s, &enc_audiodb, "audiodb");
+    reencrypt(&mut v, &mut s, &enc_imdb, "imdb");
+    v.unlock(&new_password, &new_salt)?;
+    s.vault_salt = base64::engine::general_purpose::STANDARD.encode(&new_salt);
+    s.vault_password_hash = hex::encode(&new_hash);
+    s.save()?;
+    Ok(true)
+}
+
+/* ═════════════════════ Activity Log ════════════════════════ */
+
+fn activity_log_path() -> PathBuf {
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(local).join("Zenith").join("activity_log.json")
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct ActivityEntry {
+    timestamp: u64,
+    action: String,
+    details: String,
+}
+
+#[tauri::command]
+fn log_activity(action: String, details: String) -> Result<(), String> {
+    let path = activity_log_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut entries: Vec<ActivityEntry> = if path.exists() {
+        let c = fs::read_to_string(&path).unwrap_or_default();
+        serde_json::from_str(&c).unwrap_or_default()
+    } else { vec![] };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    entries.push(ActivityEntry { timestamp: now, action, details });
+    if entries.len() > 500 { entries = entries.split_off(entries.len() - 500); }
+    let json = serde_json::to_string(&entries).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_activity_log() -> Result<Vec<serde_json::Value>, String> {
+    let path = activity_log_path();
+    if !path.exists() { return Ok(vec![]); }
+    let c = fs::read_to_string(&path).unwrap_or_default();
+    serde_json::from_str(&c).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_activity_log() -> Result<(), String> {
+    let path = activity_log_path();
+    if path.exists() { fs::remove_file(&path).map_err(|e| e.to_string())?; }
+    Ok(())
+}
+
+/* ═════════════════════ Tagging ════════════════════════ */
+
+fn tags_path() -> PathBuf {
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(local).join("Zenith").join("tags.json")
+}
+
+#[tauri::command]
+fn get_tags() -> Result<serde_json::Value, String> {
+    let path = tags_path();
+    if !path.exists() {
+        return Ok(serde_json::json!({}));
+    }
+    let c = fs::read_to_string(&path).unwrap_or_else(|_| "{}".into());
+    serde_json::from_str(&c).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_tag(item_id: String, tag_name: String, color: String) -> Result<(), String> {
+    let path = tags_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut tags: serde_json::Value = if path.exists() {
+        let c = fs::read_to_string(&path).unwrap_or_else(|_| "{}".into());
+        serde_json::from_str(&c).unwrap_or(serde_json::json!({}))
+    } else { serde_json::json!({}) };
+    tags[&item_id] = serde_json::json!({"name": tag_name, "color": color});
+    let json = serde_json::to_string(&tags).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_tag(item_id: String) -> Result<(), String> {
+    let path = tags_path();
+    if !path.exists() { return Ok(()); }
+    let c = fs::read_to_string(&path).unwrap_or_else(|_| "{}".into());
+    let mut tags: serde_json::Value = serde_json::from_str(&c).map_err(|e| e.to_string())?;
+    if let Some(obj) = tags.as_object_mut() { obj.remove(&item_id); }
+    let json = serde_json::to_string(&tags).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+/* ═════════════════════ Settings Export/Import ════════════════════════ */
+
+#[tauri::command]
+fn export_settings(state: tauri::State<'_, SettingsState>) -> Result<String, String> {
+    let s = state.settings.lock().map_err(|e| e.to_string())?;
+    serde_json::to_string_pretty(&*s).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn import_settings(state: tauri::State<'_, SettingsState>, json: String) -> Result<(), String> {
+    let new_settings: ZenithSettings = serde_json::from_str(&json).map_err(|e| format!("Invalid settings JSON: {}", e))?;
+    let mut s = state.settings.lock().map_err(|e| e.to_string())?;
+    *s = new_settings;
+    s.save()
+}
+
+/* ═════════════════════ Screen Capture ════════════════════════ */
+
+#[tauri::command]
+fn capture_screen() -> Result<String, String> {
+    let temp_dir = std::env::temp_dir().join("Zenith");
+    fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    let filename = format!("screenshot_{}.png", chrono_id());
+    let out_path = temp_dir.join(&filename);
+    let out_str = out_path.to_string_lossy().to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        let ps_script = format!(
+            "$b=[Windows.Forms.SystemInformation]::VirtualScreen; $bmp=New-Object Drawing.Bitmap $b.Width,$b.Height; $g=[Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($b.X,$b.Y,0,0,$b.Size); $bmp.Save('{}',[Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose(); $g.Dispose();",
+            out_str.replace('\\', "\\\\")
+        );
+        let output = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &format!("Add-Type -AssemblyName System.Windows.Forms,System.Drawing; {}", ps_script)])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map_err(|e| format!("Failed: {}", e))?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("screencapture")
+            .args(["-x", &out_str])
+            .output()
+            .map_err(|e| format!("Failed: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("import")
+            .arg("-window")
+            .arg("root")
+            .arg(&out_str)
+            .output()
+            .map_err(|e| format!("Failed: {}", e))?;
+    }
+
+    Ok(out_str)
+}
+
+/* ═════════════════════ Clipboard History ════════════════════════ */
+
+fn clipboard_history_path() -> PathBuf {
+    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(local).join("Zenith").join("clipboard_history.json")
+}
+
+#[tauri::command]
+fn save_clipboard_entry(text: String, image_b64: String) -> Result<(), String> {
+    let path = clipboard_history_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut entries: Vec<serde_json::Value> = if path.exists() {
+        let c = fs::read_to_string(&path).unwrap_or_default();
+        serde_json::from_str(&c).unwrap_or_default()
+    } else { vec![] };
+    let entry = serde_json::json!({
+        "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
+        "text": if text.len() > 200 { format!("{}...", &text[..197]) } else { text },
+        "image_b64": if image_b64.len() > 0 { Some(&image_b64[..image_b64.len().min(4096)]) } else { None },
+    });
+    entries.insert(0, entry);
+    if entries.len() > 100 { entries.truncate(100); }
+    let json = serde_json::to_string(&entries).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_clipboard_history() -> Result<Vec<serde_json::Value>, String> {
+    let path = clipboard_history_path();
+    if !path.exists() { return Ok(vec![]); }
+    let c = fs::read_to_string(&path).unwrap_or_default();
+    serde_json::from_str(&c).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_clipboard_history() -> Result<(), String> {
+    let path = clipboard_history_path();
+    if path.exists() { fs::remove_file(&path).map_err(|e| e.to_string())?; }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1369,6 +1786,9 @@ pub fn run() {
         })
         .manage(EditorImageState {
             pending: Mutex::new(None),
+        })
+        .manage(VaultState {
+            vault: Mutex::new(crypto::Vault::new()),
         })
         .setup(|app| {
             let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
@@ -1511,6 +1931,28 @@ pub fn run() {
             take_pending_editor_image,
             save_clipboard_image,
             read_file_base64,
+            has_vault,
+            is_vault_locked,
+            create_vault,
+            unlock_vault,
+            lock_vault,
+            get_decrypted_keys,
+            save_encrypted_keys,
+            get_decrypted_secret,
+            save_encrypted_secret,
+            change_vault_password,
+            log_activity,
+            get_activity_log,
+            clear_activity_log,
+            get_tags,
+            set_tag,
+            remove_tag,
+            export_settings,
+            import_settings,
+            save_clipboard_entry,
+            get_clipboard_history,
+            clear_clipboard_history,
+            capture_screen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

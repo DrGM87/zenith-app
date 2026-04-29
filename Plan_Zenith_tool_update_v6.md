@@ -271,9 +271,156 @@ Two approaches available:
 ## EXECUTION ORDER
 
 ```
-Week 1: Phase 1 (Strip Research) → verify app still runs, no compile errors
-Week 1: Phase 2 (Fix Gaps) — items 30-55 → all settings work, all wiring verified
+Week 1: Phase 1 (Strip Research) ✓ DONE — 22 files deleted, 11 created, TS+Rust clean
+Week 1: Phase 2 (Fix Gaps) ✓ DONE — 9 fixes applied, all settings now functional
 Week 2: Phase 3 (API Key Security) — encrypted vault system
 Week 2: Phase 4 (Polish) — deduplication, hardening
 Week 3: Phase 5 (Tests) — coverage from 0.18% → target 40%+
+```
+
+---
+
+# COMPETITIVE RESEARCH
+
+Research conducted Apr 29, 2026 across GitHub topics. 10 reference repos cloned to `reference/`.
+
+## REFERENCE REPOSITORIES CLONED
+
+| # | Repo | Stars | Stack | Category | Key Reference For |
+|---|------|-------|-------|----------|-------------------|
+| 1 | `EcoPasteHub/EcoPaste` | 7k | Tauri/Rust/React | clipboard | **Identical stack** — clipboard manager architecture |
+| 2 | `PasteBar/PasteBarApp` | 2k | Tauri/React/Rust | clipboard | Taskbar clipboard app patterns |
+| 3 | `CapSoftware/Cap` | 18.4k | Tauri/Rust/SolidJS | screen-capture | Screen recording + capture pipeline |
+| 4 | `MogensenJesse/image-optimizer` | 62 | Tauri/Rust/React | image-processing | **Direct competitor** — batch image optimizer UI |
+| 5 | `oxipng/oxipng` | 3.9k | Rust | image-processing | High-perf PNG optimization algorithms |
+| 6 | `Stirling-Tools/Stirling-PDF` | 78k | TypeScript/Java | pdf-tools | #1 PDF toolkit — feature completeness reference |
+| 7 | `HACKERALERT/Picocrypt` | 2.5k | Go | encryption | Clean encryption UX + XChaCha20/Argon2 patterns |
+| 8 | `ereinaimer/iris` | 235 | Rust | file-organization | Config-driven rules engine (YAML schema) |
+| 9 | `C4illin/ConvertX` | 16.7k | TypeScript/Bun | conversion | 1000+ format conversion matrix |
+| 10 | `Ruben2776/PicView` | 3.2k | C#/Avalonia | image-viewer | Batch processing + preview UX patterns |
+
+## COMPETITIVE LANDSCAPE BY FEATURE
+
+### Screen Capture (#11)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| **Cap** ⭐ | 18.4k | Tauri/Rust | `github.com/CapSoftware/Cap` |
+| xcap | 960 | Rust | `github.com/nashaofu/xcap` |
+| cleave | 186 | Rust/wgpu | `github.com/Exotik850/cleave` |
+| menyoki | 666 | Rust | `github.com/orhun/menyoki` |
+| **Zenith strategy**: Use Cap's Tauri capture pipeline as reference. xcap/scap for Rust backend. Auto-stage screenshots for instant processing. |
+
+### Clipboard Manager (#12)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| **EcoPaste** ⭐ | 7k | Tauri/Rust/React | `github.com/EcoPasteHub/EcoPaste` |
+| Maccy | 19.6k | Swift | `github.com/p0deje/Maccy` |
+| CopyQ | 11.6k | C++ | `github.com/hluk/CopyQ` |
+| Ditto | 6.3k | C | `github.com/sabrogden/Ditto` |
+| **PasteBar** ⭐ | 2k | Tauri/React/Rust | `github.com/PasteBar/PasteBarApp` |
+| **Zenith strategy**: EcoPaste proves Tauri is viable for this. Extend existing stack mode to persistent history with search, text + image thumbnails. |
+
+### File Organization / Auto-Organize (#2)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| **iris** ⭐ | 235 | Rust | `github.com/ereinaimer/iris` |
+| tidyai | 42 | PowerShell/OpenAI | `github.com/geetbatth/tidyai` |
+| clown_sort | 32 | Python | `github.com/michelcrypt4d4mus/clown_sort` |
+| Sortify | 10 | Python | `github.com/Mrtracker-new/Sortify` |
+| **Zenith strategy**: Rules engine (iris pattern) + existing AI organizer = hybrid. Rules in settings.json: flexible, user-editable, no AI cost. |
+
+### PDF Toolkit (#5)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| **Stirling-PDF** ⭐ | 78k | TypeScript/Java | `github.com/Stirling-Tools/Stirling-PDF` |
+| BentoPDF | 13k | JavaScript | `github.com/alam00000/bentopdf` |
+| PaperKnife | 1k | TypeScript | `github.com/potatameister/PaperKnife` |
+| **Zenith strategy**: Extend existing PDF compress/merge with split, extract, rotate, watermark via PyMuPDF. Stirling-PDF is the feature gold standard. |
+
+### Image Optimization / Batch Processing (#1)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| **oxipng** ⭐ | 3.9k | Rust | `github.com/oxipng/oxipng` |
+| **image-optimizer** ⭐ | 62 | Tauri/Rust/React | `github.com/MogensenJesse/image-optimizer` |
+| PicView | 3.2k | C#/Avalonia | `github.com/Ruben2776/PicView` |
+| pio | 151 | Rust | `github.com/siiptuo/pio` |
+| **Zenith strategy**: image-optimizer is the closest direct Tauri competitor. Batch queue UI pattern from it + oxipng's Rust optimization for native perf. |
+
+### Encryption (#18)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| **Picocrypt** ⭐ | 2.5k | Go | `github.com/HACKERALERT/Picocrypt` |
+| hat.sh | 2.3k | JavaScript | `github.com/sh-dv/hat.sh` |
+| Kryptor | 498 | C# | `github.com/samuel-lucas6/Kryptor` |
+| fractum | 113 | Python | `github.com/katvio/fractum` |
+| **Zenith strategy**: Extend zip_encrypt to standalone AES-256-GCM. Picocrypt's UX (3-click encrypt/decrypt) is the simplicity target. |
+
+### File Conversion (#23)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| **ConvertX** ⭐ | 16.7k | TypeScript/Bun | `github.com/C4illin/ConvertX` |
+| Batch-Tools | 9 | TypeScript/Next.js | `github.com/prechy123/Batch-Tools` |
+| convertall.io | 7 | TypeScript/Next.js | `github.com/dev-grid/convertall.io` |
+| **Zenith strategy**: ConvertX's format matrix is the reference for supported formats. Named conversion presets stored as JSON. |
+
+### Image Viewer / Preview (#24)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| oculante | 1.6k | Rust | `github.com/woelper/oculante` |
+| **PicView** ⭐ | 3.2k | C#/Avalonia | `github.com/Ruben2776/PicView` |
+| LightingView | 56 | Rust/egui | `github.com/dividebysandwich/LightningView` |
+| **Zenith strategy**: Extend PreviewDrawer with audio waveform (Web Audio API AnalyserNode). PicView's batch+convert UX as reference. |
+
+### Metadata Editor (#16)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| Photini | 210 | Python | `github.com/jim-easterbrook/Photini` |
+| Metadator | 176 | Kotlin | `github.com/BobbyESP/Metadator` |
+| pdftag | 68 | Vala | `github.com/arrufat/pdftag` |
+| mp3-metadata-autofiller | 27 | Python | `github.com/interborough/mp3-metadata-autofiller` |
+| **Zenith strategy**: Unified EXIF/ID3/PDF metadata editor. Extend existing audio recognition data + EXIF reader. |
+
+### File Tagging (#7)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| diskover | 1.8k | PHP/Python | `github.com/diskoverdata/diskover-community` |
+| etiquette | 39 | Python/SQLite | `github.com/voussoir/etiquette` |
+| DeepFinder | 5 | Swift | `github.com/indaos/DeepFinder` |
+| **Zenith strategy**: Lightweight colored tags stored in `%APPDATA%/Zenith/tags.json`. Filter by tag. Survives clear-all. |
+
+### Desktop Automation / Macros (#15)
+| App | Stars | Stack | URL |
+|-----|-------|-------|-----|
+| AutoKey | 3.8k | Python | `github.com/autokey/autokey` |
+| nut.js | 2.8k | TypeScript | `github.com/nut-tree/nut.js` |
+| autopilot-deno | 504 | Rust | `github.com/littledivy/autopilot-deno` |
+| **Zenith strategy**: Task macros = sequence of Zenith actions (compress → rename → move), NOT OS-level automation. Saved as JSON, one-click replay via existing process_file pipeline. |
+
+---
+
+## IMPLEMENTATION PRIORITY (Post-Security Phase)
+
+```
+PRIORITY 1 (next after Phase 3 security):
+  Export/Import Settings — trivial, serialize settings.json
+  Rules-Based Auto-Organize — extends existing organizer
+
+PRIORITY 2:
+  Batch Operations Queue — sequential queue wrapping existing process_file
+  Screen Capture — Rust capture lib + auto-stage to Zenith
+
+PRIORITY 3:
+  Clipboard History — extend stack mode to persistent storage
+  PDF Toolkit — extend PDF ops via PyMuPDF
+  Tagging System — colored labels on cards
+
+PRIORITY 4:
+  Encryption Toolkit — AES-256-GCM native in Rust
+  Conversion Presets — named profiles for one-click apply
+  Activity Log — operation history with timestamps
+
+PRIORITY 5:
+  Watch Folder — Rust notify crate for file monitoring
+  Task Macros — Zenith action sequences
+  Metadata Editor — unified EXIF/ID3/PDF
 ```

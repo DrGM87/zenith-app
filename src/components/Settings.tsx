@@ -114,7 +114,7 @@ interface PluginInfo {
   loaded: boolean;
 }
 
-type TabId = "general" | "appearance" | "behavior" | "shortcuts" | "processing" | "api_keys" | "ai_tools" | "token_usage" | "scripts";
+type TabId = "general" | "appearance" | "behavior" | "shortcuts" | "processing" | "api_keys" | "ai_tools" | "token_usage" | "activity" | "scripts";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "general", label: "General", icon: "fa-solid fa-sliders" },
@@ -124,6 +124,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "api_keys", label: "API Keys", icon: "fa-solid fa-key" },
   { id: "ai_tools", label: "AI Prompts", icon: "fa-solid fa-wand-magic-sparkles" },
   { id: "token_usage", label: "Token Usage", icon: "fa-solid fa-chart-line" },
+  { id: "activity", label: "Activity", icon: "fa-solid fa-history" },
   { id: "shortcuts", label: "Shortcuts", icon: "fa-solid fa-keyboard" },
   { id: "scripts", label: "Scripts", icon: "fa-solid fa-puzzle-piece" },
 ];
@@ -386,13 +387,37 @@ export function Settings() {
                 onChange={(v) => updateGeneral("check_for_updates", v)}
               />
             </SettingGroup>
-            <SettingGroup title="Storage">
+              <SettingGroup title="Storage">
               <TextInput
                 label="Plugins directory"
                 description="Where WASM extension files are stored"
                 value={settings.general.plugins_directory}
                 onChange={(v) => updateGeneral("plugins_directory", v)}
               />
+            </SettingGroup>
+            <SettingGroup title="Data">
+              <div className="flex gap-2">
+                <button onClick={async () => {
+                  try {
+                    const json = await invoke<string>("export_settings");
+                    await navigator.clipboard.writeText(json);
+                    setSaved(true); setTimeout(() => setSaved(false), 2000);
+                  } catch (e) { console.error(e); }
+                }} className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors cursor-pointer">
+                  <i className="fa-solid fa-copy mr-1.5 text-[9px]" />Copy Settings JSON
+                </button>
+                <button onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    await invoke("import_settings", { json: text });
+                    const s = await invoke<ZenithSettings>("get_settings");
+                    setSettings(s);
+                    setSaved(true); setTimeout(() => setSaved(false), 2000);
+                  } catch (e) { console.error(e); }
+                }} className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-colors cursor-pointer">
+                  <i className="fa-solid fa-paste mr-1.5 text-[9px]" />Import from Clipboard
+                </button>
+              </div>
             </SettingGroup>
           </TabPanel>
         )}
@@ -1045,6 +1070,10 @@ export function Settings() {
           </TabPanel>
         )}
 
+        {activeTab === "activity" && (
+          <ActivityLogTab />
+        )}
+
         {activeTab === "scripts" && (
           <TabPanel title="Scripts & Extensions" description="Manage scripts and WASM plugins">
             <SettingGroup title="Built-in Scripts">
@@ -1214,6 +1243,52 @@ export function Settings() {
         )}
       </div>
     </div>
+  );
+}
+
+/* ─── Activity Log Tab ─── */
+
+function ActivityLogTab() {
+  const [logs, setLogs] = useState<Array<{ timestamp: number; action: string; details: string }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    invoke<Array<{ timestamp: number; action: string; details: string }>>("get_activity_log")
+      .then(setLogs).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <TabPanel title="Activity Log" description="History of file operations and AI actions">
+      <SettingGroup title={`Last ${logs.length} actions`}>
+        {loading ? (
+          <div className="py-8 text-center"><i className="fa-solid fa-spinner fa-spin text-white/20 text-xl" /></div>
+        ) : logs.length === 0 ? (
+          <div className="py-8 text-center">
+            <i className="fa-solid fa-history text-2xl text-white/10 mb-2 block" />
+            <p className="text-[13px] text-white/30">No activity recorded yet</p>
+          </div>
+        ) : (
+          <div className="space-y-1 max-h-[400px] overflow-y-auto">
+            {[...logs].reverse().map((l, i) => (
+              <div key={i} className="flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors"
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+                <span className="text-[9px] text-white/20 mt-0.5 shrink-0 w-[130px]">{new Date(l.timestamp).toLocaleString()}</span>
+                <span className="text-[11px] text-cyan-300/80 font-medium shrink-0 w-[70px]">{l.action}</span>
+                <span className="text-[11px] text-white/50 truncate">{l.details}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </SettingGroup>
+      {logs.length > 0 && (
+        <SettingGroup title="Actions">
+          <button onClick={async () => { await invoke("clear_activity_log"); setLogs([]); }}
+            className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-[12px] font-medium text-red-300 hover:bg-red-500/20 transition-colors">
+            <i className="fa-solid fa-trash text-[10px] mr-1.5" />Clear Activity Log
+          </button>
+        </SettingGroup>
+      )}
+    </TabPanel>
   );
 }
 

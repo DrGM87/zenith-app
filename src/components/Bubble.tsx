@@ -6,6 +6,7 @@ import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { useZenithStore, type AudioRecognitionResult } from "../store";
 import { StagedItemCard } from "./StagedItemCard";
+import { LockScreen } from "./LockScreen";
 // PreviewDrawer now rendered independently in App.tsx
 import { BorderGlow, SoftAurora, MagicRings } from "./ReactBits";
 // ReviewStudio now rendered independently in App.tsx
@@ -45,6 +46,13 @@ export function Bubble() {
     pushAudioUndo,
     popAudioUndo,
     popAudioRedo,
+    vaultLocked,
+    vaultLoading,
+    checkVaultStatus,
+    loadTags,
+    loadPresets,
+    presets,
+    deletePreset,
   } = useZenithStore();
 
   const [zipping, setZipping] = useState(false);
@@ -60,6 +68,56 @@ export function Bubble() {
   const [batchAudioBitrate, setBatchAudioBitrate] = useState("192");
   const [showFooterMore, setShowFooterMore] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showClipHistory, setShowClipHistory] = useState(false);
+  const [clipHistory, setClipHistory] = useState<Array<{ timestamp: number; text: string; image_b64: string | null }>>([]);
+  const [batchQueueRunning, setBatchQueueRunning] = useState(false);
+  const [batchQueueAction, setBatchQueueAction] = useState("");
+  const [batchQueueProgress, setBatchQueueProgress] = useState({ current: 0, total: 0 });
+  const ACTION_PRESETS: { action: string; label: string; icon: string }[] = [
+    { action: "compress_image", label: "Compress Images", icon: "fa-solid fa-compress" },
+    { action: "convert_webp", label: "Convert to WebP", icon: "fa-solid fa-image" },
+    { action: "smart_rename", label: "AI Smart Rename", icon: "fa-solid fa-wand-magic-sparkles" },
+  ];
+
+  const fetchClipHistory = async () => {
+    try {
+      const h = await invoke<Array<{ timestamp: number; text: string; image_b64: string | null }>>("get_clipboard_history");
+      setClipHistory(h);
+    } catch {}
+  };
+
+  const handleBatchProcess = async (action: string) => {
+    const targets = items.filter((i) => i.path.length > 0);
+    if (targets.length === 0) return;
+    setBatchQueueRunning(true);
+    setBatchQueueAction(action);
+    setBatchQueueProgress({ current: 0, total: targets.length });
+    let ok = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const it = targets[i];
+      setBatchQueueProgress({ current: i + 1, total: targets.length });
+      try {
+        const extraArgs: Record<string, unknown> = {};
+        if (action === "convert_webp") extraArgs.quality = settings?.processing?.webp_quality ?? 85;
+        if (action === "compress_image") extraArgs.quality = settings?.processing?.image_quality ?? 80;
+        if (action === "smart_rename") {
+          const apiKey = getDefaultApiKey();
+          if (!apiKey.api_key) continue;
+          Object.assign(extraArgs, apiKey);
+          extraArgs.system_prompt = settings?.ai_prompts?.smart_rename;
+        }
+        const argsJson = JSON.stringify({ path: it.path, ...extraArgs });
+        const resultStr = await invoke<string>("process_file", { action, argsJson });
+        const result = JSON.parse(resultStr);
+        if (result.ok && result.path) { await stageFile(result.path); ok++; }
+        if (result.token_usage) trackTokenUsage(result.token_usage.provider, result.token_usage.model, result.token_usage.input_tokens, result.token_usage.output_tokens);
+        invoke("log_activity", { action: "Batch", details: `${action}: ${it.name}` }).catch(() => {});
+      } catch { /* skip failed items */ }
+    }
+    setBatchQueueRunning(false);
+    setFooterToast(`Batch ${action}: ${ok}/${targets.length} OK`);
+    setTimeout(() => setFooterToast(null), 3000);
+  };
 
   const selectedItems = items.filter((i) => selectedIds.has(i.id));
   const selectedPaths = selectedItems.filter((i) => i.path.length > 0).map((i) => i.path);
@@ -126,6 +184,10 @@ export function Bubble() {
     loadItems();
     loadSettings();
     refreshRenameCounts();
+    checkVaultStatus();
+    loadTags();
+    loadPresets();
+    fetchClipHistory();
     invoke("resize_window", { expanded: false });
 
     const unlisten = listen<{ paths: string[] }>("tauri://drag-drop", (event) => {
@@ -171,6 +233,8 @@ export function Bubble() {
           } else {
             stageText(text.trim());
           }
+          invoke("save_clipboard_entry", { text: text.trim(), imageB64: "" }).catch(() => {});
+          invoke("log_activity", { action: "Clipboard", details: `Staged: ${text.trim().slice(0, 50)}${text.trim().length > 50 ? "..." : ""}` }).catch(() => {});
         }
       } catch (e) {
         console.error("Clipboard read failed:", e);
@@ -254,6 +318,8 @@ export function Bubble() {
         } else {
           stageText(text);
         }
+        invoke("save_clipboard_entry", { text, imageB64: "" }).catch(() => {});
+        invoke("log_activity", { action: "Clipboard", details: `Staged: ${text.slice(0, 50)}${text.length > 50 ? "..." : ""}` }).catch(() => {});
       }
     };
     window.addEventListener("paste", handlePaste);
@@ -308,6 +374,10 @@ export function Bubble() {
   }, [pdfItems, stageFile]);
 
   return (
+    <>
+      {vaultLoading ? null : vaultLocked ? (
+        <LockScreen onUnlocked={() => { checkVaultStatus(); loadSettings(); }} />
+      ) : (
     <div className="w-full h-full flex flex-col items-end justify-end">
       <AnimatePresence>
         {isExpanded ? (
@@ -380,6 +450,22 @@ export function Bubble() {
                 </div>
                 {/* Separator */}
                 <div className="w-px h-4 bg-white/[0.06] mx-1" />
+                   <motion.button whileTap={{ scale: 0.92 }}
+                     onClick={async () => {
+                       try {
+                         const path = await invoke<string>("capture_screen");
+                         stageFile(path);
+                         invoke("log_activity", { action: "Screenshot", details: "Screen captured" }).catch(() => {});
+                         setFooterToast("Screenshot staged!");
+                         setTimeout(() => setFooterToast(null), 2000);
+                       } catch (e) { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); }
+                     }}
+                     className="w-7 h-7 flex items-center justify-center transition-colors cursor-pointer hover:bg-white/[0.06] rounded-lg"
+                     style={{ background: "rgba(34,211,238,0.08)", color: "#67e8f9", border: "1px solid rgba(255,255,255,0.06)" }}
+                     title="Capture Screenshot"
+                   >
+                     <i className="fa-solid fa-camera text-[10px]" />
+                   </motion.button>
                    {/* Generative Canvas */}
                    <motion.button whileTap={{ scale: 0.92 }}
                      onClick={() => invoke("open_editor_window_blank").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
@@ -443,6 +529,29 @@ export function Bubble() {
                       <i className="fa-solid fa-cloud-arrow-down mr-2" />
                       Drop files here
                     </motion.p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Batch Queue Progress */}
+            <AnimatePresence>
+              {batchQueueRunning && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mx-3 mb-1 overflow-hidden">
+                  <div className="px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-emerald-300 font-medium">
+                        <i className="fa-solid fa-spinner fa-spin text-[8px] mr-1" />
+                        Batch: {batchQueueAction}
+                      </span>
+                      <span className="text-[9px] text-emerald-400/70">{batchQueueProgress.current}/{batchQueueProgress.total}</span>
+                    </div>
+                    <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
+                      <div className="h-full rounded-full transition-all duration-300" style={{
+                        width: `${batchQueueProgress.total > 0 ? (batchQueueProgress.current / batchQueueProgress.total) * 100 : 0}%`,
+                        background: "linear-gradient(90deg, #10b981, #22d3ee)",
+                      }} />
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -895,6 +1004,50 @@ export function Bubble() {
               )}
             </AnimatePresence>
 
+            {/* Clipboard History panel */}
+            <AnimatePresence>
+              {showClipHistory && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="mx-3 mb-1">
+                    <div className="px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 max-h-[200px] overflow-y-auto">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] text-cyan-300/70 font-medium">
+                          <i className="fa-solid fa-clipboard-list text-[9px] mr-1" />
+                          Clipboard History ({clipHistory.length})
+                        </span>
+                        <button onClick={async () => { await invoke("clear_clipboard_history"); setClipHistory([]); }}
+                          className="text-[9px] text-white/25 hover:text-red-400 transition-colors">
+                          <i className="fa-solid fa-trash text-[7px] mr-0.5" />Clear
+                        </button>
+                      </div>
+                      {clipHistory.length === 0 ? (
+                        <p className="text-[10px] text-white/20 text-center py-3">No clipboard history</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {clipHistory.map((entry, i) => (
+                            <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors group/chi"
+                              style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+                              <span className="text-[8px] text-white/20 shrink-0 w-10">{new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                              <span className="flex-1 text-[10px] text-white/60 truncate">{entry.text}</span>
+                              <button onClick={async () => {
+                                const store = useZenithStore.getState();
+                                if (store.isStackMode) store.pushToStack(entry.text);
+                                else stageText(entry.text);
+                                setFooterToast("Restaged from history");
+                                setTimeout(() => setFooterToast(null), 2000);
+                              }} className="opacity-0 group-hover/chi:opacity-100 text-[9px] text-cyan-400/60 hover:text-cyan-300 px-1 rounded transition-all" title="Re-stage">
+                                <i className="fa-solid fa-arrow-up text-[8px]" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* QR from text panel (file-less) */}
             <AnimatePresence>
               {showQrInput && (
@@ -1191,6 +1344,48 @@ export function Bubble() {
                           <i className="fa-solid fa-clipboard-list text-[10px] w-4 text-center" />
                           Clipboard Stack {isStackMode && <span className="text-[9px] text-violet-400/60 ml-auto">ON</span>}
                         </button>
+                        <button
+                          onClick={() => { setShowFooterMore(false); setShowClipHistory(!showClipHistory); fetchClipHistory(); }}
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] font-medium transition-all cursor-pointer text-left ${showClipHistory ? "text-cyan-300 bg-cyan-500/12" : "text-white/50 hover:text-cyan-300 hover:bg-cyan-500/10"}`}
+                        >
+                          <i className="fa-solid fa-clock-rotate-left text-[10px] w-4 text-center" />
+                          Clipboard History
+                        </button>
+                        {items.filter((i) => i.path.length > 0).length >= 2 && (
+                          <div className="pt-1 border-t border-white/[0.04]">
+                            <p className="text-[9px] text-white/20 px-2.5 py-1 uppercase">Batch Process</p>
+                            {ACTION_PRESETS.map((ap) => (
+                              <button key={ap.action}
+                                onClick={() => { setShowFooterMore(false); handleBatchProcess(ap.action); }}
+                                disabled={batchQueueRunning}
+                                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] font-medium transition-all cursor-pointer text-left text-white/50 hover:text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-30"
+                              >
+                                <i className={`${ap.icon} text-[10px] w-4 text-center`} />
+                                {ap.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {presets.length > 0 && (
+                          <div className="pt-1 border-t border-white/[0.04]">
+                            <p className="text-[9px] text-white/20 px-2.5 py-1 uppercase">Presets</p>
+                            {presets.map((p) => (
+                              <div key={p.id} className="flex items-center gap-1 px-2.5 py-1 group/preset">
+                                <button
+                                  onClick={() => { setShowFooterMore(false); handleBatchProcess(p.action); }}
+                                  disabled={batchQueueRunning}
+                                  className="flex-1 flex items-center gap-2 text-left text-[10px] text-white/50 hover:text-amber-300 transition-colors disabled:opacity-30">
+                                  <i className="fa-solid fa-bookmark text-[8px] text-amber-400/60" />
+                                  {p.name}
+                                </button>
+                                <button onClick={() => deletePreset(p.id)}
+                                  className="opacity-0 group-hover/preset:opacity-100 text-[8px] text-white/20 hover:text-red-400 transition-all">
+                                  <i className="fa-solid fa-xmark text-[7px]" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1295,5 +1490,7 @@ export function Bubble() {
         )}
       </AnimatePresence>
     </div>
+      )}
+    </>
   );
 }

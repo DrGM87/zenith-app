@@ -172,6 +172,13 @@ export interface StudioProgress {
   message: string;
 }
 
+export interface ConversionPreset {
+  id: string;
+  name: string;
+  action: string;
+  args: Record<string, unknown>;
+}
+
 export interface ZenithSettings {
   general: { launch_on_startup: boolean; show_tray_icon: boolean; check_for_updates: boolean; plugins_directory: string };
   appearance: AppearanceSettings;
@@ -202,6 +209,21 @@ interface ZenithState {
   batchRenameMode: boolean;
   renameUndoCount: number;
   renameRedoCount: number;
+
+  vaultLocked: boolean;
+  vaultExists: boolean;
+  vaultLoading: boolean;
+  checkVaultStatus: () => Promise<void>;
+
+  tags: Record<string, { name: string; color: string }>;
+  loadTags: () => Promise<void>;
+  setItemTag: (itemId: string, name: string, color: string) => Promise<void>;
+  removeItemTag: (itemId: string) => Promise<void>;
+
+  presets: ConversionPreset[];
+  loadPresets: () => void;
+  savePreset: (name: string, action: string, args: Record<string, unknown>) => void;
+  deletePreset: (id: string) => void;
 
   isStudioOpen: boolean;
   studioPlan: StudioPlan | null;
@@ -282,6 +304,70 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
   renameUndoCount: 0,
   renameRedoCount: 0,
 
+  vaultLocked: true,
+  vaultExists: false,
+  vaultLoading: true,
+  checkVaultStatus: async () => {
+    try {
+      const exists = await invoke<boolean>("has_vault");
+      if (!exists) {
+        set({ vaultExists: false, vaultLocked: true, vaultLoading: false });
+        return;
+      }
+      const locked = await invoke<boolean>("is_vault_locked");
+      set({ vaultExists: true, vaultLocked: locked, vaultLoading: false });
+    } catch {
+      set({ vaultExists: false, vaultLocked: true, vaultLoading: false });
+    }
+  },
+
+  tags: {},
+  loadTags: async () => {
+    try {
+      const tags = await invoke<Record<string, { name: string; color: string }>>("get_tags");
+      set({ tags });
+    } catch { /* ignore */ }
+  },
+  setItemTag: async (itemId, name, color) => {
+    try {
+      await invoke("set_tag", { itemId, tagName: name, color });
+      set((s) => ({ tags: { ...s.tags, [itemId]: { name, color } } }));
+    } catch { /* ignore */ }
+  },
+  removeItemTag: async (itemId) => {
+    try {
+      await invoke("remove_tag", { itemId });
+      set((s) => {
+        const next = { ...s.tags };
+        delete next[itemId];
+        return { tags: next };
+      });
+    } catch { /* ignore */ }
+  },
+
+  presets: [],
+  loadPresets: () => {
+    try {
+      const r = localStorage.getItem("zenith_presets");
+      if (r) set({ presets: JSON.parse(r) });
+    } catch { set({ presets: [] }); }
+  },
+  savePreset: (name, action, args) => {
+    const preset: ConversionPreset = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, action, args };
+    set((s) => {
+      const presets = [preset, ...s.presets].slice(0, 20);
+      try { localStorage.setItem("zenith_presets", JSON.stringify(presets)); } catch {}
+      return { presets };
+    });
+  },
+  deletePreset: (id) => {
+    set((s) => {
+      const presets = s.presets.filter((p) => p.id !== id);
+      try { localStorage.setItem("zenith_presets", JSON.stringify(presets)); } catch {}
+      return { presets };
+    });
+  },
+
   isStudioOpen: false,
   studioPlan: null,
   studioProgress: null,
@@ -360,6 +446,7 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
       }
       const item = await invoke<StagedItem>("stage_file", { path });
       set((state) => ({ items: [...state.items, item] }));
+      invoke("log_activity", { action: "Stage", details: `Added: ${item.name}` }).catch(() => {});
     } catch (e) {
       console.error("Failed to stage file:", e);
     }
@@ -385,8 +472,10 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
 
   clearAll: async () => {
     try {
+      const count = get().items.length;
       await invoke("clear_all_items");
       set({ items: [] });
+      invoke("log_activity", { action: "Clear", details: `Cleared ${count} staged items` }).catch(() => {});
     } catch (e) {
       console.error("Failed to clear items:", e);
     }

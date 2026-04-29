@@ -135,7 +135,7 @@ function getActionsForItem(item: StagedItem): ItemAction[] {
 }
 
 export function StagedItemCard({ item, index }: Props) {
-  const { removeItem, startDragOut, stageFile, toggleSelect, selectedIds, settings, trackTokenUsage, openPreview, setRenameState, cycleRenameSuggestion, renameStates, refreshRenameCounts, audioResults, setAudioResult, pushAudioUndo } = useZenithStore();
+  const { removeItem, startDragOut, stageFile, toggleSelect, selectedIds, settings, trackTokenUsage, openPreview, setRenameState, cycleRenameSuggestion, renameStates, refreshRenameCounts, audioResults, setAudioResult, pushAudioUndo, tags, setItemTag, removeItemTag } = useZenithStore();
   const renameState = renameStates[item.id] as RenameState | undefined;
   const audioResult = audioResults[item.id] ?? null;
   const isSelected = selectedIds.has(item.id);
@@ -179,7 +179,14 @@ export function StagedItemCard({ item, index }: Props) {
   const [resizeFillColor, setResizeFillColor] = useState("#ffffff");
   const [emailBody, setEmailBody] = useState("");
   const [emailDraftLoading, setEmailDraftLoading] = useState(false);
+  const [showTagPicker, setShowTagPicker] = useState(false);
   const [showAudioConvertMenu, setShowAudioConvertMenu] = useState(false);
+  const TAG_COLORS = [
+    { name: "red", hex: "#ef4444" }, { name: "orange", hex: "#f97316" }, { name: "amber", hex: "#f59e0b" },
+    { name: "green", hex: "#10b981" }, { name: "cyan", hex: "#06b6d4" }, { name: "blue", hex: "#3b82f6" },
+    { name: "violet", hex: "#8b5cf6" }, { name: "pink", hex: "#ec4899" },
+  ];
+  const itemTag = tags[item.id];
   const [audioBitrate, setAudioBitrate] = useState("192");
   const [showAudioTypeAsk, setShowAudioTypeAsk] = useState(false);
   const [recognitionData, setRecognitionData] = useState<Record<string, string> | null>(null);
@@ -681,6 +688,19 @@ export function StagedItemCard({ item, index }: Props) {
             )}
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-[11px] text-white/40">{formatFileSize(item.size)}</span>
+              {itemTag && (
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity"
+                  style={{ background: `${itemTag.color}20`, color: itemTag.color, border: `1px solid ${itemTag.color}30` }}
+                  onClick={(e) => { e.stopPropagation(); removeItemTag(item.id); }}
+                  title={`${itemTag.name} — click to remove`}>
+                  {itemTag.name}
+                </span>
+              )}
+              <button onClick={(e) => { e.stopPropagation(); setShowTagPicker(!showTagPicker); }}
+                className="text-[9px] text-white/20 hover:text-white/50 transition-colors"
+                title="Add tag">
+                <i className="fa-solid fa-tag" />
+              </button>
               {hasTimer && timeLeft && (
                 <span className="text-[10px] font-medium text-red-400/80">
                   <i className="fa-solid fa-bomb text-[8px] mr-0.5" />
@@ -864,6 +884,25 @@ export function StagedItemCard({ item, index }: Props) {
                         Clear
                       </button>
                     )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Tag picker */}
+            <AnimatePresence>
+              {showTagPicker && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <div className="px-3 pb-2 flex items-center gap-1 flex-wrap">
+                    {TAG_COLORS.map((tc) => (
+                      <button key={tc.name}
+                        onClick={() => { setItemTag(item.id, tc.name, tc.hex); setShowTagPicker(false); }}
+                        className="px-2 py-0.5 rounded text-[9px] font-medium transition-all hover:scale-105"
+                        style={{ background: `${tc.hex}20`, color: tc.hex, border: `1px solid ${tc.hex}30` }}
+                        title={tc.name}>
+                        {tc.name}
+                      </button>
+                    ))}
                   </div>
                 </motion.div>
               )}

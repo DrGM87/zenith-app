@@ -54,3 +54,13 @@ src-tauri/resources/
 
 scripts/.env
 *.pdf
+
+# Reference repos (cloned external projects for architecture study)
+reference/clipboard/
+reference/screen-capture/
+reference/image-processing/
+reference/pdf-tools/
+reference/encryption/
+reference/file-organization/
+reference/conversion/
+reference/image-viewer/

@@ -20,14 +20,14 @@
 [![Features](https://img.shields.io/badge/Features-150+-blueviolet?style=flat-square)]()
 [![AI Providers](https://img.shields.io/badge/AI_Providers-5-orange?style=flat-square)]()
 [![File Actions](https://img.shields.io/badge/File_Actions-40+-success?style=flat-square)]()
-[![Security](https://img.shields.io/badge/Encrypted_Vault-AES--256--GCM-red?style=flat-square)]()
+[![Security](https://img.shields.io/badge/Secure_Storage-OS_Credential_Manager-red?style=flat-square)]()
 [![Tests](https://img.shields.io/badge/Tests-36_%2F_36-brightgreen?style=flat-square)]()
 
 *A glassmorphic floating workspace that transforms how you handle files, media, and documents on Windows. Screenshot, tag, batch-process, organize with AI, encrypt — all without opening a single folder.*
 
 ---
 
-**[The Bubble](#-the-bubble--main-entry-point)** &bull; **[Security Vault](#-encrypted-api-key-vault)** &bull; **[Auto-Studio](#-auto-studio--smart-organize)** &bull; **[Generative Editor](#-generative-editor)** &bull; **[Screen Capture](#-screen-capture)** &bull; **[Batch Queue](#-batch-operations-queue)** &bull; **[Smart Rename](#-smart-rename-engine)** &bull; **[Settings](#-settings-hub)** &bull; **[Quick Start](#-quick-start)** &bull; **[Architecture](#%EF%B8%8F-architecture)**
+**[The Bubble](#-the-bubble--main-entry-point)** &bull; **[Secure Key Storage](#-secure-api-key-storage)** &bull; **[Auto-Studio](#-auto-studio--smart-organize)** &bull; **[Generative Editor](#-generative-editor)** &bull; **[Screen Capture](#-screen-capture)** &bull; **[Batch Queue](#-batch-operations-queue)** &bull; **[Smart Rename](#-smart-rename-engine)** &bull; **[Settings](#-settings-hub)** &bull; **[Quick Start](#-quick-start)** &bull; **[Architecture](#%EF%B8%8F-architecture)**
 
 [![Effects](https://img.shields.io/badge/Visual_Effects-10-ec4899?style=flat-square)]()
 [![Theme](https://img.shields.io/badge/Dark_%2F_Light-✓-22d3ee?style=flat-square)]()
@@ -108,18 +108,25 @@ The **Bubble** is Zenith's floating command center — a tiny, always-visible pi
 
 ---
 
-## 🔐 Encrypted API Key Vault
+## 🔐 Secure API Key Storage
 
-Zenith protects your API keys with **AES-256-GCM encryption at rest using Argon2id key derivation**.
+Zenith stores your API keys in your operating system's **native credential manager** — never in plaintext on disk.
 
-- **First launch** — prompts you to create a master password. A 32-byte salt is generated and the password is hashed with Argon2id (memory-hard, 3 iterations) to derive a 256-bit encryption key
-- **All API keys encrypted** — OpenAI, Anthropic, Google, DeepSeek, Groq, VirusTotal, OMDB, TheAudioDB, IMDb keys are individually encrypted before writing to disk
-- **Memory-only key** — the encryption key exists only in Rust heap memory during the active session. Never written to disk
-- **Vault commands** — `create_vault`, `unlock_vault`, `lock_vault`, `change_vault_password`
-- **Lock screen overlay** — on app launch, if a vault exists, a cinematic lock screen appears until the correct password is entered
-- **Password change** — re-encrypts all stored keys with a fresh salt and new derived key
+- **Windows** — Windows Credential Manager (Credential Locker)
+- **macOS** — Keychain Access
+- **Linux** — Secret Service (gnome-keyring / KWallet)
 
-> Your API keys are never stored in plaintext. Even with full filesystem access, an attacker cannot recover them without your master password.
+Each API key is stored as a separate secure entry. When needed, the key is retrieved directly from the credential manager — no master password required, no lock screens. Your OS handles the encryption and access control transparently.
+
+| Key Type | Credential Name Pattern |
+|----------|------------------------|
+| OpenAI/Anthropic/etc | `zenith-app/api_key/{provider}` |
+| VirusTotal | `zenith-app/secret/vt` |
+| OMDB | `zenith-app/secret/omdb` |
+| TheAudioDB | `zenith-app/secret/audiodb` |
+| IMDb | `zenith-app/secret/imdb` |
+
+> Your API keys are never written to `settings.json` in plaintext. Even with filesystem access, keys are only accessible through the OS credential vault.
 
 ---
 
@@ -453,8 +460,8 @@ All user data is stored locally in `%APPDATA%/Zenith/`:
 ### v0.2.0 (latest)
 
 **Security**
-- ✅ **Encrypted API Key Vault** — AES-256-GCM encryption with Argon2id key derivation. Master password prompt on launch. Password change support.
-- ✅ **All API keys encrypted at rest** — OpenAI, Anthropic, Google, DeepSeek, Groq, VirusTotal, OMDB, TheAudioDB, IMDb keys individually encrypted
+- ✅ **Native OS Credential Storage** — API keys stored in Windows Credential Manager / macOS Keychain / Linux Secret Service via the `keyring` crate. No plaintext keys on disk. No master password required.
+- ✅ **All API keys secured** — OpenAI, Anthropic, Google, DeepSeek, Groq, VirusTotal, OMDB, TheAudioDB, IMDb keys individually encrypted
 
 **New Features**
 - ✅ **Screen Capture** — One-click full-screen screenshot via camera button. Auto-stages PNG. Windows (PowerShell), macOS (screencapture), Linux (import).

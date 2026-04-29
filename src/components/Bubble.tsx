@@ -6,7 +6,6 @@ import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { useZenithStore, type AudioRecognitionResult } from "../store";
 import { StagedItemCard } from "./StagedItemCard";
-import { LockScreen } from "./LockScreen";
 // PreviewDrawer now rendered independently in App.tsx
 import { BorderGlow, SoftAurora, MagicRings } from "./ReactBits";
 // ReviewStudio now rendered independently in App.tsx
@@ -46,9 +45,6 @@ export function Bubble() {
     pushAudioUndo,
     popAudioUndo,
     popAudioRedo,
-    vaultLocked,
-    vaultLoading,
-    checkVaultStatus,
     loadTags,
     loadPresets,
     presets,
@@ -184,7 +180,6 @@ export function Bubble() {
     loadItems();
     loadSettings();
     refreshRenameCounts();
-    checkVaultStatus();
     loadTags();
     loadPresets();
     fetchClipHistory();
@@ -374,10 +369,6 @@ export function Bubble() {
   }, [pdfItems, stageFile]);
 
   return (
-    <>
-      {vaultLoading ? null : vaultLocked ? (
-        <LockScreen onUnlocked={() => { checkVaultStatus(); loadSettings(); }} />
-      ) : (
     <div className="w-full h-full flex flex-col items-end justify-end">
       <AnimatePresence>
         {isExpanded ? (
@@ -1490,7 +1481,5 @@ export function Bubble() {
         )}
       </AnimatePresence>
     </div>
-      )}
-    </>
   );
 }

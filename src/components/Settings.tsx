@@ -286,11 +286,17 @@ export function Settings() {
   const updateApiKey = (idx: number, patch: Partial<ApiKeyEntry>) => {
     if (!settings) return;
     const keys = settings.api_keys.map((k, i) => i === idx ? { ...k, ...patch } : k);
+    const updated = keys[idx];
+    if (patch.key !== undefined && updated.key) {
+      invoke("store_api_key", { provider: updated.provider, key: updated.key }).catch(() => {});
+    }
     save({ ...settings, api_keys: keys });
   };
 
   const removeApiKey = (idx: number) => {
     if (!settings) return;
+    const entry = settings.api_keys[idx];
+    invoke("delete_api_key", { provider: entry.provider }).catch(() => {});
     const keys = settings.api_keys.filter((_, i) => i !== idx);
     save({ ...settings, api_keys: keys });
   };
@@ -332,7 +338,7 @@ export function Settings() {
             </div>
             <div>
               <h1 className="text-[15px] font-bold tracking-wide text-white/90">Settings</h1>
-              <p className="text-[10px] text-white/30">Zenith v0.1.0</p>
+              <p className="text-[10px] text-white/30">Zenith v0.2.0</p>
             </div>
           </div>
         </div>
@@ -803,7 +809,7 @@ export function Settings() {
               <input
                 type="password" placeholder="VirusTotal API Key"
                 value={settings.vt_api_key ?? ""}
-                onChange={(e) => save({ ...settings, vt_api_key: e.target.value })}
+                onChange={(e) => { save({ ...settings, vt_api_key: e.target.value }); if (e.target.value) invoke("store_secret_key", { keyName: "vt", value: e.target.value }).catch(() => {}); }}
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
               <p className="text-[10px] text-white/20 mt-1">Get a free key at <a href="https://www.virustotal.com/gui/my-apikey" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">virustotal.com/gui/my-apikey</a></p>
@@ -857,7 +863,7 @@ export function Settings() {
             <div className="mt-4 p-4 rounded-xl bg-white/3 border border-white/6">
               <p className="text-[11px] text-white/30 leading-relaxed">
                 <i className="fa-solid fa-shield-halved text-white/20 mr-1" />
-                Keys are stored locally in <code className="text-white/50">%APPDATA%/Zenith/settings.json</code>. They are never sent anywhere except directly to the provider APIs.
+                Keys are securely stored in your system's native credential manager (Windows Credential Manager / macOS Keychain / Linux Secret Service). They are never written to disk in plaintext and never sent anywhere except directly to the provider APIs.
                 <br />
                 <span className="text-white/20">Pricing as of March 2026. All prices USD per 1M tokens (input/output).</span>
               </p>

@@ -210,11 +210,6 @@ interface ZenithState {
   renameUndoCount: number;
   renameRedoCount: number;
 
-  vaultLocked: boolean;
-  vaultExists: boolean;
-  vaultLoading: boolean;
-  checkVaultStatus: () => Promise<void>;
-
   tags: Record<string, { name: string; color: string }>;
   loadTags: () => Promise<void>;
   setItemTag: (itemId: string, name: string, color: string) => Promise<void>;
@@ -303,23 +298,6 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
   batchRenameMode: false,
   renameUndoCount: 0,
   renameRedoCount: 0,
-
-  vaultLocked: true,
-  vaultExists: false,
-  vaultLoading: true,
-  checkVaultStatus: async () => {
-    try {
-      const exists = await invoke<boolean>("has_vault");
-      if (!exists) {
-        set({ vaultExists: false, vaultLocked: true, vaultLoading: false });
-        return;
-      }
-      const locked = await invoke<boolean>("is_vault_locked");
-      set({ vaultExists: true, vaultLocked: locked, vaultLoading: false });
-    } catch {
-      set({ vaultExists: false, vaultLocked: true, vaultLoading: false });
-    }
-  },
 
   tags: {},
   loadTags: async () => {

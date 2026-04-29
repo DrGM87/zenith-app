@@ -177,20 +177,6 @@ pub struct ZenithSettings {
     pub imdb_api_key: String,
     #[serde(default = "default_true")]
     pub shazam_auto_recognize: bool,
-    #[serde(default)]
-    pub vault_salt: String,
-    #[serde(default)]
-    pub vault_password_hash: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub encrypted_keys: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub encrypted_vt_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub encrypted_omdb_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub encrypted_audiodb_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub encrypted_imdb_key: Option<String>,
 }
 
 fn default_scripts() -> Vec<ScriptEntry> {
@@ -310,13 +296,6 @@ impl Default for ZenithSettings {
             audiodb_api_key: String::new(),
             imdb_api_key: String::new(),
             shazam_auto_recognize: true,
-            vault_salt: String::new(),
-            vault_password_hash: String::new(),
-            encrypted_keys: None,
-            encrypted_vt_key: None,
-            encrypted_omdb_key: None,
-            encrypted_audiodb_key: None,
-            encrypted_imdb_key: None,
         }
     }
 }

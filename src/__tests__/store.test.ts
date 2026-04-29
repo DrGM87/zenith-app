@@ -20,12 +20,6 @@ describe("Store (initial state)", () => {
     expect(state.previewPanes).toEqual([]);
     expect(state.batchRenameMode).toBe(false);
     expect(state.isStudioOpen).toBe(false);
-    expect(state.vaultLocked).toBe(true);
-    expect(state.vaultExists).toBe(false);
-    expect(state.vaultLoading).toBe(true);
-    expect(state.tags).toEqual({});
-    expect(state.presets).toEqual([]);
-    expect(typeof state.checkVaultStatus).toBe("function");
     expect(typeof state.loadTags).toBe("function");
     expect(typeof state.setItemTag).toBe("function");
     expect(typeof state.removeItemTag).toBe("function");

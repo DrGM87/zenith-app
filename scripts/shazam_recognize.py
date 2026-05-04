@@ -444,7 +444,64 @@ def recognize_song_from_signature(signature: DecodedMessage) -> dict:
 
 # ─── High-Level Recognition Functions ────────────────────────────────────────
 
-def recognize_file(file_path: str, max_seconds: float = 12.0) -> dict:
+def _preprocess_mic_audio(audio):
+    """Clean up microphone recording for better Shazam recognition."""
+    import struct, math
+
+    # Get raw samples
+    audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+    samples = list(audio.get_array_of_samples())
+
+    # Remove DC offset
+    mean_val = sum(samples) / len(samples)
+    samples = [s - int(mean_val) for s in samples]
+
+    # Trim leading/trailing silence (below 2% of max amplitude)
+    max_amp = max(abs(s) for s in samples) if samples else 1
+    threshold = int(max_amp * 0.03)
+    # Find first non-silent sample
+    start_idx = 0
+    for i, s in enumerate(samples):
+        if abs(s) > threshold:
+            start_idx = max(0, i - 4000)  # keep 250ms before first sound
+            break
+    # Find last non-silent sample
+    end_idx = len(samples)
+    for i in range(len(samples) - 1, -1, -1):
+        if abs(samples[i]) > threshold:
+            end_idx = min(len(samples), i + 4000)  # keep 250ms after last sound
+            break
+    samples = samples[start_idx:end_idx]
+
+    if len(samples) < 16000:
+        # Too short after trimming, return original
+        return audio
+
+    # Normalize to 90% of max to boost quiet recordings
+    peak = max(abs(s) for s in samples) if samples else 1
+    if peak > 0 and peak < 16384:  # Only boost if quiet (less than 50% of max)
+        gain = min(28000 / peak, 12.0)  # Up to 12x gain, capped at ~85% of 32767
+        samples = [max(-28000, min(28000, int(s * gain))) for s in samples]
+
+    # Apply gentle high-pass filter to reduce rumble (simple 1-pole IIR)
+    # Cutoff ~80Hz at 16kHz: alpha = 0.969
+    filtered = []
+    prev_in = 0.0
+    prev_out = 0.0
+    alpha = 0.97
+    for s in samples:
+        s_float = float(s)
+        out = alpha * (prev_out + s_float - prev_in)
+        prev_in = s_float
+        prev_out = out
+        filtered.append(max(-32767, min(32767, int(out))))
+
+    # Rebuild AudioSegment from processed samples
+    raw_bytes = struct.pack('<' + 'h' * len(filtered), *filtered)
+    from pydub import AudioSegment
+    return AudioSegment(raw_bytes, sample_width=2, frame_rate=16000, channels=1)
+
+def recognize_file(file_path: str, max_seconds: float = 12.0, mic_recording: bool = False) -> dict:
     """
     Recognize a song from an audio file.
 
@@ -475,6 +532,13 @@ def recognize_file(file_path: str, max_seconds: float = 12.0) -> dict:
         audio = AudioSegment.from_file(file_path)
     except Exception as e:
         return {"ok": False, "error": f"Could not read audio file: {e}"}
+
+    # Preprocess microphone recordings: trim silence, normalize, filter
+    if mic_recording:
+        try:
+            audio = _preprocess_mic_audio(audio)
+        except Exception as e:
+            return {"ok": False, "error": f"Preprocessing failed: {e}"}
 
     # Convert to 16-bit 16KHz mono PCM
     audio = audio.set_sample_width(2)

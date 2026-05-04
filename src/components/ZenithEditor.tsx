@@ -50,32 +50,28 @@ interface EditorThread {
 
 interface SavedPrompt { id: string; name: string; text: string; }
 
-type ModelId = "gemini-3.1-flash-image-preview" | "gemini-3-pro-image-preview" | "gpt-image-1.5";
-type AspectRatio = "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
-type ImageSize = "512" | "1K" | "2K" | "4K";
-type ImageStyle = "photorealistic" | "digital_art" | "vector" | "anime" | "watercolor" | "oil_painting" | "3d_render" | "pixel_art" | "sketch" | "";
 type SaveFormat = "png" | "jpg" | "webp";
 type LeftTab = "threads" | "images";
-type ThinkingLevel = "minimal" | "low" | "medium" | "high";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MODELS: { id: ModelId; label: string; desc: string; provider: "google" | "openai"; cost: number }[] = [
-  { id: "gemini-3.1-flash-image-preview", label: "Nano Banana 2",  desc: "Fast · High quality · Google", provider: "google", cost: 0.067 },
-  { id: "gemini-3-pro-image-preview",     label: "Nano Banana Pro", desc: "Deep reasoning · Google",     provider: "google", cost: 0.134 },
-  { id: "gpt-image-1.5",                  label: "GPT-Image 1.5",  desc: "Ultra-realistic · OpenAI",    provider: "openai", cost: 0.133 },
+type ModelId = "gemini-3.1-flash-image-preview" | "gemini-3-pro-image-preview";
+type AspectRatio = "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
+type ImageSize = "512" | "1K" | "2K" | "4K";
+type ImageStyle = "photorealistic" | "digital_art" | "vector" | "anime" | "watercolor" | "oil_painting" | "3d_render" | "pixel_art" | "sketch" | "";
+type ThinkingLevel = "minimal" | "low" | "medium" | "high";
+
+const MODELS: { id: ModelId; label: string; desc: string; cost: number }[] = [
+  { id: "gemini-3.1-flash-image-preview", label: "Nano Banana 2",  desc: "Fast generation · Low cost · 4-level thinking", cost: 0.067 },
+  { id: "gemini-3-pro-image-preview",     label: "Nano Banana Pro", desc: "Deep reasoning · Maximum quality", cost: 0.134 },
 ];
 
-const GEMINI_ASPECT_OPTIONS: { value: AspectRatio; label: string }[] = [
+const ASPECT_OPTIONS: { value: AspectRatio; label: string }[] = [
   { value: "1:1", label: "1:1" }, { value: "2:3", label: "2:3" }, { value: "3:2", label: "3:2" },
   { value: "3:4", label: "3:4" }, { value: "4:3", label: "4:3" }, { value: "4:5", label: "4:5" },
   { value: "5:4", label: "5:4" }, { value: "9:16", label: "9:16" }, { value: "16:9", label: "16:9" },
   { value: "21:9", label: "21:9" },
 ];
-const OPENAI_ASPECT_OPTIONS: { value: AspectRatio; label: string }[] = [
-  { value: "1:1", label: "1:1" }, { value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" },
-];
-const OPENAI_VALID_ASPECTS = new Set<AspectRatio>(["1:1", "16:9", "9:16"]);
 
 const IMAGE_SIZE_OPTIONS: { value: ImageSize; label: string; desc: string }[] = [
   { value: "512", label: "512", desc: "Fast preview" }, { value: "1K", label: "1K", desc: "Standard" },
@@ -204,8 +200,7 @@ export function ZenithEditor() {
   const [imageSize, setImageSize] = useState<ImageSize>("1K");
   const [imageStyle, setImageStyle] = useState<ImageStyle>("");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("minimal");
-  const [resolution, setResolution] = useState<"standard" | "hd">("standard");
-  const [adherence, setAdherence] = useState(70);
+  const [temperature, setTemperature] = useState(0.7);
 
   // ── Session cost
   const [sessionCost, setSessionCost] = useState(0);
@@ -250,7 +245,6 @@ export function ZenithEditor() {
   // ── Derived state
   const isBlankCanvas = history.length === 0 && !originalImageB64;
   const currentModel = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
-  const isGoogleModel = currentModel.provider === "google";
   const chatHistory = useMemo(() => [...history].reverse(), [history]);
   const canUndo = history.length > 0 && historyIndex < history.length - 1;
   const canRedo = historyIndex > 0;
@@ -336,6 +330,14 @@ export function ZenithEditor() {
     return () => { unlisten.then((fn) => fn()); };
   }, [showToast]);
 
+  // ── Listen for theme changes
+  useEffect(() => {
+    const unlisten = listen<string>("theme-changed", (ev) => {
+      document.documentElement.setAttribute("data-theme", ev.payload === "light" ? "light" : "dark");
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
   // ── Auto-scroll chat
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [history.length, isGenerating]);
 
@@ -357,33 +359,79 @@ export function ZenithEditor() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canUndo, canRedo, historyIndex, history]);
 
+  // ── Paste image from clipboard
+  useEffect(() => {
+    const handler = (e: ClipboardEvent) => {
+      if (!e.clipboardData) return;
+      const items = e.clipboardData.items;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          e.preventDefault();
+          const blob = items[i].getAsFile();
+          if (!blob) continue;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const b64 = (reader.result as string).split(",")[1];
+            setCurrentImageB64(b64);
+            setOriginalImageB64(b64);
+            showToast("Image pasted — ready to edit", "ok");
+          };
+          reader.readAsDataURL(blob);
+          return;
+        }
+      }
+    };
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+  }, [showToast]);
+
+  // ── Drag-drop image onto editor
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  useEffect(() => {
+    const handler = (e: DragEvent) => { e.preventDefault(); setIsDraggingOver(true); };
+    const leave = (e: DragEvent) => { e.preventDefault(); if (!e.relatedTarget) setIsDraggingOver(false); };
+    const drop = (e: DragEvent) => {
+      e.preventDefault(); setIsDraggingOver(false);
+      const file = e.dataTransfer?.files?.[0];
+      if (!file || !file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const b64 = (reader.result as string).split(",")[1];
+        setCurrentImageB64(b64);
+        setOriginalImageB64(b64);
+        showToast("Image dropped — ready to edit", "ok");
+      };
+      reader.readAsDataURL(file);
+    };
+    window.addEventListener("dragover", handler);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("drop", drop);
+    return () => { window.removeEventListener("dragover", handler); window.removeEventListener("dragleave", leave); window.removeEventListener("drop", drop); };
+  }, [showToast]);
+
   // ── API key helpers
   const getApiCreds = useCallback(() => {
-    const mi = MODELS.find((m) => m.id === selectedModel);
-    const prov = mi?.provider ?? "google";
     const keys = settings?.api_keys ?? [];
-    const entry = keys.find((k) => k.provider === prov && k.is_default) ?? keys.find((k) => k.provider === prov);
-    return { api_key: entry?.key ?? "", provider: prov, model: selectedModel, hasKey: !!entry?.key };
+    const entry = keys.find((k) => k.provider === "google" && k.is_default) ?? keys.find((k) => k.provider === "google");
+    return { api_key: entry?.key ?? "", provider: "google", model: selectedModel, hasKey: !!entry?.key };
   }, [settings, selectedModel]);
 
   const getTextLlmCreds = useCallback(() => {
     const keys = settings?.api_keys ?? [];
-    const def = keys.find((k) => k.is_default && !IMAGE_MODEL_IDS.has(k.model))
+    const def = keys.find((k) => k.provider === "deepseek" && k.model.startsWith("deepseek-v4"))
+             ?? keys.find((k) => k.provider === "deepseek")
+             ?? keys.find((k) => k.is_default && !IMAGE_MODEL_IDS.has(k.model))
              ?? keys.find((k) => !IMAGE_MODEL_IDS.has(k.model))
-             ?? keys.find((k) => k.is_default) ?? keys[0];
-    return def ? { api_key: def.key, provider: def.provider, model: def.model } : { api_key: "", provider: "google", model: "" };
+             ?? keys[0];
+    return def ? { api_key: def.key, provider: def.provider, model: def.model } : { api_key: "", provider: "deepseek", model: "deepseek-v4-pro" };
   }, [settings]);
 
   const apiStatus = getApiCreds();
 
-  // ── Model switch — reset aspect ratio if invalid for new model
+  // ── Model switch
   const handleModelChange = useCallback((newModel: ModelId) => {
     setSelectedModel(newModel);
-    const newProvider = MODELS.find((m) => m.id === newModel)?.provider;
-    if (newProvider === "openai" && !OPENAI_VALID_ASPECTS.has(aspectRatio)) {
-      setAspectRatio("1:1");
-    }
-  }, [aspectRatio]);
+  }, []);
 
   // ── Undo / Redo
   const handleUndo = useCallback(() => {
@@ -509,14 +557,9 @@ export function ZenithEditor() {
         aspect_ratio: aspectRatio, style: imageStyle || undefined,
       };
       if (negPrompt.trim()) args.negative_prompt = negPrompt.trim();
-      if (provider === "google") {
-        args.image_size = imageSize;
-        if (selectedModel === "gemini-3.1-flash-image-preview") args.thinking_level = thinkingLevel;
-      }
-      if (provider === "openai") {
-        args.quality = resolution;
-        if (adherence !== 70) args.adherence = adherence;
-      }
+      args.temperature = temperature;
+      args.image_size = imageSize;
+      if (selectedModel === "gemini-3.1-flash-image-preview") args.thinking_level = thinkingLevel;
       if (currentImageB64) args.image_b64 = currentImageB64;
 
       const resultStr = await invoke<string>("process_file", { action: "generate_image", argsJson: JSON.stringify(args) });
@@ -582,13 +625,13 @@ export function ZenithEditor() {
     } catch (e) {
       if (!abortRef.current) showToast(`Error: ${String(e)}`, "err");
     } finally { setIsGenerating(false); }
-  }, [prompt, negPrompt, getApiCreds, getTextLlmCreds, selectedModel, aspectRatio, imageSize, resolution, imageStyle, thinkingLevel, adherence, currentImageB64, showToast, history, sessionCost, activeThreadId, syncActiveThread, currentModel]);
+  }, [prompt, negPrompt, getApiCreds, getTextLlmCreds, selectedModel, aspectRatio, imageSize, imageStyle, thinkingLevel, temperature, currentImageB64, showToast, history, sessionCost, activeThreadId, syncActiveThread, currentModel]);
 
   // ── Enhance prompt
   const handleEnhance = useCallback(async () => {
     if (!prompt.trim()) { showToast("Enter a rough prompt first"); return; }
     const { api_key, provider, model } = getTextLlmCreds();
-    if (!api_key) { showToast("No API key found for text LLM. Add one in Settings.", "err"); return; }
+    if (!api_key) { showToast("No API key found for prompt enhancement. Add a DeepSeek key in Settings > API Keys.", "err"); return; }
     setIsEnhancing(true);
     const prev = prompt.trim();
     try {
@@ -746,24 +789,32 @@ export function ZenithEditor() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full shrink-0" style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }} />
-              <ShinyText
-                enabled={effectsEnabled}
-                className="text-[13px] font-semibold tracking-wide"
-                style={{ color: "var(--ed-text-1)" }}
-                speed={4}
-                baseColor={isDark ? "rgba(255,255,255,0.9)" : "rgba(15,23,42,0.9)"}
-                shineColor={isDark ? "rgba(192,132,252,0.95)" : "rgba(124,58,237,0.95)"}
-              >
-                Zenith Editor
-              </ShinyText>
+                <ShinyText
+                  enabled={effectsEnabled}
+                  className="zenith-brand text-[13px] tracking-wide"
+                  style={{ color: "var(--ed-text-1)" }}
+                  speed={4}
+                  baseColor={isDark ? "rgba(255,255,255,0.9)" : "rgba(15,23,42,0.9)"}
+                  shineColor={isDark ? "rgba(192,132,252,0.95)" : "rgba(124,58,237,0.95)"}
+                >
+                  Zenith Editor
+                </ShinyText>
             </div>
             {activeThread && (
               <span className="text-[11px] truncate max-w-40" style={{ color: "var(--ed-text-4)" }}>{activeThread.title}</span>
             )}
             {settings !== null && (
               apiStatus.hasKey
-                ? <span className="flex items-center gap-1 text-[10px] text-emerald-400/70"><i className="fa-solid fa-circle-check text-[8px]" />{apiStatus.provider === "google" ? "Google" : "OpenAI"}</span>
-                : <button onClick={() => invoke("open_settings").catch(() => {})} className="flex items-center gap-1 text-[10px] text-amber-400 hover:text-amber-300 transition-colors"><i className="fa-solid fa-triangle-exclamation text-[9px]" />No API key</button>
+                ? <span className="flex items-center gap-1 text-[10px] text-emerald-400/70"><i className="fa-solid fa-circle-check text-[8px]" />Nano Banana</span>
+                : <button onClick={() => invoke("open_settings").catch(() => {})} className="flex items-center gap-1 text-[10px] text-amber-400 hover:text-amber-300 transition-colors"><i className="fa-solid fa-triangle-exclamation text-[9px]" />Add API Key</button>
+            )}
+            {getTextLlmCreds().api_key ? (
+              <span className="text-[9px]" style={{ color: "var(--ed-text-4)" }}>
+                <i className="fa-solid fa-wand-magic-sparkles text-[7px]" style={{ color: "rgba(59,130,246,0.6)" }} />
+                DeepSeek V4
+              </span>
+            ) : (
+              <span className="text-[9px] text-amber-400/50">Set DeepSeek key for enhance</span>
             )}
           </div>
           <div className="flex items-center gap-1.5">
@@ -1037,19 +1088,28 @@ export function ZenithEditor() {
               {isBlankCanvas && !isGenerating && (
                 <div className="flex flex-col items-center justify-center h-full gap-4 px-8 relative">
                   {effectsEnabled && <FloatingParticles enabled count={20} />}
+                  {isDraggingOver && (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl m-4" style={{ background: "rgba(157,143,212,0.10)", border: "2px dashed rgba(157,143,212,0.30)", backdropFilter: "blur(4px)" }}>
+                      <div className="text-center">
+                        <i className="fa-solid fa-cloud-arrow-down text-4xl mb-3" style={{ color: "var(--ed-violet)" }} />
+                        <p className="text-[16px] font-semibold" style={{ color: "var(--ed-text-1)" }}>Drop image here</p>
+                        <p className="text-[12px] mt-1" style={{ color: "var(--ed-text-3)" }}>or paste from clipboard</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="w-20 h-20 rounded-2xl flex items-center justify-center z-10" style={{ background: "linear-gradient(135deg, rgba(139,92,246,0.12), rgba(236,72,153,0.08))", border: "1px solid rgba(139,92,246,0.15)" }}>
                     <i className="fa-solid fa-wand-magic-sparkles text-3xl" style={{ color: "var(--ed-text-5)" }} />
                   </div>
                   <div className="text-center space-y-1.5 z-10">
                     <p className="text-[14px] font-medium" style={{ color: "var(--ed-text-3)" }}>Ready to Create</p>
-                    <p className="text-[12px] leading-relaxed max-w-sm" style={{ color: "var(--ed-text-4)" }}>Describe an image below to generate it, or open an image from the Stage to start conversational editing.</p>
+                    <p className="text-[12px] leading-relaxed max-w-sm" style={{ color: "var(--ed-text-4)" }}>Describe an image to generate, Ctrl+V paste an image, or drop a file here.</p>
                   </div>
                   {!apiStatus.hasKey && settings !== null && (
                     <motion.button initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} z-10
                       onClick={() => invoke("open_settings").catch(() => {})}
                       className="flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-medium z-10"
                       style={{ background: "rgba(245,158,11,0.10)", color: "#fbbf24", border: "1px solid rgba(245,158,11,0.22)" }}>
-                      <i className="fa-solid fa-key text-[11px]" />Add {apiStatus.provider === "google" ? "Google Gemini" : "OpenAI"} API key
+                      <i className="fa-solid fa-key text-[11px]" />Add Google Gemini API key
                     </motion.button>
                   )}
                 </div>
@@ -1170,7 +1230,7 @@ export function ZenithEditor() {
               <div className="space-y-1.5">
                 <span className="text-[11px] font-medium" style={{ color: "var(--ed-text-3)" }}>Aspect Ratio</span>
                 <div className="flex flex-wrap gap-1">
-                  {(isGoogleModel ? GEMINI_ASPECT_OPTIONS : OPENAI_ASPECT_OPTIONS).map((ar) => (
+                  {ASPECT_OPTIONS.map((ar) => (
                     <button key={ar.value} onClick={() => setAspectRatio(ar.value)}
                       className="px-2 py-1 rounded-md text-[10px] font-medium transition-all border"
                       style={{ background: aspectRatio === ar.value ? "var(--ed-violet-bg)" : "transparent", color: aspectRatio === ar.value ? "var(--ed-violet)" : "var(--ed-text-3)", borderColor: aspectRatio === ar.value ? "var(--ed-violet-border)" : "transparent" }}>
@@ -1180,9 +1240,8 @@ export function ZenithEditor() {
                 </div>
               </div>
 
-              {/* Gemini: Image Size */}
-              {isGoogleModel && (
-                <div className="space-y-1.5">
+              {/* Image Size */}
+              <div className="space-y-1.5">
                   <span className="text-[11px] font-medium" style={{ color: "var(--ed-text-3)" }}>Image Size</span>
                   <div className="flex gap-1">
                     {IMAGE_SIZE_OPTIONS.map((sz) => (
@@ -1194,7 +1253,6 @@ export function ZenithEditor() {
                     ))}
                   </div>
                 </div>
-              )}
 
               {/* Style */}
               <div className="space-y-1.5">
@@ -1230,36 +1288,17 @@ export function ZenithEditor() {
                 </div>
               )}
 
-              {/* OpenAI: Resolution */}
-              {!isGoogleModel && (
-                <div className="space-y-1.5">
-                  <span className="text-[11px] font-medium" style={{ color: "var(--ed-text-3)" }}>Resolution</span>
-                  <div className="flex gap-1">
-                    {(["standard", "hd"] as const).map((r) => (
-                      <button key={r} onClick={() => setResolution(r)} aria-pressed={resolution === r}
-                        className="flex-1 py-1 rounded-md text-[10px] font-medium transition-all border"
-                        style={{ background: resolution === r ? "var(--ed-violet-bg)" : "transparent", color: resolution === r ? "var(--ed-violet)" : "var(--ed-text-3)", borderColor: resolution === r ? "var(--ed-violet-border)" : "transparent" }}>
-                        {r === "standard" ? "Standard" : "HD / 4K"}
-                      </button>
-                    ))}
-                  </div>
+              {/* Temperature */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium" style={{ color: "var(--ed-text-3)" }} title="Lower = more predictable, higher = more creative">Temperature</span>
+                  <span className="text-[10px] font-mono" style={{ color: "var(--ed-violet)" }}>{temperature.toFixed(1)}</span>
                 </div>
-              )}
-
-              {/* OpenAI: Adherence */}
-              {!isGoogleModel && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-medium" style={{ color: "var(--ed-text-3)" }} title="How strictly the image follows your prompt (vs. creative freedom)">Adherence</span>
-                    <span className="text-[10px] font-mono" style={{ color: "var(--ed-violet)" }}>{adherence}%</span>
-                  </div>
-                  <input type="range" min={0} max={100} value={adherence}
-                    onChange={(e) => setAdherence(Number(e.target.value))}
-                    aria-label={`Adherence ${adherence}%`}
-                    className="w-full h-1 appearance-none rounded-full cursor-pointer"
-                    style={{ background: `linear-gradient(to right, rgba(139,92,246,0.6) ${adherence}%, rgba(128,128,128,0.15) ${adherence}%)` }} />
-                </div>
-              )}
+                <input type="range" min={0.1} max={1.0} step={0.1} value={temperature}
+                  onChange={(e) => setTemperature(Number(e.target.value))}
+                  className="w-full h-1 appearance-none rounded-full cursor-pointer"
+                  style={{ background: `linear-gradient(to right, rgba(139,92,246,0.6) ${temperature * 100}%, rgba(128,128,128,0.15) ${temperature * 100}%)` }} />
+              </div>
 
               {/* Session summary */}
               <div className="pt-3 border-t space-y-1.5" style={{ borderColor: "var(--ed-border-subtle)" }}>
@@ -1346,9 +1385,9 @@ export function ZenithEditor() {
             </div>
           </div>
 
-          {/* Tier 2 — Prompt input */}
-          <div className="flex items-end gap-2 px-4 py-2.5">
-            <div className="flex-1 flex flex-col gap-1.5">
+          {/* Tier 2 — Prompt input (centered, compact) */}
+          <div className="flex items-end gap-2 px-4 py-2.5 justify-center">
+            <div className="flex-1 flex flex-col gap-1.5" style={{ maxWidth: "70%" }}>
               {/* Negative prompt (collapsible) */}
               <div className="flex items-center gap-1.5">
                 <button onClick={() => setShowNegPrompt(!showNegPrompt)}

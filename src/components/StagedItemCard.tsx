@@ -582,7 +582,7 @@ export function StagedItemCard({ item, index }: Props) {
       exit={{ opacity: 0, scale: 0.6, y: -10 }}
       transition={{ type: "spring", stiffness: 400, damping: 28, delay: index * 0.04 }}
       onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => { setIsHovered(false); setShowMore(false); setShowTimer(false); setShowPasswordPrompt(false); setShowEmailPrompt(false); setShowCompressOpts(false); setShowResizeOpts(false); setShowSplitOpts(false); setShowTranslateOpts(false); setShowAskPanel(false); setShowBase64Menu(false); setShowConvertMenu(false); setShowAudioConvertMenu(false); setShowAudioTypeAsk(false); setShowImageConvertMenu(false); setShowArchivePanel(false); setShowExifPanel(false); }}
+      onMouseLeave={() => { setIsHovered(false); setShowMore(false); setShowTimer(false); setShowPasswordPrompt(false); setShowEmailPrompt(false); setShowCompressOpts(false); setShowResizeOpts(false); setShowSplitOpts(false); setShowTranslateOpts(false); setShowAskPanel(false); setShowBase64Menu(false); setShowConvertMenu(false); setShowAudioConvertMenu(false); setShowAudioTypeAsk(false); setShowImageConvertMenu(false); setShowArchivePanel(false); setShowExifPanel(false); setShowTagPicker(false); }}
       className="group relative flex flex-col rounded-xl transition-colors"
       style={{
         background: isHovered ? "rgba(255, 255, 255, 0.06)" : "rgba(255, 255, 255, 0.02)",

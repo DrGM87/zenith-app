@@ -785,25 +785,7 @@ def _call_llm(provider, api_key, model, prompt, system_prompt=""):
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
-    if provider == "openai":
-        url = "https://api.openai.com/v1/chat/completions"
-        mdl = model or "gpt-4.1-nano"
-        payload = json.dumps({"model": mdl, "messages": messages,
-                              "max_tokens": 4096, "temperature": 0.3}).encode()
-        req = urllib.request.Request(url, data=payload, headers={
-            "Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
-    elif provider == "anthropic":
-        url = "https://api.anthropic.com/v1/messages"
-        mdl = model or "claude-sonnet-4-20250514"
-        body = {"model": mdl, "max_tokens": 4096, "messages": messages}
-        if system_prompt:
-            body["system"] = system_prompt
-            body["messages"] = [{"role": "user", "content": prompt}]
-        payload = json.dumps(body).encode()
-        req = urllib.request.Request(url, data=payload, headers={
-            "x-api-key": api_key, "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01"})
-    elif provider == "google":
+    if provider == "google":
         mdl = model or "gemini-3.1-flash-lite-preview"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={api_key}"
         contents = []
@@ -815,16 +797,14 @@ def _call_llm(provider, api_key, model, prompt, system_prompt=""):
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
     elif provider == "deepseek":
         url = "https://api.deepseek.com/chat/completions"
-        mdl = model or "deepseek-chat"
-        payload = json.dumps({"model": mdl, "messages": messages,
-                              "max_tokens": 4096, "temperature": 0.3}).encode()
-        req = urllib.request.Request(url, data=payload, headers={
-            "Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
-    elif provider == "groq":
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        mdl = model or "llama-3.3-70b-versatile"
-        payload = json.dumps({"model": mdl, "messages": messages,
-                              "max_tokens": 4096, "temperature": 0.3}).encode()
+        mdl = model or "deepseek-v4-pro"
+        body = {"model": mdl, "messages": messages,
+                "max_tokens": 8192, "temperature": 0.3}
+        if "v4" in mdl:
+            body["thinking"] = {"type": "enabled"}
+            body["reasoning_effort"] = "high"
+            body["max_tokens"] = 16384
+        payload = json.dumps(body).encode()
         req = urllib.request.Request(url, data=payload, headers={
             "Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
     else:
@@ -837,16 +817,11 @@ def _call_llm(provider, api_key, model, prompt, system_prompt=""):
         text = ""
         usage = {"input_tokens": 0, "output_tokens": 0}
 
-        if provider in ("openai", "groq", "deepseek"):
+        if provider == "deepseek":
             text = data["choices"][0]["message"]["content"]
             u = data.get("usage", {})
             usage = {"input_tokens": u.get("prompt_tokens", 0),
                      "output_tokens": u.get("completion_tokens", 0)}
-        elif provider == "anthropic":
-            text = data["content"][0]["text"]
-            u = data.get("usage", {})
-            usage = {"input_tokens": u.get("input_tokens", 0),
-                     "output_tokens": u.get("output_tokens", 0)}
         elif provider == "google":
             text = data["candidates"][0]["content"]["parts"][0]["text"]
             u = data.get("usageMetadata", {})
@@ -2512,7 +2487,8 @@ def recognize_audio(args):
     sys.path.insert(0, scripts_dir)
     from shazam_recognize import recognize_file
 
-    result = recognize_file(file_path, max_seconds=max_seconds)
+    is_mic = "mic_recording_" in os.path.basename(file_path)
+    result = recognize_file(file_path, max_seconds=max_seconds, mic_recording=is_mic)
     result.pop("raw", None)
 
     if not result.get("ok") or not result.get("title"):
@@ -2866,6 +2842,8 @@ def generate_image(args):
     style = args.get("style", "")                   # style hint text for Gemini
     thinking_level = args.get("thinking_level", "")  # "minimal"|"low"|"medium"|"high" (Flash only)
     temperature = args.get("temperature", None)
+    negative_prompt = args.get("negative_prompt", "")
+    adherence = args.get("adherence", None)
 
     if not api_key:
         return {"error": "API key required. Set it in Settings > API Keys."}
@@ -2875,9 +2853,18 @@ def generate_image(args):
     COST_MAP = {
         "gemini-3.1-flash-image-preview": 0.067,
         "gemini-3-pro-image-preview": 0.134,
-        "gpt-image-1.5": 0.133,
     }
     cost = COST_MAP.get(model, 0.10)
+
+    # Apply negative prompt by injecting into the main prompt
+    if negative_prompt:
+        prompt = f"{prompt}. IMPORTANT: Do NOT include any of the following: {negative_prompt}"
+
+    # Apply adherence as inverse temperature (high adherence = low temperature)
+    computed_temp = temperature
+    if computed_temp is None and adherence is not None:
+        # Map adherence 0-100 to temperature 1.0-0.05 (inverse)
+        computed_temp = max(0.05, min(1.0, (100 - adherence) / 100.0))
 
     # ── Google Gemini ──────────────────────────────────────────────────────
     if provider == "google":
@@ -2922,8 +2909,8 @@ def generate_image(args):
         if image_size and "flash" in model:
             generation_config["imageConfig"]["imageSize"] = image_size
 
-        if temperature is not None:
-            generation_config["temperature"] = float(temperature)
+        if computed_temp is not None:
+            generation_config["temperature"] = float(computed_temp)
 
         body = {
             "contents": [{"parts": parts}],
@@ -2984,112 +2971,45 @@ def generate_image(args):
         return {"image_b64": result_b64, "path": out_path, "cost": cost,
                 "model": model, "format": "png"}
 
-    # ── OpenAI GPT-Image ──────────────────────────────────────────────────
-    elif provider == "openai":
-        ASPECT_SIZE = {"1:1": "1024x1024", "16:9": "1792x1024", "9:16": "1024x1792"}
-        size = ASPECT_SIZE.get(aspect_ratio, "1024x1024")
-        qual = "high" if quality == "hd" else "standard"
-
-        import uuid
-        tmp_path = os.path.join(TEMP_DIR, "Zenith_Editor")
-        os.makedirs(tmp_path, exist_ok=True)
-
-        if image_b64:
-            boundary = f"ZenithBoundary{uuid.uuid4().hex}"
-            img_bytes = base64.b64decode(image_b64)
-
-            body_parts = []
-            def _field(name, value):
-                return (f"--{boundary}\r\nContent-Disposition: form-data; "
-                        f"name=\"{name}\"\r\n\r\n{value}\r\n").encode()
-            def _file(name, filename, fdata, content_type):
-                header = (f"--{boundary}\r\nContent-Disposition: form-data; "
-                          f"name=\"{name}\"; filename=\"{filename}\"\r\n"
-                          f"Content-Type: {content_type}\r\n\r\n").encode()
-                return header + fdata + b"\r\n"
-
-            body_parts.append(_field("model", model))
-            body_parts.append(_field("prompt", prompt))
-            body_parts.append(_field("n", "1"))
-            body_parts.append(_field("size", size))
-            body_parts.append(_field("response_format", "b64_json"))
-            body_parts.append(_file("image", "image.png", img_bytes, "image/png"))
-            body_parts.append(f"--{boundary}--\r\n".encode())
-
-            req_body = b"".join(body_parts)
-            req = urllib.request.Request(
-                "https://api.openai.com/v1/images/edits",
-                data=req_body,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": f"multipart/form-data; boundary={boundary}",
-                },
-            )
-        else:
-            payload = json.dumps({
-                "model": model, "prompt": prompt, "n": 1,
-                "size": size, "quality": qual, "response_format": "b64_json",
-            }).encode()
-            req = urllib.request.Request(
-                "https://api.openai.com/v1/images/generations",
-                data=payload,
-                headers={"Authorization": f"Bearer {api_key}",
-                         "Content-Type": "application/json"},
-            )
-
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                data = json.loads(resp.read().decode())
-        except urllib.error.HTTPError as e:
-            body_text = e.read().decode() if e.fp else ""
-            return {"error": f"OpenAI image API error {e.code}: {body_text[:500]}"}
-        except Exception as e:
-            return {"error": str(e)}
-
-        result_b64 = data["data"][0].get("b64_json", "")
-        if not result_b64:
-            return {"error": "OpenAI returned no image data."}
-
-        tmp_name = f"gen_{uuid.uuid4().hex[:8]}.png"
-        out_path = os.path.join(tmp_path, tmp_name)
-        with open(out_path, "wb") as f:
-            f.write(base64.b64decode(result_b64))
-
-        return {"image_b64": result_b64, "path": out_path, "cost": cost,
-                "model": model, "format": "png"}
-
     return {"error": f"Unsupported provider for image generation: {provider}"}
 
 
 def enhance_prompt(args):
-    """Rewrite a rough prompt into a detailed, professional image generation prompt using LLM."""
+    """Rewrite a rough prompt into a natural, descriptive image prompt using DeepSeek V4 with max thinking.
+    Optimized for Nano Banana (Gemini image generation) which uses natural language, NOT SD-style tags."""
     prompt = args.get("prompt", "")
     api_key = args.get("api_key", "")
-    provider = args.get("provider", "google")
-    model = args.get("model", "")
+    provider = args.get("provider", "deepseek")
+    model = args.get("model", "deepseek-v4-pro")
 
     if not api_key:
-        return {"error": "API key required to enhance prompts."}
+        return {"error": "API key required to enhance prompts. Set a DeepSeek key in Settings > API Keys."}
     if not prompt.strip():
         return {"error": "No prompt provided."}
 
     system = (
-        "You are a visual storytelling expert. Rewrite the user's rough image idea as 2–4 clear, "
-        "descriptive natural language sentences — the kind a film director or photographer would use "
-        "to describe a shot.\n\n"
-        "Rules:\n"
-        "- Write complete sentences, NOT comma-separated keyword lists\n"
-        "- Do NOT include quality tags like 'masterpiece', '8k', 'ultra-detailed', 'best quality', 'highly detailed'\n"
-        "- Do NOT use Stable Diffusion syntax\n"
-        "- Describe: subject, environment, lighting, mood, color palette, composition, and style naturally\n"
-        "- Keep it under 150 words\n\n"
-        "Return ONLY the enhanced description, nothing else."
+        "You are a world-class visual art director and cinematographer. Transform a brief creative idea "
+        "into a rich, natural-language visual description optimized for AI image generation.\n\n"
+        "CRITICAL RULES:\n"
+        "- Write 3-5 flowing, descriptive paragraphs — like a film director describing a scene\n"
+        "- Use complete natural sentences ONLY. Never use comma-separated keyword lists\n"
+        "- NEVER include SD-style tags: no 'masterpiece', '8k', 'ultra-detailed', 'best quality', 'sharp focus'\n"
+        "- NEVER use weighting syntax like (word), (word:1.2), [word], or {{word}}\n"
+        "- Describe concretely: subject(s), setting/environment, lighting direction & quality, color palette & mood, "
+        "camera angle & composition, textures & materials, atmosphere & time of day\n"
+        "- Be specific: 'oil painting with visible brushstrokes' not just 'painting'\n"
+        "- Include sensory details: how light falls, what the air feels like\n"
+        "- Output ONLY the enhanced description. No preamble, no explanation."
     )
 
     result = _call_llm(provider, api_key, model, prompt, system_prompt=system)
     if "error" in result:
         return result
-    return {"enhanced_prompt": result["text"].strip()}
+    enhanced = result.get("text", "").strip().strip('"').strip("'")
+    return {"ok": True, "enhanced_prompt": enhanced,
+            "token_usage": {"provider": provider, "model": model,
+            "input_tokens": result.get("usage", {}).get("input_tokens", 0),
+            "output_tokens": result.get("usage", {}).get("output_tokens", 0)}}
 
 
 def auto_title_prompt(args):
@@ -3269,6 +3189,12 @@ def save_editor_image(args):
 
     img_bytes = base64.b64decode(image_b64)
     img = Image.open(__import__("io").BytesIO(img_bytes))
+
+    # Strip EXIF and all metadata for privacy
+    data = list(img.getdata())
+    img_no_exif = Image.new(img.mode, img.size)
+    img_no_exif.putdata(data)
+    img = img_no_exif
 
     if pil_fmt == "JPEG" and img.mode in ("RGBA", "LA"):
         bg = Image.new("RGB", img.size, (255, 255, 255))

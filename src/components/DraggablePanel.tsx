@@ -132,9 +132,9 @@ export function DraggablePanel({
         <div
           className="w-full h-full flex flex-col overflow-hidden"
           style={{
-            background: "rgb(12, 12, 18)",
+            background: "var(--zen-bg-surface)",
             borderRadius: `${radius}px`,
-            border: "1px solid rgba(255, 255, 255, 0.06)",
+            border: "1px solid var(--zen-border-default)",
             boxShadow: "0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03) inset",
           }}
         >

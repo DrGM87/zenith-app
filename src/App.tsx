@@ -5,6 +5,7 @@ import { ScriptWindow } from "./components/ScriptWindow";
 import { PreviewDrawer } from "./components/PreviewDrawer";
 import { ReviewStudio } from "./components/ReviewStudio";
 import { ZenithEditor } from "./components/ZenithEditor";
+import { MusicDiscoveryPage } from "./components/MusicDiscoveryPage";
 
 /* ── Error Boundary ── */
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -14,7 +15,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   render() {
     if (this.state.error) {
       return (
-        <div style={{ background: "#0a0a0f", color: "#e2e8f0", height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "monospace", padding: 40 }}>
+        <div style={{ background: "var(--zen-bg-void)", color: "var(--zen-text-primary)", height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "monospace", padding: 40 }}>
           <div style={{ maxWidth: 600, textAlign: "center" }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>&#x26A0;</div>
             <h2 style={{ color: "#ef4444", marginBottom: 8 }}>Something went wrong</h2>
@@ -57,6 +58,14 @@ function App() {
     return (
       <ErrorBoundary>
         <ZenithEditor />
+      </ErrorBoundary>
+    );
+  }
+
+  if (windowType === "music") {
+    return (
+      <ErrorBoundary>
+        <MusicDiscoveryPage />
       </ErrorBoundary>
     );
   }

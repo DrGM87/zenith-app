@@ -366,9 +366,13 @@ export function ScriptWindow() {
   useEffect(() => {
     loadContent();
     const unlisten = listen("script-window-update", () => loadContent());
+    const unlistenTheme = listen<string>("theme-changed", (ev) => {
+      document.documentElement.setAttribute("data-theme", ev.payload === "light" ? "light" : "dark");
+    });
     const poll = setInterval(loadContent, 800);
     return () => {
       unlisten.then((f) => f());
+      unlistenTheme.then((f) => f());
       clearInterval(poll);
     };
   }, [loadContent]);

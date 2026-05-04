@@ -49,6 +49,7 @@ export function Bubble() {
     loadPresets,
     presets,
     deletePreset,
+    savePreset,
   } = useZenithStore();
 
   const [zipping, setZipping] = useState(false);
@@ -69,6 +70,8 @@ export function Bubble() {
   const [batchQueueRunning, setBatchQueueRunning] = useState(false);
   const [batchQueueAction, setBatchQueueAction] = useState("");
   const [batchQueueProgress, setBatchQueueProgress] = useState({ current: 0, total: 0 });
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const ACTION_PRESETS: { action: string; label: string; icon: string }[] = [
     { action: "compress_image", label: "Compress Images", icon: "fa-solid fa-compress" },
     { action: "convert_webp", label: "Convert to WebP", icon: "fa-solid fa-image" },
@@ -80,6 +83,45 @@ export function Bubble() {
       const h = await invoke<Array<{ timestamp: number; text: string; image_b64: string | null }>>("get_clipboard_history");
       setClipHistory(h);
     } catch {}
+  };
+
+  const handleRecordAndRecognize = async () => {
+    if (isRecording) return;
+    setIsRecording(true);
+    setRecordingSeconds(0);
+    const interval = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    try {
+      const audiodbKey = settings?.audiodb_api_key || "2";
+      const json = await invoke<string>("record_and_recognize", { durationSecs: 5, audiodbKey });
+      const result = JSON.parse(json);
+      if (result.ok && result.title) {
+        setAudioResult("mic_recording", {
+          itemId: "mic_recording", path: result.recording_path || "",
+          title: result.title, artist: result.artist || "", album: result.album || "",
+          year: result.year || "", genre: result.genre || "",
+          track_number: result.track_number || "", cover_url: result.cover_url || "",
+          shazam_url: result.shazam_url || "",
+          mood: result.mood || "", style: result.style || "", description: result.description || "",
+        });
+        invoke("save_music_track", { track: {
+          id: "", title: result.title, artist: result.artist || "", album: result.album || "",
+          year: result.year || "", genre: result.genre || "", cover_url: result.cover_url || "",
+          shazam_url: result.shazam_url || "", discovered_at: 0, note: "",
+        }}).catch(() => {});
+      } else {
+        setFooterToast(result.error || result.debug_info || "No music detected");
+      }
+      setTimeout(() => setFooterToast(null), result.ok ? 3000 : 6000);
+      const detail = result.title ? `${result.artist} — ${result.title}` : (result.debug_info || "No match");
+      invoke("log_activity", { action: "MicRecord", details: detail }).catch(() => {});
+    } catch (e) {
+      setFooterToast(`Recording failed: ${String(e)}`);
+      setTimeout(() => setFooterToast(null), 4000);
+    } finally {
+      clearInterval(interval);
+      setIsRecording(false);
+      setRecordingSeconds(0);
+    }
   };
 
   const handleBatchProcess = async (action: string) => {
@@ -216,6 +258,11 @@ export function Bubble() {
       loadItems();
     });
 
+    const unlistenThemeChanged = listen<string>("theme-changed", (ev) => {
+      const t = ev.payload;
+      document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+    });
+
     const shortcut = sc?.stage_clipboard || "CmdOrCtrl+Shift+V";
     register(shortcut, async () => {
       try {
@@ -261,6 +308,7 @@ export function Bubble() {
       unlistenBlur.then((f) => f());
       unlistenSettingsChanged.then((f) => f());
       unlistenItemsChanged.then((f) => f());
+      unlistenThemeChanged.then((f) => f());
       unregister(shortcut).catch(() => {});
     };
   }, [expand, loadItems, loadSettings, scheduleCollapse, setDragOver, stageFile, stageText, sc?.stage_clipboard, bh?.auto_collapse_on_blur]);
@@ -390,9 +438,9 @@ export function Bubble() {
             className="w-full flex flex-col overflow-hidden relative"
             style={{
               maxHeight: "calc(100vh - 24px)",
-              background: "rgb(14, 14, 20)",
+              background: "var(--zen-bg-surface)",
               borderRadius: `${radius}px`,
-              border: "1px solid rgba(255, 255, 255, 0.06)",
+              border: "1px solid var(--zen-border-default)",
               boxShadow: "0 32px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.03) inset",
             }}
           >
@@ -401,7 +449,7 @@ export function Bubble() {
             <div className="flex items-center justify-between px-4 pt-3 pb-2">
               <div className="flex items-center gap-2.5">
                 <MagicRings color={accent} color2="#ec4899" color3="#f59e0b" size={21} />
-                <span style={{ fontSize: `${fontSize}px` }} className="font-semibold text-white/90 tracking-wide uppercase">
+                <span className="zenith-brand" style={{ fontSize: `${fontSize}px`, color: "var(--zen-text-primary)", letterSpacing: "0.06em" }}>
                   Zenith
                 </span>
                 <span style={{ fontSize: `${fontSize - 2}px` }} className="text-white/25 font-medium tabular-nums">
@@ -442,20 +490,20 @@ export function Bubble() {
                 {/* Separator */}
                 <div className="w-px h-4 bg-white/[0.06] mx-1" />
                    <motion.button whileTap={{ scale: 0.92 }}
-                     onClick={async () => {
-                       try {
-                         const path = await invoke<string>("capture_screen");
-                         stageFile(path);
-                         invoke("log_activity", { action: "Screenshot", details: "Screen captured" }).catch(() => {});
-                         setFooterToast("Screenshot staged!");
-                         setTimeout(() => setFooterToast(null), 2000);
-                       } catch (e) { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); }
-                     }}
+                     onClick={() => invoke("launch_snipping_tool").catch(() => {})}
                      className="w-7 h-7 flex items-center justify-center transition-colors cursor-pointer hover:bg-white/[0.06] rounded-lg"
                      style={{ background: "rgba(34,211,238,0.08)", color: "#67e8f9", border: "1px solid rgba(255,255,255,0.06)" }}
-                     title="Capture Screenshot"
+                     title="Open Snipping Tool"
+                   ><i className="fa-solid fa-scissors text-[10px]" />
+                   </motion.button>
+                   <motion.button whileTap={{ scale: 0.92 }}
+                     onClick={handleRecordAndRecognize}
+                     disabled={isRecording}
+                     className="w-7 h-7 flex items-center justify-center transition-colors cursor-pointer hover:bg-white/[0.06] rounded-lg disabled:opacity-50"
+                     style={{ background: isRecording ? "rgba(239,68,68,0.20)" : "rgba(239,68,68,0.08)", color: isRecording ? "#fca5a5" : "#f87171", border: "1px solid rgba(255,255,255,0.06)" }}
+                      title={isRecording ? `Recording ${recordingSeconds}s / 5s` : "Record 5s from mic & identify music"}
                    >
-                     <i className="fa-solid fa-camera text-[10px]" />
+                     {isRecording ? <span className="text-[8px] font-mono">{5 - recordingSeconds}</span> : <i className="fa-solid fa-microphone text-[10px]" />}
                    </motion.button>
                    {/* Generative Canvas */}
                    <motion.button whileTap={{ scale: 0.92 }}
@@ -1342,6 +1390,13 @@ export function Bubble() {
                           <i className="fa-solid fa-clock-rotate-left text-[10px] w-4 text-center" />
                           Clipboard History
                         </button>
+                        <button
+                          onClick={() => { setShowFooterMore(false); invoke("open_music_discovery_window").catch(() => {}); }}
+                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] font-medium transition-all cursor-pointer text-left text-white/50 hover:text-pink-300 hover:bg-pink-500/10"
+                        >
+                          <i className="fa-solid fa-music text-[10px] w-4 text-center" />
+                          Music Discovery
+                        </button>
                         {items.filter((i) => i.path.length > 0).length >= 2 && (
                           <div className="pt-1 border-t border-white/[0.04]">
                             <p className="text-[9px] text-white/20 px-2.5 py-1 uppercase">Batch Process</p>
@@ -1357,6 +1412,13 @@ export function Bubble() {
                             ))}
                           </div>
                         )}
+                        {(items.filter((i) => i.path.length > 0).length >= 2 || presets.length > 0) && presets.length > 0 ? null : items.filter((i) => i.path.length > 0).length >= 2 ? (
+                          <button onClick={() => { setShowFooterMore(false); savePreset(batchQueueAction || "compress_image", batchQueueAction || "compress_image", {}); setFooterToast("Preset saved!"); setTimeout(() => setFooterToast(null), 2000); }}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] font-medium transition-all cursor-pointer text-left text-white/50 hover:text-amber-300 hover:bg-amber-500/10">
+                            <i className="fa-solid fa-bookmark text-[10px] w-4 text-center" />
+                            Save Last Action as Preset
+                          </button>
+                        ) : null}
                         {presets.length > 0 && (
                           <div className="pt-1 border-t border-white/[0.04]">
                             <p className="text-[9px] text-white/20 px-2.5 py-1 uppercase">Presets</p>
@@ -1377,6 +1439,18 @@ export function Bubble() {
                             ))}
                           </div>
                         )}
+                        <div className="pt-1 border-t border-white/[0.04]">
+                          <button onClick={() => {
+                            setShowFooterMore(false);
+                            savePreset("Batch Process", batchQueueAction || "compress_image", {});
+                            setFooterToast("Preset saved");
+                            setTimeout(() => setFooterToast(null), 2000);
+                          }}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[11px] font-medium transition-all cursor-pointer text-left text-white/40 hover:text-amber-300 hover:bg-amber-500/10">
+                            <i className="fa-solid fa-floppy-disk text-[10px] w-4 text-center" />
+                            Save as Preset
+                          </button>
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1425,21 +1499,23 @@ export function Bubble() {
           >
           <BorderGlow color1={`${accent}55`} color2="rgba(139,92,246,0.35)" borderRadius={Math.min(radius, 16)} speed={glowSpeed} enabled={glowEnabled}>
           <div
-            className="flex items-center gap-2 px-3 py-2 relative overflow-hidden"
+            className="flex items-center justify-center relative overflow-hidden"
             style={{
-              background: "rgb(14, 14, 20)",
-              borderRadius: `${Math.min(radius, 16)}px`,
-              border: "1px solid rgba(255, 255, 255, 0.06)",
-              boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
+              background: "var(--zen-bg-surface)",
+              borderRadius: "50%",
+              border: "1px solid var(--zen-border-default)",
+              boxShadow: "0 4px 20px rgba(0, 0, 0, 0.5)",
+              width: "100%",
+              height: "100%",
             }}
           >
-            <MagicRings color={accent} color2="#ec4899" color3="#f59e0b" size={18} />
+            <MagicRings color={accent} color2="#ec4899" color3="#f59e0b" size={14} />
             {items.length > 0 && (
               <motion.span
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
-                style={{ color: `${accent}cc`, background: `${accent}1a` }}
+                className="absolute -top-0.5 -right-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                style={{ color: "#fff", background: accent }}
               >
                 {items.length}
               </motion.span>

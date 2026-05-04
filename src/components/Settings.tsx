@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 // ReactBits effects are configured here but rendered in Bubble.tsx
 
 interface GeneralSettings {
@@ -130,52 +131,25 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
 ];
 
 const LLM_PROVIDERS = [
-  { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "google", label: "Google Gemini" },
   { value: "deepseek", label: "DeepSeek" },
-  { value: "groq", label: "Groq" },
+  { value: "google", label: "Google Gemini" },
 ];
 
 // Note: image generation models use a flat per-image cost stored in `input`.
 // `output` is 0 for image gen models.  The UI shows "per image" for these.
-const IMAGE_GEN_MODEL_IDS = new Set([
-  "gemini-3-pro-image-preview",
-  "gpt-image-1.5",
-]);
+const IMAGE_GEN_MODEL_IDS = new Set(["gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview"]);
 
 const PROVIDER_MODELS: Record<string, { id: string; label: string; input: number; output: number }[]> = {
-  openai: [
-    { id: "gpt-4.1-nano", label: "GPT-4.1 Nano", input: 0.10, output: 0.40 },
-    { id: "gpt-4o-mini", label: "GPT-4o Mini", input: 0.15, output: 0.60 },
-    { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", input: 0.40, output: 1.60 },
-    { id: "o3-mini", label: "o3 Mini", input: 1.10, output: 4.40 },
-    { id: "o4-mini", label: "o4 Mini", input: 1.10, output: 4.40 },
-    { id: "gpt-4.1", label: "GPT-4.1", input: 2.00, output: 8.00 },
-    { id: "gpt-4o", label: "GPT-4o", input: 2.50, output: 10.00 },
-    // ── Image Generation ──────────────────────────────────────────────────
-    { id: "gpt-image-1.5", label: "GPT-Image 1.5 ✦ (Image Gen)", input: 0.133, output: 0 },
-  ],
-  anthropic: [
-    { id: "claude-haiku-4-5-20250514", label: "Claude Haiku 4.5", input: 1.00, output: 5.00 },
-    { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", input: 3.00, output: 15.00 },
-    { id: "claude-opus-4-20250918", label: "Claude Opus 4", input: 5.00, output: 25.00 },
+  deepseek: [
+    { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", input: 0.14, output: 0.28 },
+    { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro (Thinking)", input: 0.435, output: 0.87 },
   ],
   google: [
     { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", input: 0.075, output: 0.30 },
     { id: "gemini-3.1-flash-preview", label: "Gemini 3.1 Flash", input: 0.10, output: 0.40 },
     { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", input: 1.25, output: 5.00 },
-    // ── Image Generation ──────────────────────────────────────────────────
-    { id: "gemini-3-pro-image-preview", label: "Nano Banana Pro ✦ (Image Gen)", input: 0.03, output: 0 },
-  ],
-  deepseek: [
-    { id: "deepseek-chat", label: "DeepSeek V3 (Chat)", input: 0.27, output: 1.10 },
-    { id: "deepseek-reasoner", label: "DeepSeek R1 (Reasoner)", input: 0.55, output: 2.19 },
-  ],
-  groq: [
-    { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", input: 0.59, output: 0.79 },
-    { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B", input: 0.05, output: 0.08 },
-    { id: "gemma2-9b-it", label: "Gemma 2 9B", input: 0.20, output: 0.20 },
+    { id: "gemini-3.1-flash-image-preview", label: "Nano Banana 2 (Image Gen)", input: 0.067, output: 0 },
+    { id: "gemini-3-pro-image-preview", label: "Nano Banana Pro (Image Gen)", input: 0.134, output: 0 },
   ],
 };
 
@@ -207,7 +181,7 @@ export function Settings() {
   useEffect(() => {
     invoke<ZenithSettings>("get_settings").then((s) => {
       setSettings(s);
-      // Check which scripts are currently running
+      document.documentElement.setAttribute("data-theme", s.appearance.theme === "light" ? "light" : "dark");
       (s.scripts || []).forEach((script) => {
         invoke<boolean>("is_script_running", { scriptId: script.id })
           .then((running) => setRunningScripts((prev) => ({ ...prev, [script.id]: running })))
@@ -215,6 +189,10 @@ export function Settings() {
       });
     }).catch(console.error);
     invoke<PluginInfo[]>("list_plugins").then(setPlugins).catch(console.error);
+    const unlisten = listen<string>("theme-changed", (ev) => {
+      document.documentElement.setAttribute("data-theme", ev.payload === "light" ? "light" : "dark");
+    });
+    return () => { unlisten.then((f) => f()); };
   }, []);
 
   // Poll script running status
@@ -279,7 +257,7 @@ export function Settings() {
 
   const addApiKey = () => {
     if (!settings) return;
-    const entry: ApiKeyEntry = { provider: "openai", label: "", key: "", model: "", is_default: settings.api_keys.length === 0 };
+    const entry: ApiKeyEntry = { provider: "deepseek", label: "", key: "", model: "deepseek-v4-pro", is_default: settings.api_keys.length === 0 };
     save({ ...settings, api_keys: [...settings.api_keys, entry] });
   };
 
@@ -318,14 +296,14 @@ export function Settings() {
 
   if (!settings) {
     return (
-      <div className="flex items-center justify-center h-screen bg-[#121218]">
+      <div className="flex items-center justify-center h-screen" style={{ background: "var(--zen-bg-base)", color: "var(--zen-text-primary)" }}>
         <div className="text-white/40 text-sm">Loading settings...</div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-[#121218] text-white select-none">
+    <div className="flex h-screen select-none" style={{ background: "var(--zen-bg-base)", color: "var(--zen-text-primary)" }}>
       {/* Sidebar */}
       <div
         className="w-[200px] flex flex-col border-r"
@@ -338,7 +316,7 @@ export function Settings() {
             </div>
             <div>
               <h1 className="text-[15px] font-bold tracking-wide text-white/90">Settings</h1>
-              <p className="text-[10px] text-white/30">Zenith v0.2.0</p>
+              <p className="text-[10px] zenith-brand" style={{ color: "var(--zen-text-tertiary)" }}>Zenith v0.2.0</p>
             </div>
           </div>
         </div>

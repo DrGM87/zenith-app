@@ -262,7 +262,7 @@ impl Default for ZenithSettings {
                 opacity: 0.92,
                 blur_strength: 40.0,
                 corner_radius: 20.0,
-                accent_color: "#22d3ee".to_string(),
+                accent_color: "#66c0dc".to_string(),
                 font_size: 13.0,
                 animation_speed: 1.0,
                 border_glow: true,

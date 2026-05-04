@@ -32,4 +32,6 @@ uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 reqwest = "0.13.2"
 keyring = "3"
+cpal = "0.15"
+hound = "3"
 

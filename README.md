@@ -18,11 +18,11 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 [![Features](https://img.shields.io/badge/Features-150+-blueviolet?style=flat-square)]()
-[![AI Providers](https://img.shields.io/badge/AI_Providers-5-orange?style=flat-square)]()
-[![File Actions](https://img.shields.io/badge/File_Actions-40+-success?style=flat-square)]()
+[![AI Providers](https://img.shields.io/badge/AI_Providers-2-orange?style=flat-square)]()
+[![File Actions](https://img.shields.io/badge/File_Actions-42-success?style=flat-square)]()
 [![Secure Storage](https://img.shields.io/badge/Secure_Storage-OS_Credential_Manager-red?style=flat-square)]()
 
-[![Visual FX](https://img.shields.io/badge/Visual_Effects-10-ec4899?style=flat-square)]()
+[![Visual FX](https://img.shields.io/badge/Visual_Effects-15-ec4899?style=flat-square)]()
 [![Theme](https://img.shields.io/badge/Dark_%2F_Light-✓-22d3ee?style=flat-square)]()
 [![Tags](https://img.shields.io/badge/Color_Tags-8-f59e0b?style=flat-square)]()
 
@@ -47,7 +47,7 @@
 
 Zenith is an **invisible desktop productivity tool** that floats at the edge of your screen. Drag a file near it — a beautifully animated dark-glass panel springs open. Drop files, paste text, screenshot your screen, scan for malware, convert media, tag and organize your files with AI, and drag results back out to any application — all without ever leaving what you're doing.
 
-> **150+ features · 40+ file actions · 5 AI providers · AES-256-GCM encrypted vault · Shazam music recognition · Screen capture · Clipboard history · Batch processing · Color tagging · Activity log · Zero window switching.**
+> **42 file actions · 2 AI providers · 15 visual effects · OS keychain storage · Shazam music recognition · Snipping tool · Clipboard history · Batch processing · Color tagging · Activity log · Zero window switching.**
 
 ---
 
@@ -63,7 +63,7 @@ Zenith is an **invisible desktop productivity tool** that floats at the edge of 
   <img src="screenshots/TheBubble_options.png" alt="The Bubble — expanded panel with a staged file and action buttons" width="460"/>
 </p>
 
-*Left: The collapsed pill — barely visible, always on top, zero screen real estate. Right: Drop a file and the full action panel expands with 40+ instant actions (Convert, EXIF, Palette, Resize, Base64, OCR, Scan, Reveal, Editor, Archive, Email, AI Rename, and more).*
+*Left: The collapsed pill — barely visible, always on top, zero screen real estate. Right: Drop a file and the full action panel expands with 42 instant actions (Convert, EXIF, Palette, Resize, Base64, OCR, Scan, Reveal, Editor, Archive, Email, AI Rename, and more).*
 
 ---
 
@@ -97,12 +97,12 @@ The **Bubble** is Zenith's floating command center — a tiny, always-visible pi
 - **Dynamic preview drawer** — Preview images, video, audio, code, CSV, JSON, and PDFs inline without leaving the panel
 - **Dark / Light theme** — Full theme engine via CSS custom properties with configurable accent colors, border glow, aurora background
 
-### 40+ Built-in File Actions
+### 42 Built-in File Actions
 
 | Category | Actions |
 |----------|---------|
 | **Image** | Convert Format, Resize (+ fill color for ratio changes), EXIF Strip/Preview, Color Palette + WCAG + Ink Dropper, Base64 (Raw/HTML/CSS/TXT), OCR (Vision AI + Tesseract), Open in Generative Editor |
-| **AI Image Gen** | Generative Editor — text-to-image, image-to-image, conversational multi-turn editing, 3 models, thread management, 10 aspect ratios, 9 style presets, prompt library, cost tracking, dark/light theme, negative prompt, clipboard copy |
+| **AI Image Gen** | Generative Editor — text-to-image, image-to-image, conversational multi-turn editing, 2 models, thread management, 10 aspect ratios, 9 style presets, prompt library, cost tracking, dark/light theme, negative prompt, clipboard copy |
 | **PDF** | Compress, Merge (multi-PDF), PDF → CSV (LLM-powered structured extraction) |
 | **Audio** | Shazam Music Recognition (fingerprint → identify → metadata), Convert Audio, Batch Audio Convert + Recognize |
 | **Video** | FFmpeg Convert (MP4, WebM, GIF) |
@@ -170,14 +170,13 @@ Process multiple files at once with real-time progress tracking.
 
 ---
 
-## 📸 Screen Capture
+## ✂️ Snipping Tool Integration
 
-Capture your full screen with one click — instantly staged for processing.
+Launch your system's snipping tool with one click — instantly stage the result.
 
-- **Camera button** in the Bubble header — click to take a full-screen screenshot
-- **Platform-native** — uses PowerShell on Windows, `screencapture` on macOS, `import` on Linux
-- **Auto-staged** — the captured PNG is automatically added to the staging area
-- **Logged** — every capture is recorded in the Activity Log
+- **Scissors button** in the Bubble header — launches the OS snipping tool (Windows Snipping Tool, macOS Screencapture, Linux GNOME Screenshot)
+- **Auto-stage** — paste the captured image directly into Zenith (Ctrl+V)
+- **Workflow** — Snip → paste into Zenith → process with any file action
 
 ---
 
@@ -236,7 +235,6 @@ The **Generative Editor** is a full-window AI image creation and editing studio 
 |-------|----------|----------|
 | **Nano Banana 2** (`gemini-3.1-flash-image-preview`) | Google | Fast iterations, daily use, 4-level thinking |
 | **Nano Banana Pro** (`gemini-3-pro-image-preview`) | Google | High-quality, deep reasoning |
-| **GPT-Image 1.5** (`gpt-image-1.5`) | OpenAI | Photorealism, high-adherence edits |
 
 ### Core Features
 
@@ -250,6 +248,15 @@ The **Generative Editor** is a full-window AI image creation and editing studio 
 - **Negative prompt** — collapsible field below the main prompt
 - **Prompt history** — press ↑ / ↓ in the textarea to cycle through the last 50 prompts
 - **Keyboard shortcuts** — `Escape` closes modals, `Ctrl+Z` undo, `Ctrl+Shift+Z` redo
+- **Duplicate thread** — copy a thread and all its images
+- **Save to Disk Only** — download without staging in the Bubble
+- **Quick Save** — one-click save with last-used format
+- **Prompt library** — save, import/export, and reuse prompts
+- **Thread backup/restore** — auto-backup before reset; restore from backup
+- **Parameter reset** — one-click reset all generation parameters to defaults
+- **Gen-to-gen comparison** — toggle between comparing with original or previous generation
+- **Expanded image actions** — Copy and Stage buttons on hover in expanded view
+- **Undo/Redo position counter** — "3 of 12" indicator near undo/redo buttons
 
 ### Visual Effects Layer
 
@@ -263,6 +270,13 @@ The **Generative Editor** is a full-window AI image creation and editing studio 
 | **GlareHover** | Subtle 3D glare + tilt effect on image thumbnails |
 | **StarBorder** | Rotating conic-gradient star border wraps the Generate button |
 | **FloatingParticles** | Glowing particles drift up in the empty canvas state |
+| **Carousel** | Auto-rotating card carousel for thread list |
+| **GradientText** | Animated gradient text for headings |
+| **MagicRings** | Rotating ring animations behind elements |
+| **ShinyBar** | Shimmer sweep across progress/status bars |
+| **SoftAurora** | Gentle color aurora background effect |
+| **SquaresBg** | Floating square pattern background |
+| **BorderGlow** | Animated border glow on hover |
 
 ---
 
@@ -301,15 +315,14 @@ Not just a hash lookup — Zenith implements the **full VirusTotal v3 pipeline**
 
 ## 🤖 AI & LLM Integrations
 
-Zenith connects to **5 LLM providers** with **18+ models**. API keys are encrypted at rest with AES-256-GCM.
+Zenith connects to **2 LLM providers** with **7 models** for text and vision tasks. API keys are stored securely via your OS credential manager.
 
-| Provider | Models | Best For |
-|----------|--------|----------|
-| **OpenAI** | GPT-4.1 Nano, GPT-4.1 Mini, GPT-4.1, GPT-4o, GPT-4o Mini, o3 Mini, o4 Mini | Rename, Sort, Summarize, Dashboard |
-| **Anthropic** | Claude Haiku 4.5, Claude Sonnet 4, Claude Opus 4 | Ask Data, Deep Analysis |
-| **Google** | Gemini 3.1 Flash Lite, 3.1 Flash, 3.1 Pro | OCR Vision, Super Summary, Fast Processing, Image Generation |
-| **DeepSeek** | Chat (V3), Reasoner (R1) | Budget-friendly bulk processing, reasoning |
-| **Groq** | Llama 3.3 70B, Llama 3.1 8B, Gemma 2 9B | Ultra-fast processing |
+| Provider | Models | Capabilities |
+|----------|--------|-------------|
+| **Google Gemini** | Gemini 3.1 Flash Lite, 3.1 Flash, 3.1 Pro, Flash Image Preview, Pro Image Preview | Text LLM, Vision, Image Generation |
+| **DeepSeek** | V4 Flash, V4 Pro | Text LLM |
+
+OpenAI and Anthropic have **partial vision support** in the processing pipeline but are not yet selectable in Settings.
 
 ---
 
@@ -412,9 +425,9 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
 ```
   React 19 (UI)  ────  Rust / Tauri v2 (OS layer)  ────  Python sidecar (AI + processing)
        │                         │                               │
-  Framer Motion 12        Native OLE drag-drop           40+ file actions
-  Tailwind CSS 4          Multi-window architecture      5 LLM providers + image gen
-  Zustand 5               Encrypted vault (AES-256-GCM)  TheAudioDB / OMDB / IMDb API
+   Framer Motion 12        Native OLE drag-drop           42 file actions
+   Tailwind CSS 4          Multi-window architecture      2 LLM providers + image gen
+   Zustand 5               OS keychain API key storage    TheAudioDB / OMDB / IMDb API
   react-markdown          Clipboard interception         Shazam fingerprint recognition
   remark-gfm              WASM plugin engine (wasmtime)  PDF / Image / Media / OCR
   Font Awesome 7          HTTP API server (:7890)         VirusTotal v3 integration
@@ -430,11 +443,11 @@ Outputs both `.msi` and `.exe` (NSIS) installers in `src-tauri/target/release/bu
 | Layer | Technology |
 |-------|------------|
 | **Framework** | [Tauri v2](https://v2.tauri.app) |
-| **Backend** | Rust (serde, serde_json, walkdir, wasmtime, image, uuid, reqwest, aes-gcm, argon2, sha2, hex, rand) |
+| **Backend** | Rust (serde, serde_json, base64, walkdir, wasmtime, image, uuid, reqwest, keyring, cpal, hound, drag) |
 | **Frontend** | React 19, TypeScript, Tailwind CSS 4, Framer Motion 12 |
 | **State** | Zustand 5 |
 | **Markdown** | react-markdown + remark-gfm (full GFM: tables, code blocks, footnotes) |
-| **AI Python** | OpenAI / Anthropic / Google GenAI / DeepSeek / Groq SDKs |
+| **AI Python** | Google GenAI / DeepSeek SDKs (OpenAI / Anthropic for vision pipeline) |
 | **OCR** | Tesseract (local) + LLM Vision fallback |
 | **Media** | FFmpeg (convert), SongRec (Shazam fingerprint) |
 | **Testing** | Vitest, jsdom |
@@ -448,15 +461,19 @@ All user data is stored locally in `%APPDATA%/Zenith/`:
 
 ```
 %APPDATA%/Zenith/
-├── settings.json          — Configuration (API keys encrypted)
+├── settings.json          — Configuration (API keys stored in OS keychain, not here)
 ├── state.json             — Persisted staged items (survives app restart)
 ├── tags.json              — Per-item color tags
 ├── activity_log.json      — Operation history (500 entries)
 ├── clipboard_history.json — Last 100 clipboard entries
-├── rename_history.json    — Undo/redo rename stack
-├── presets.json           — User-saved conversion presets (localStorage)
+├── music_discovery.json   — Recognized music tracks
 └── plugins/               — WASM plugin storage
+%TEMP%/Zenith/
+├── rename_history.json    — Undo/redo rename stack
+├── mapping_history.json   — Auto-Studio undo operations
+└── tx_{id}.json           — Auto-Studio transaction logs
 ```
+Plus LocalStorage: editor threads, prompts, conversion presets, onboarding flag
 
 ---
 
@@ -469,7 +486,7 @@ All user data is stored locally in `%APPDATA%/Zenith/`:
 - ✅ **All API keys secured** — OpenAI, Anthropic, Google, DeepSeek, Groq, VirusTotal, OMDB, TheAudioDB, IMDb keys individually encrypted
 
 **New Features**
-- ✅ **Screen Capture** — One-click full-screen screenshot via camera button. Auto-stages PNG. Windows (PowerShell), macOS (screencapture), Linux (import).
+- ✅ **Snipping Tool Integration** — One-click launch via scissors button. Auto-stages pasted screenshots.
 - ✅ **Clipboard History** — 100-entry persistent history with timestamps, text previews, re-stage buttons. Auto-saves on paste.
 - ✅ **Color Tagging** — 8-color tag system on staged items. Persistent across sessions.
 - ✅ **Batch Operations Queue** — Sequential multi-file processing with progress bar. 3 presets: Compress, Convert to WebP, AI Rename.

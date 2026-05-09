@@ -1,0 +1,21 @@
+pub mod editor;
+pub mod music;
+pub mod plugins_cmd;
+pub mod rename;
+pub mod script;
+pub mod settings_cmds;
+pub mod staging;
+pub mod studio;
+pub mod system;
+pub mod tags;
+
+pub use editor::*;
+pub use music::*;
+pub use plugins_cmd::*;
+pub use rename::*;
+pub use script::*;
+pub use settings_cmds::*;
+pub use staging::*;
+pub use studio::*;
+pub use system::*;
+pub use tags::*;

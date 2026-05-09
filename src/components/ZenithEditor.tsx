@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
@@ -167,7 +167,7 @@ function createThread(title?: string): EditorThread {
 // ██  COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-export function ZenithEditor() {
+export const ZenithEditor = memo(function ZenithEditor() {
   // ── Settings
   const [settings, setSettings] = useState<ZenithSettings | null>(null);
 
@@ -216,6 +216,10 @@ export function ZenithEditor() {
   const [preEnhancePrompt, setPreEnhancePrompt] = useState<string | null>(null);
   const abortRef = useRef(false);
   const bgGeneratingRef = useRef(false);
+  const lastGenParamsRef = useRef<{ model: ModelId; aspect: AspectRatio; size: ImageSize; style: ImageStyle; thinking: ThinkingLevel; temp: number } | null>(null);
+  const removeBgAbortRef = useRef(false);
+  const [cancelledGenPrompt, setCancelledGenPrompt] = useState<string | null>(null);
+  const cancelledGenModelRef = useRef<ModelId>("gemini-3.1-flash-image-preview");
 
   // ── Prompt library
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
@@ -227,6 +231,9 @@ export function ZenithEditor() {
   const [showSaveOptions, setShowSaveOptions] = useState(false);
   const [saveFormat, setSaveFormat] = useState<SaveFormat>("png");
   const [saveQuality, setSaveQuality] = useState(92);
+  const [lastSaveFormat, setLastSaveFormat] = useState<SaveFormat>(() => {
+    try { return (localStorage.getItem("editor_last_format") as SaveFormat) || "png"; } catch { return "png"; }
+  });
 
   // ── Background removal
   const [isRemovingBg, setIsRemovingBg] = useState(false);
@@ -236,6 +243,7 @@ export function ZenithEditor() {
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [expandedImageId, setExpandedImageId] = useState<string | null>(null);
+  const [compareMode, setCompareMode] = useState<"original" | "previous">("original");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -481,6 +489,7 @@ export function ZenithEditor() {
   }, [activeThreadId, threadSwitching, history, sessionCost, syncActiveThread]);
 
   const deleteThread = useCallback((threadId: string) => {
+    if (!window.confirm("Delete this entire conversation thread? All messages and images will be lost.")) return;
     deleteThreadStorage(threadId);
     setThreads((prev) => {
       const filtered = prev.filter((t) => t.id !== threadId);
@@ -503,6 +512,18 @@ export function ZenithEditor() {
     showToast("Thread deleted");
   }, [activeThreadId, showToast]);
 
+  const duplicateThread = useCallback((threadId: string) => {
+    const source = threads.find(t => t.id === threadId);
+    if (!source) return;
+    const dup = createThread(`${source.title} (copy)`);
+    setThreads(prev => { const up = [dup, ...prev]; persistThreads(up); return up; });
+    const sourceMetas = loadItemMetas(threadId);
+    if (sourceMetas.length > 0) {
+      persistItemMetas(dup.id, [...sourceMetas]);
+    }
+    showToast(`Duplicated "${source.title}"`, "ok");
+  }, [threads, showToast]);
+
   const commitRename = useCallback(() => {
     if (!renamingThreadId || !renameValue.trim()) { setRenamingThreadId(null); return; }
     setThreads((prev) => {
@@ -514,6 +535,12 @@ export function ZenithEditor() {
 
   const handleReset = useCallback(async () => {
     setShowResetConfirm(false);
+    const backup = {
+      threads: [...threads],
+      activeThreadId,
+      timestamp: Date.now(),
+    };
+    try { localStorage.setItem("zenith_editor_reset_backup", JSON.stringify(backup)); } catch {}
     for (const t of threads) deleteThreadStorage(t.id);
     const fresh = createThread(); setThreads([fresh]); persistThreads([fresh]);
     setActiveThreadId(fresh.id); localStorage.setItem(ACTIVE_KEY, fresh.id);
@@ -521,10 +548,32 @@ export function ZenithEditor() {
     setSessionCost(0); setLastPrompt(""); setPrompt(""); setNegPrompt(""); setLeftTab("threads");
     try { await invoke<string>("process_file", { action: "reset_editor", argsJson: "{}" }); } catch {}
     showToast("All threads cleared");
-  }, [threads, showToast]);
+  }, [threads, activeThreadId, showToast]);
+
+  const handleRestoreBackup = useCallback(() => {
+    try {
+      const raw = localStorage.getItem("zenith_editor_reset_backup");
+      if (!raw) { showToast("No backup found"); return; }
+      const backup = JSON.parse(raw);
+      if (!window.confirm(`Restore ${backup.threads.length} threads from backup?`)) return;
+      setThreads(backup.threads);
+      persistThreads(backup.threads);
+      setActiveThreadId(backup.activeThreadId);
+      localStorage.setItem(ACTIVE_KEY, backup.activeThreadId);
+      loadThreadImages(backup.activeThreadId).then(items => {
+        setHistory(items);
+        setHistoryIndex(items.length > 0 ? 0 : -1);
+        setCurrentImageB64(items.length > 0 ? items[0].imageB64 : null);
+        setSessionCost(items.reduce((s, i) => s + i.cost, 0));
+      });
+      localStorage.removeItem("zenith_editor_reset_backup");
+      showToast("Backup restored!", "ok");
+    } catch { showToast("Failed to restore backup", "err"); }
+  }, [showToast]);
 
   // ── Delete individual history item
   const deleteHistoryItem = useCallback((itemId: string) => {
+    if (!window.confirm("Delete this generation?")) return;
     setHistory((prev) => {
       const idx = prev.findIndex((x) => x.id === itemId);
       const filtered = prev.filter((x) => x.id !== itemId);
@@ -546,27 +595,38 @@ export function ZenithEditor() {
     const { api_key, provider } = getApiCreds();
     if (!api_key) { showToast(`No ${provider} API key found. Add one in Settings > API Keys.`, "err"); return; }
 
+    lastGenParamsRef.current = { model: selectedModel, aspect: aspectRatio, size: imageSize, style: imageStyle, thinking: thinkingLevel, temp: temperature };
+
     setIsGenerating(true); abortRef.current = false; bgGeneratingRef.current = false;
     setLastPrompt(p);
     if (!retryPrompt && p) setPromptHistory((h) => [p, ...h.slice(0, 49)]);
     setPromptHistoryIdx(-1);
 
     try {
+      const g = (retryPrompt && lastGenParamsRef.current) ? lastGenParamsRef.current : null;
       const args: Record<string, unknown> = {
-        model: selectedModel, prompt: p, api_key, provider,
-        aspect_ratio: aspectRatio, style: imageStyle || undefined,
+        model: g?.model ?? selectedModel, prompt: p, api_key, provider,
+        aspect_ratio: g?.aspect ?? aspectRatio, style: (g?.style ?? imageStyle) || undefined,
       };
       if (negPrompt.trim()) args.negative_prompt = negPrompt.trim();
-      args.temperature = temperature;
-      args.image_size = imageSize;
-      if (selectedModel === "gemini-3.1-flash-image-preview") args.thinking_level = thinkingLevel;
+      args.temperature = g?.temp ?? temperature;
+      args.image_size = g?.size ?? imageSize;
+      if ((g?.model ?? selectedModel) === "gemini-3.1-flash-image-preview") args.thinking_level = g?.thinking ?? thinkingLevel;
       if (currentImageB64) args.image_b64 = currentImageB64;
 
       const resultStr = await invoke<string>("process_file", { action: "generate_image", argsJson: JSON.stringify(args) });
 
       if (abortRef.current) {
         bgGeneratingRef.current = true;
+        setCancelledGenPrompt(p);
+        cancelledGenModelRef.current = selectedModel;
         showToast("Cancelled — generation still running in background", "warn", 5000);
+        setTimeout(() => {
+          if (bgGeneratingRef.current) {
+            setToast({ msg: "Background generation may be ready — tap Check Status", type: "warn" });
+            setTimeout(() => setToast(null), 8000);
+          }
+        }, 25000);
         return;
       }
       const result = JSON.parse(resultStr);
@@ -582,6 +642,9 @@ export function ZenithEditor() {
 
       const histItem: HistoryItem = { id: uid(), imageB64: newB64, prompt: p, title: "Generating title…", timestamp: Date.now(), cost, model: selectedModel };
       const newHist = [histItem, ...history];
+      if (newHist.length >= MAX_ITEMS_PER_THREAD - 5) {
+        showToast(`Approaching thread limit (${newHist.length}/${MAX_ITEMS_PER_THREAD}) — consider creating a new thread`, "warn", 5000);
+      }
       setHistory(newHist); setHistoryIndex(0); setLeftTab("images");
 
       // Save image to disk
@@ -627,6 +690,20 @@ export function ZenithEditor() {
     } finally { setIsGenerating(false); }
   }, [prompt, negPrompt, getApiCreds, getTextLlmCreds, selectedModel, aspectRatio, imageSize, imageStyle, thinkingLevel, temperature, currentImageB64, showToast, history, sessionCost, activeThreadId, syncActiveThread, currentModel]);
 
+  const handleRetry = useCallback(async () => {
+    if (!lastPrompt) { showToast("Nothing to retry"); return; }
+    const params = lastGenParamsRef.current;
+    if (params) {
+      setSelectedModel(params.model);
+      setAspectRatio(params.aspect);
+      setImageSize(params.size);
+      setImageStyle(params.style);
+      setThinkingLevel(params.thinking);
+      setTemperature(params.temp);
+    }
+    await handleSend(lastPrompt);
+  }, [lastPrompt, handleSend, showToast]);
+
   // ── Enhance prompt
   const handleEnhance = useCallback(async () => {
     if (!prompt.trim()) { showToast("Enter a rough prompt first"); return; }
@@ -648,12 +725,21 @@ export function ZenithEditor() {
   }, [prompt, getTextLlmCreds, showToast]);
 
   // ── Save / Stage
-  const handleSaveImage = useCallback(async () => {
+  const handleSaveImage = useCallback(async (formatOverride?: SaveFormat, skipStage = false) => {
     if (!currentImageB64) { showToast("Nothing to save"); return; }
+    const fmt = formatOverride ?? saveFormat;
     setShowSaveOptions(false);
     try {
-      const r = JSON.parse(await invoke<string>("process_file", { action: "save_editor_image", argsJson: JSON.stringify({ image_b64: currentImageB64, format: saveFormat, quality: saveQuality, filename: `zenith_${Date.now()}` }) }));
-      if (r.ok && r.path) { await invoke("stage_file", { path: r.path }); await emit("items-changed"); showToast(`Saved as ${saveFormat.toUpperCase()} — sent to Stage!`, "ok"); }
+      const r = JSON.parse(await invoke<string>("process_file", { action: "save_editor_image", argsJson: JSON.stringify({ image_b64: currentImageB64, format: fmt, quality: saveQuality, filename: `zenith_${Date.now()}` }) }));
+      if (r.ok && r.path) {
+        if (skipStage) {
+          showToast(`Saved as ${fmt.toUpperCase()} to disk!`, "ok");
+        } else {
+          await invoke("stage_file", { path: r.path });
+          await emit("items-changed");
+          showToast(`Saved as ${fmt.toUpperCase()} — sent to Stage!`, "ok");
+        }
+      }
       else showToast(r.error || "Save failed", "err");
     } catch (e) { showToast(String(e), "err"); }
   }, [currentImageB64, saveFormat, saveQuality, showToast]);
@@ -673,6 +759,7 @@ export function ZenithEditor() {
     if (!currentImageB64) { showToast("No image to remove background from"); return; }
     const { api_key, provider } = getApiCreds();
     if (!api_key) { showToast("No API key. Add one in Settings > API Keys.", "err"); return; }
+    removeBgAbortRef.current = false;
     setIsRemovingBg(true);
     try {
       const resultStr = await invoke<string>("process_file", {
@@ -685,6 +772,7 @@ export function ZenithEditor() {
       });
       const result = JSON.parse(resultStr);
       if (!result.ok || !result.image_b64) { showToast(result.error || "Background removal failed", "err"); return; }
+      if (removeBgAbortRef.current) { showToast("Background removal cancelled", "warn"); return; }
       const newB64: string = result.image_b64;
       const cost: number = result.cost ?? currentModel.cost;
       setCurrentImageB64(newB64);
@@ -693,6 +781,9 @@ export function ZenithEditor() {
       trackTokenUsage(provider, selectedModel, 1, 0);
       const histItem: HistoryItem = { id: uid(), imageB64: newB64, prompt: "Background removed", title: "BG Removed", timestamp: Date.now(), cost, model: selectedModel };
       const newHist = [histItem, ...history];
+      if (newHist.length >= MAX_ITEMS_PER_THREAD - 5) {
+        showToast(`Approaching thread limit (${newHist.length}/${MAX_ITEMS_PER_THREAD}) — consider creating a new thread`, "warn", 5000);
+      }
       setHistory(newHist); setHistoryIndex(0); setLeftTab("images");
       saveItemToDisk(histItem).then((filePath) => {
         if (filePath && activeThreadId) {
@@ -709,8 +800,13 @@ export function ZenithEditor() {
   // ── History navigation
   const loadHistoryItem = useCallback((item: HistoryItem) => {
     const idx = history.findIndex((h) => h.id === item.id);
-    if (idx >= 0) { setHistoryIndex(idx); setCurrentImageB64(item.imageB64); }
-  }, [history]);
+    if (idx >= 0) {
+      if (idx > historyIndex) {
+        showToast("Editing from earlier version — future variants will be replaced on next generation", "warn", 4000);
+      }
+      setHistoryIndex(idx); setCurrentImageB64(item.imageB64);
+    }
+  }, [history, historyIndex, showToast]);
 
   // ── Prompt library
   const handleImportPrompts = useCallback(() => {
@@ -744,7 +840,10 @@ export function ZenithEditor() {
     savePromptsToStorage([{ id: uid(), name: promptLibName.trim(), text: prompt.trim() }, ...savedPrompts]);
     setPromptLibName(""); showToast("Prompt saved", "ok");
   }, [promptLibName, prompt, savedPrompts, savePromptsToStorage, showToast]);
-  const deletePrompt = useCallback((id: string) => { savePromptsToStorage(savedPrompts.filter((p) => p.id !== id)); }, [savedPrompts, savePromptsToStorage]);
+  const deletePrompt = useCallback((id: string) => {
+    if (!window.confirm("Delete this prompt?")) return;
+    savePromptsToStorage(savedPrompts.filter((p) => p.id !== id));
+  }, [savedPrompts, savePromptsToStorage]);
 
   // ── Prompt textarea key handler (arrow history)
   const handlePromptKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -832,13 +931,23 @@ export function ZenithEditor() {
             <div className="w-px h-5" style={{ background: "var(--ed-border)" }} />
 
             {/* Remove BG */}
-            <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
-              onClick={handleRemoveBackground} disabled={!currentImageB64 || isRemovingBg}
-              aria-label="Remove background"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all disabled:opacity-30 border"
-              style={{ color: currentImageB64 ? "rgba(244,114,182,0.9)" : "var(--ed-text-5)", borderColor: "var(--ed-border)" }}>
-              {isRemovingBg ? <><i className="fa-solid fa-spinner fa-spin text-[9px]" />Removing…</> : <><i className="fa-solid fa-eraser text-[9px]" />Remove BG</>}
-            </motion.button>
+            {isRemovingBg ? (
+              <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                onClick={() => { removeBgAbortRef.current = true; setIsRemovingBg(false); showToast("Cancelled", "warn"); }}
+                aria-label="Cancel background removal"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border"
+                style={{ color: "#f87171", borderColor: "rgba(239,68,68,0.3)" }}>
+                <i className="fa-solid fa-stop text-[9px]" />Cancel
+              </motion.button>
+            ) : (
+              <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                onClick={handleRemoveBackground} disabled={!currentImageB64}
+                aria-label="Remove background"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all disabled:opacity-30 border"
+                style={{ color: currentImageB64 ? "rgba(244,114,182,0.9)" : "var(--ed-text-5)", borderColor: "var(--ed-border)" }}>
+                <i className="fa-solid fa-eraser text-[9px]" />Remove BG
+              </motion.button>
+            )}
 
             {/* Send to Stage */}
             {currentImageB64 && !isGenerating && (
@@ -876,14 +985,22 @@ export function ZenithEditor() {
                   <motion.div initial={{ opacity: 0, y: -4, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.97 }}
                     className="absolute right-0 top-full mt-1 z-[60] rounded-xl p-3 space-y-2.5 w-56"
                     style={{ background: "var(--ed-modal-bg)", border: `1px solid var(--ed-modal-border)`, boxShadow: "0 20px 50px rgba(0,0,0,0.5)" }}>
-                    <div className="flex items-center gap-1.5">
+                     <div className="flex items-center gap-1.5">
                       <span className="text-[10px] w-14" style={{ color: "var(--ed-text-3)" }}>Format:</span>
                       <div className="flex gap-1">{(["png", "jpg", "webp"] as SaveFormat[]).map((f) => (
-                        <button key={f} onClick={() => setSaveFormat(f)} className="px-2 py-0.5 rounded text-[9px] font-medium transition-colors uppercase"
+                        <button key={f} onClick={() => { setSaveFormat(f); setLastSaveFormat(f); localStorage.setItem("editor_last_format", f); }} className="px-2 py-0.5 rounded text-[9px] font-medium transition-colors uppercase"
                           style={{ background: saveFormat === f ? "var(--ed-violet-bg)" : "transparent", color: saveFormat === f ? "var(--ed-violet)" : "var(--ed-text-3)" }}>
                           {f}
                         </button>
                       ))}</div>
+                      <button
+                        onClick={() => handleSaveImage(lastSaveFormat, true)}
+                        title={`Quick save as ${lastSaveFormat.toUpperCase()}`}
+                        className="px-2 py-0.5 rounded text-[9px] transition-colors"
+                        style={{ color: "var(--ed-violet)", border: "1px solid var(--ed-violet-border)" }}
+                      >
+                        <i className="fa-solid fa-floppy-disk text-[9px]" /><span className="ml-1 text-[9px] uppercase">{lastSaveFormat}</span>
+                      </button>
                     </div>
                     {saveFormat !== "png" && (
                       <div className="flex items-center gap-2">
@@ -892,9 +1009,13 @@ export function ZenithEditor() {
                         <span className="text-[10px] font-mono w-7 text-right" style={{ color: "var(--ed-violet)" }}>{saveQuality}%</span>
                       </div>
                     )}
-                    <button onClick={handleSaveImage} className="w-full py-1.5 rounded-lg text-[11px] font-medium transition-colors border"
+                    <button onClick={() => handleSaveImage()} className="w-full py-1.5 rounded-lg text-[11px] font-medium transition-colors border"
                       style={{ color: "var(--ed-violet)", borderColor: "var(--ed-violet-border)" }}>
                       <i className="fa-solid fa-download mr-1.5 text-[9px]" />Save & Send to Stage
+                    </button>
+                    <button onClick={() => handleSaveImage(saveFormat, true)} className="w-full py-1.5 rounded-lg text-[11px] font-medium transition-colors border mt-1.5"
+                      style={{ color: "var(--ed-text-3)", borderColor: "var(--ed-border)" }}>
+                      <i className="fa-solid fa-download mr-1.5 text-[9px]" />Save to Disk Only
                     </button>
                   </motion.div>
                 )}
@@ -933,18 +1054,29 @@ export function ZenithEditor() {
                 style={{ color: "var(--ed-text-3)", borderColor: "var(--ed-border)" }}>
                 <i className="fa-solid fa-arrow-rotate-left text-[9px]" />Reset
               </motion.button>
+              {localStorage.getItem("zenith_editor_reset_backup") && (
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                  onClick={handleRestoreBackup}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border ml-1.5"
+                  style={{ color: "var(--ed-emerald)", borderColor: "var(--ed-emerald-border)" }}>
+                  <i className="fa-solid fa-rotate-left text-[9px]" />Restore Backup
+                </motion.button>
+              )}
               <AnimatePresence>
                 {showResetConfirm && (
                   <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
                     className="absolute right-0 top-full mt-1 z-[60] rounded-xl p-3 w-56"
                     style={{ background: "var(--ed-modal-bg)", border: `1px solid var(--ed-red-border)`, boxShadow: "0 16px 40px rgba(0,0,0,0.5)" }}>
-                    <p className="text-[11px] mb-2.5" style={{ color: "var(--ed-text-2)" }}>Delete ALL threads and clear everything?</p>
+                    <p className="text-[11px] mb-2.5" style={{ color: "var(--ed-text-2)" }}>Delete ALL threads and clear everything? This cannot be undone!</p>
                     <div className="flex gap-1.5">
                       <button onClick={handleReset} className="flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors border"
                         style={{ color: "#f87171", background: "var(--ed-red-bg)", borderColor: "var(--ed-red-border)" }}>Reset All</button>
                       <button onClick={() => setShowResetConfirm(false)} className="flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors border"
                         style={{ color: "var(--ed-text-2)", borderColor: "var(--ed-border)" }}>Cancel</button>
                     </div>
+                    <p className="text-[9px] mt-2" style={{ color: "var(--ed-text-4)" }}>
+                      A backup is saved automatically. Use "Restore Backup" to recover.
+                    </p>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -1002,6 +1134,16 @@ export function ZenithEditor() {
                         {t.totalCost > 0 && <span className="text-[9px] font-mono" style={{ color: "var(--ed-amber)" }}>{fmtCost(t.totalCost)}</span>}
                       </div>
                     </div>
+                    {threads.length > 1 && (
+                      <button onClick={(e) => { e.stopPropagation(); duplicateThread(t.id); }}
+                        aria-label="Duplicate thread"
+                        className="shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-all p-0.5 rounded"
+                        style={{ color: "var(--ed-text-4)" }}
+                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--ed-emerald)"}
+                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--ed-text-4)"}>
+                        <i className="fa-regular fa-copy text-[8px]" />
+                      </button>
+                    )}
                     {threads.length > 1 && (
                       <button onClick={(e) => { e.stopPropagation(); deleteThread(t.id); }}
                         aria-label="Delete thread"
@@ -1069,17 +1211,28 @@ export function ZenithEditor() {
             )}
 
             {/* Compare original toggle */}
-            {originalImageB64 && currentImageB64 && originalImageB64 !== currentImageB64 && (
+            {currentImageB64 && (
+              (compareMode === "original" && originalImageB64 && originalImageB64 !== currentImageB64)
+              || (compareMode === "previous" && historyIndex < history.length - 1)
+            ) && (
               <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-                className="absolute top-3 left-1/2 -translate-x-1/2 z-20">
+                className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5">
                 <button
                   onMouseDown={() => setShowOriginal(true)} onMouseUp={() => setShowOriginal(false)} onMouseLeave={() => setShowOriginal(false)}
-                  aria-label="Hold to compare with original" aria-pressed={showOriginal}
+                  aria-label={`Hold to compare with ${compareMode === "original" ? "original" : "previous generation"}`} aria-pressed={showOriginal}
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all"
                   style={{ background: showOriginal ? "rgba(236,72,153,0.20)" : "var(--ed-violet-bg)", border: `1px solid ${showOriginal ? "rgba(236,72,153,0.35)" : "var(--ed-violet-border)"}`, color: showOriginal ? "#f9a8d4" : "var(--ed-violet)", backdropFilter: "blur(12px)" }}>
                   <i className={`fa-solid ${showOriginal ? "fa-eye" : "fa-wand-magic-sparkles"} text-[9px]`} />
-                  {showOriginal ? "Viewing Original" : "Compare Original"}
+                  {showOriginal ? "Viewing" : "Compare"} {compareMode === "original" ? "Original" : "Previous"}
                 </button>
+                {historyIndex < history.length - 1 && (
+                  <motion.button initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
+                    onClick={(e) => { e.stopPropagation(); setCompareMode(m => m === "original" ? "previous" : "original"); }}
+                    className="text-[9px] px-1.5 py-0.5 rounded-full transition-all border"
+                    style={{ color: compareMode === "previous" ? "var(--ed-violet)" : "var(--ed-text-4)", borderColor: compareMode === "previous" ? "var(--ed-violet-border)" : "var(--ed-border)" }}>
+                    {compareMode === "original" ? "vs Prev" : "vs Orig"}
+                  </motion.button>
+                )}
               </motion.div>
             )}
 
@@ -1149,6 +1302,22 @@ export function ZenithEditor() {
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
                             <i className={`fa-solid ${expandedImageId === item.id ? "fa-compress" : "fa-expand"} text-white/0 group-hover:text-white/50 transition-all text-sm`} />
                           </div>
+                          {expandedImageId === item.id && (
+                            <div className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                              <button onClick={(e) => { e.stopPropagation(); handleCopyImage(item.imageB64); }}
+                                className="px-2 py-1 rounded-md text-[10px] font-medium transition-colors"
+                                style={{ background: "rgba(0,0,0,0.6)", color: "var(--ed-text-2)", backdropFilter: "blur(8px)" }}
+                                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--ed-violet)"}
+                                onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--ed-text-2)"}>
+                                <i className="fa-regular fa-copy mr-1 text-[9px]" />Copy
+                              </button>
+                              <button onClick={(e) => { e.stopPropagation(); handleSendToStage(item.imageB64); }}
+                                className="px-2 py-1 rounded-md text-[10px] font-medium transition-colors"
+                                style={{ background: "rgba(0,0,0,0.6)", color: "var(--ed-emerald)", backdropFilter: "blur(8px)" }}>
+                                <i className="fa-solid fa-arrow-up-from-bracket mr-1 text-[9px]" />Stage
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </GlareHover>
                       <div className="flex items-center justify-between mt-1.5 px-1">
@@ -1223,6 +1392,21 @@ export function ZenithEditor() {
                   <i className="fa-solid fa-sliders text-[7px] text-violet-400" />
                 </div>
                 <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--ed-text-3)" }}>Parameters</span>
+                <button onClick={() => {
+                  setAspectRatio("1:1");
+                  setImageSize("1K");
+                  setImageStyle("");
+                  setThinkingLevel("minimal");
+                  setTemperature(0.7);
+                  showToast("Parameters reset to defaults", "ok");
+                }}
+                  className="ml-auto text-[9px] transition-colors px-1.5 py-0.5 rounded"
+                  style={{ color: "var(--ed-text-4)" }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--ed-violet)"}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--ed-text-4)"}
+                  title="Reset all parameters to defaults">
+                  <i className="fa-solid fa-arrow-rotate-left text-[8px]" />
+                </button>
               </div>
             </div>
             <div className="flex-1 px-3 py-2.5 space-y-3.5 overflow-y-auto scrollbar-thin">
@@ -1375,6 +1559,9 @@ export function ZenithEditor() {
                 style={{ color: canUndo ? "var(--ed-text-2)" : "var(--ed-text-4)" }}>
                 <i className="fa-solid fa-rotate-left text-[9px]" />
               </button>
+              <span className="text-[9px] font-mono px-1.5" style={{ color: "var(--ed-text-4)" }}>
+                {history.length > 0 ? `${historyIndex + 1}/${history.length}` : "-"}
+              </span>
               <div className="w-px" style={{ background: "var(--ed-border)" }} />
               <button onClick={handleRedo} disabled={!canRedo}
                 aria-label="Redo" title="Redo (Ctrl+Shift+Z)"
@@ -1442,6 +1629,13 @@ export function ZenithEditor() {
                       onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--ed-text-3)"}>
                       <i className="fa-solid fa-rotate-left text-[8px]" />Revert enhancement
                     </button>
+                    <button onClick={() => handleEnhance()}
+                      className="text-[10px] transition-colors flex items-center gap-1 ml-2"
+                      style={{ color: "var(--ed-text-3)" }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--ed-violet)"}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--ed-text-3)"}>
+                      <i className="fa-solid fa-wand-magic-sparkles text-[8px]" />Re-Enhance
+                    </button>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -1466,7 +1660,7 @@ export function ZenithEditor() {
 
               {/* Retry / Cancel */}
               <div className="flex rounded-xl overflow-hidden border" style={{ borderColor: "var(--ed-border)" }}>
-                <button onClick={() => handleSend(lastPrompt)} disabled={isGenerating || !lastPrompt}
+                <button onClick={handleRetry} disabled={isGenerating || !lastPrompt}
                   aria-label="Retry last prompt" title="Retry last prompt"
                   className="flex items-center px-2.5 py-2 text-[10px] font-medium transition-all disabled:opacity-25"
                   style={{ color: "var(--ed-text-2)" }}>
@@ -1482,6 +1676,22 @@ export function ZenithEditor() {
                   <i className="fa-solid fa-stop text-[9px]" />
                 </button>
               </div>
+              {cancelledGenPrompt && (
+                <button
+                  onClick={() => {
+                    const p = cancelledGenPrompt;
+                    setCancelledGenPrompt(null);
+                    bgGeneratingRef.current = false;
+                    handleSend(p);
+                  }}
+                  aria-label="Check cancelled generation status"
+                  title="Check if the cancelled generation produced a result"
+                  className="px-2.5 py-2 rounded-xl text-[10px] font-medium transition-all border"
+                  style={{ color: "var(--ed-amber)", borderColor: "rgba(245,158,11,0.3)" }}
+                >
+                  <i className="fa-solid fa-magnifying-glass text-[9px] mr-1" />Check Status
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1515,7 +1725,7 @@ export function ZenithEditor() {
                     <i className="fa-solid fa-file-import" />
                   </button>
                   {savedPrompts.length > 0 && (
-                    <button onClick={() => { savePromptsToStorage([]); showToast("All prompts cleared"); }} aria-label="Clear all prompts"
+                    <button onClick={() => { if (window.confirm("Delete all saved prompts?")) { savePromptsToStorage([]); showToast("All prompts cleared"); } }} aria-label="Clear all prompts"
                       className="transition-colors px-1.5 py-0.5 rounded text-[9px]" style={{ color: "var(--ed-text-3)" }}
                       onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "#f87171"}
                       onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "var(--ed-text-3)"}>
@@ -1603,4 +1813,4 @@ export function ZenithEditor() {
       </div>
     </ClickSpark>
   );
-}
+});

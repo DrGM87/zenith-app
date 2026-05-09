@@ -66,18 +66,7 @@ pub struct AiPrompts {
     pub dashboard: String,
 }
 
-/*
-fn default_smart_rename() -> String { "Suggest a clear, descriptive filename for this file. Return ONLY the filename without extension. No explanation.".to_string() }
-fn default_smart_sort() -> String { "Categorize these files into logical groups. Return JSON array of objects with 'file' and 'category' keys.".to_string() }
-fn default_ocr() -> String { "Extract all text from this image. Return only the extracted text, preserving layout where possible.".to_string() }
-fn default_auto_organize() -> String { "You are an intelligent file organizer with media expertise. Classify each file and suggest a clean organization.\nFor documents: Analyze content and categorize (Business, Financial, Personal, Legal, Medical, Misc). Suggest a descriptive rename.\nFor images: Group by EXIF date or describe the scene for a semantic title.\nFor music/audio: Use artist, album, track info. For movies/video: Use title, year, season/episode if applicable.\nReturn ONLY a JSON array: [{\"old_path\": \"...\", \"new_name\": \"...\", \"folder\": \"...\", \"type\": \"music|video|image|document|other\"}]\n- 'folder' is the target subfolder (e.g. 'Artist - Album (Year)', 'Movie Title (Year)', 'Financial', 'Photos 2026-03')\n- 'new_name' is a clean, descriptive filename (keep extension)\n- 'type' is the file category".to_string() }
-fn default_translate() -> String { "Translate the following text accurately. Return ONLY the translated text, preserving formatting.".to_string() }
-fn default_ask_data() -> String { "Answer the question based ONLY on the provided document chunks. Cite which chunk(s) support your answer.".to_string() }
-fn default_summarize() -> String { "Provide a summary of the following document. Start with a single TL;DR sentence, then provide a detailed summary with key points.".to_string() }
-fn default_super_summary() -> String { "Create an executive summary combining these document summaries. Start with a TL;DR paragraph. Use citations like [Doc 1] to reference sources.".to_string() }
-fn default_dashboard() -> String { "Generate a self-contained HTML dashboard with Chart.js CDN, dark theme, search/filter bar, 2-3 charts, sortable table, and Export PNG button.".to_string() }
-fn default_research() -> String { "You are Zenith Research Assistant — an expert AI researcher. You help users discover papers, analyze literature, verify citations, assess novelty, run experiments, and generate research sections. Be thorough, cite sources, and provide structured outputs when appropriate. When you use a research tool, explain what you found clearly.".to_string() }
-*/
+
 
 fn default_smart_rename() -> String {
     r#"You are a meticulous digital archivist with a keen eye for organization. Your sole objective is to analyze the provided file content, context, or raw text, and generate a highly descriptive, concise, and professional filename. The filename must capture the core subject matter, date, or primary purpose of the file. You must strictly output only the new filename string without the file extension. Under no circumstances should you include conversational filler, quotation marks, file extensions, or markdown formatting. For example, if provided a financial document from Q1 2026, an acceptable output is exactly `2026-Q1-Financial-Projections`. You must strictly avoid outputs like `Here is your filename: "2026 Q1 Financial Projections.pdf"`. Your response must be the exact literal string to be used by the file system."#.to_string()
@@ -130,8 +119,6 @@ impl Default for AiPrompts {
         }
     }
 }
-
-// ── Pipeline Per-Step Configuration ─────────────────────────────────────────
 
 // ── Token Usage ─────────────────────────────────────────────────────────────
 

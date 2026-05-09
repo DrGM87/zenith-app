@@ -20,18 +20,24 @@
 [![Features](https://img.shields.io/badge/Features-150+-blueviolet?style=flat-square)]()
 [![AI Providers](https://img.shields.io/badge/AI_Providers-5-orange?style=flat-square)]()
 [![File Actions](https://img.shields.io/badge/File_Actions-40+-success?style=flat-square)]()
-[![Security](https://img.shields.io/badge/Secure_Storage-OS_Credential_Manager-red?style=flat-square)]()
-[![Tests](https://img.shields.io/badge/Tests-36_%2F_36-brightgreen?style=flat-square)]()
+[![Secure Storage](https://img.shields.io/badge/Secure_Storage-OS_Credential_Manager-red?style=flat-square)]()
+
+[![Visual FX](https://img.shields.io/badge/Visual_Effects-10-ec4899?style=flat-square)]()
+[![Theme](https://img.shields.io/badge/Dark_%2F_Light-✓-22d3ee?style=flat-square)]()
+[![Tags](https://img.shields.io/badge/Color_Tags-8-f59e0b?style=flat-square)]()
 
 *A glassmorphic floating workspace that transforms how you handle files, media, and documents on Windows. Screenshot, tag, batch-process, organize with AI, encrypt — all without opening a single folder.*
 
----
-
-**[The Bubble](#-the-bubble--main-entry-point)** &bull; **[Secure Key Storage](#-secure-api-key-storage)** &bull; **[Auto-Studio](#-auto-studio--smart-organize)** &bull; **[Generative Editor](#-generative-editor)** &bull; **[Screen Capture](#-screen-capture)** &bull; **[Batch Queue](#-batch-operations-queue)** &bull; **[Smart Rename](#-smart-rename-engine)** &bull; **[Settings](#-settings-hub)** &bull; **[Quick Start](#-quick-start)** &bull; **[Architecture](#%EF%B8%8F-architecture)**
-
-[![Effects](https://img.shields.io/badge/Visual_Effects-10-ec4899?style=flat-square)]()
-[![Theme](https://img.shields.io/badge/Dark_%2F_Light-✓-22d3ee?style=flat-square)]()
-[![Tags](https://img.shields.io/badge/Color_Tags-8-f59e0b?style=flat-square)]()
+**[The Bubble](#-the-bubble--main-entry-point)** &bull;
+**[Security](#-secure-api-key-storage)** &bull;
+**[Auto-Studio](#-auto-studio--smart-organize)** &bull;
+**[Generative Editor](#-generative-editor)** &bull;
+**[Screen Capture](#-screen-capture)** &bull;
+**[Batch Queue](#-batch-operations-queue)** &bull;
+**[Smart Rename](#-smart-rename-engine)** &bull;
+**[Settings](#-settings-hub)** &bull;
+**[Quick Start](#-quick-start)** &bull;
+**[Architecture](#%EF%B8%8F-architecture)**
 
 </div>
 
@@ -120,7 +126,7 @@ Each API key is stored as a separate secure entry. When needed, the key is retri
 
 | Key Type | Credential Name Pattern |
 |----------|------------------------|
-| OpenAI/Anthropic/etc | `zenith-app/api_key/{provider}` |
+| OpenAI / Anthropic / etc | `zenith-app/api_key/{provider}` |
 | VirusTotal | `zenith-app/secret/vt` |
 | OMDB | `zenith-app/secret/omdb` |
 | TheAudioDB | `zenith-app/secret/audiodb` |
@@ -134,9 +140,9 @@ Each API key is stored as a separate secure entry. When needed, the key is retri
 
 Organize staged items visually with 8 color-coded tags.
 
-- **Click the tag icon** on any staged item card to reveal the 8-color picker (Red, Orange, Amber, Green, Cyan, Blue, Violet, Pink)
-- **Tag persists across sessions** — saved to `%APPDATA%/Zenith/tags.json`
-- **Click an active tag** to remove it instantly
+- Click the tag icon on any staged item card to reveal the 8-color picker (Red, Orange, Amber, Green, Cyan, Blue, Violet, Pink)
+- Tags persist across sessions — saved to `%APPDATA%/Zenith/tags.json`
+- Click an active tag to remove it instantly
 - Tags appear as colored badges next to the file size
 
 ---
@@ -442,15 +448,14 @@ All user data is stored locally in `%APPDATA%/Zenith/`:
 
 ```
 %APPDATA%/Zenith/
-├── settings.json         — Configuration (API keys encrypted)
-├── state.json            — Persisted staged items (survives app restart)
-├── tags.json             — Per-item color tags
-├── activity_log.json     — Operation history (500 entries)
+├── settings.json          — Configuration (API keys encrypted)
+├── state.json             — Persisted staged items (survives app restart)
+├── tags.json              — Per-item color tags
+├── activity_log.json      — Operation history (500 entries)
 ├── clipboard_history.json — Last 100 clipboard entries
-├── rename_history.json   — Undo/redo rename stack
-├── tags.json             — Color-coded item labels
-├── presets.json          — User-saved conversion presets (localStorage)
-└── plugins/              — WASM plugin storage
+├── rename_history.json    — Undo/redo rename stack
+├── presets.json           — User-saved conversion presets (localStorage)
+└── plugins/               — WASM plugin storage
 ```
 
 ---
@@ -481,9 +486,6 @@ All user data is stored locally in `%APPDATA%/Zenith/`:
 - ✅ Pricing data deduplicated — single source of truth in `src/shared/pricing.ts`
 - ✅ 36 tests passing (utils, store, helpers)
 - ✅ Lock screen overlay for vault-protected sessions
-
-**Removed**
-- Removed research pipeline, Sci-Hub integration, medical literature tools (moved to separate app)
 
 ---
 

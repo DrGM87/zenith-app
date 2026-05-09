@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useState, useRef, useCallback, useEffect, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { BorderGlow } from "./ReactBits";
 
 interface DraggablePanelProps {
@@ -25,7 +25,7 @@ interface DraggablePanelProps {
   className?: string;
 }
 
-export function DraggablePanel({
+export const DraggablePanel = memo(function DraggablePanel({
   title,
   icon = "fa-solid fa-window-maximize",
   iconColor,
@@ -143,6 +143,9 @@ export function DraggablePanel({
             className="flex items-center justify-between px-3 py-2 cursor-move select-none"
             style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
             onMouseDown={handleDragStart}
+            tabIndex={0}
+            role="dialog"
+            aria-label={title}
           >
             <div className="flex items-center gap-2 min-w-0">
               <i className={`${icon} text-[11px]`} style={{ color: iconColor || accent }} />
@@ -150,11 +153,21 @@ export function DraggablePanel({
               {badge && (
                 <span className="text-[9px] text-white/30 font-medium shrink-0">{badge}</span>
               )}
+              {initialPosition && (pos.x !== initialPosition.x || pos.y !== initialPosition.y) && (
+                <button
+                  onClick={() => setPos(initialPosition)}
+                  title="Reset position"
+                  className="p-1 rounded-md text-white/20 hover:text-white/50 hover:bg-white/5 transition-colors"
+                >
+                  <i className="fa-solid fa-arrows-to-dot text-[9px]" />
+                </button>
+              )}
             </div>
             <div className="flex items-center gap-0.5 shrink-0">
               {onTogglePin && (
                 <button
                   onClick={onTogglePin}
+                  aria-label={pinned ? "Unpin panel" : "Pin panel"}
                   className={`p-1 rounded-md transition-colors ${pinned ? "text-amber-400/70 hover:text-amber-400" : "text-white/20 hover:text-white/50"} hover:bg-white/5`}
                   title={pinned ? "Unpin" : "Pin"}
                 >
@@ -163,6 +176,7 @@ export function DraggablePanel({
               )}
               <button
                 onClick={handleMinimize}
+                aria-label={minimized ? "Restore panel" : "Minimize panel"}
                 className="p-1 rounded-md text-white/20 hover:text-white/50 hover:bg-white/5 transition-colors"
                 title="Minimize"
               >
@@ -170,6 +184,7 @@ export function DraggablePanel({
               </button>
               <button
                 onClick={onClose}
+                aria-label="Close panel"
                 className="p-1 rounded-md text-white/30 hover:text-red-400/80 hover:bg-red-500/10 transition-colors"
                 title="Close"
               >
@@ -190,6 +205,11 @@ export function DraggablePanel({
             <div
               className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize opacity-0 hover:opacity-100 transition-opacity"
               onMouseDown={handleResizeStart}
+              tabIndex={0}
+              role="separator"
+              aria-label="Resize panel"
+              aria-valuemin={minWidth}
+              aria-valuenow={size.w}
               style={{ zIndex: 10 }}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" className="text-white/20">
@@ -201,4 +221,4 @@ export function DraggablePanel({
       </BorderGlow>
     </motion.div>
   );
-}
+});

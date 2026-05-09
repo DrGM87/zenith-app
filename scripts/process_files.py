@@ -3224,17 +3224,8 @@ def reset_editor(_args):
     return {"removed": removed, "dir": editor_dir}
 
 
-from research_engine import (
-    research_chat, search_papers, web_search_action,
-    extract_pdf_text, check_novelty, verify_citations,
-    run_experiment_action, export_chat, generate_section,
-    validate_research_query, generate_search_queries,
-    triage_papers, acquire_papers, draft_research_section,
-    smooth_manuscript, compile_references, run_pipeline_phase,
-    solve_scihub_captcha, auto_rename_thread,
-    export_research_snapshot, generate_chart, generate_table,
-    EXPORTS_DIR,
-)
+EXPORTS_DIR = os.path.join(TEMP_DIR, "exports")
+os.makedirs(EXPORTS_DIR, exist_ok=True)
 
 
 def export_content(args):
@@ -3299,28 +3290,6 @@ ACTIONS = {
     "save_editor_image": save_editor_image,
     "remove_background": remove_background,
     "reset_editor": reset_editor,
-    "research_chat": research_chat,
-    "search_papers": search_papers,
-    "web_search": web_search_action,
-    "extract_pdf_text": extract_pdf_text,
-    "check_novelty": check_novelty,
-    "verify_citations": verify_citations,
-    "run_experiment": run_experiment_action,
-    "export_chat": export_chat,
-    "generate_section": generate_section,
-    "validate_research_query": validate_research_query,
-    "generate_search_queries": generate_search_queries,
-    "triage_papers": triage_papers,
-    "acquire_papers": acquire_papers,
-    "draft_research_section": draft_research_section,
-    "smooth_manuscript": smooth_manuscript,
-    "compile_references": compile_references,
-    "run_pipeline_phase": run_pipeline_phase,
-    "solve_scihub_captcha": solve_scihub_captcha,
-    "auto_rename_thread": auto_rename_thread,
-    "export_research_snapshot": export_research_snapshot,
-    "generate_chart": generate_chart,
-    "generate_table": generate_table,
     "export_content": export_content,
 }
 

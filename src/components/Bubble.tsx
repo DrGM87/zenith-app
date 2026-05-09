@@ -1,5 +1,5 @@
+import { memo, useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
@@ -10,7 +10,7 @@ import { StagedItemCard } from "./StagedItemCard";
 import { BorderGlow, SoftAurora, MagicRings } from "./ReactBits";
 // ReviewStudio now rendered independently in App.tsx
 
-export function Bubble() {
+export const Bubble = memo(function Bubble() {
   const {
     items,
     isExpanded,
@@ -19,6 +19,7 @@ export function Bubble() {
     clipboardStack,
     isStackMode,
     selectedIds,
+    zenithError,
     setExpanded,
     setDragOver,
     setStackMode,
@@ -28,6 +29,7 @@ export function Bubble() {
     clearSelection,
     stageFile,
     stageText,
+    removeItem,
     clearAll,
     loadItems,
     loadSettings,
@@ -50,6 +52,8 @@ export function Bubble() {
     presets,
     deletePreset,
     savePreset,
+    removedItemStack,
+    undoRemoveLast,
   } = useZenithStore();
 
   const [zipping, setZipping] = useState(false);
@@ -57,7 +61,7 @@ export function Bubble() {
   const [organizing, setOrganizing] = useState(false);
   const [undoable, setUndoable] = useState(false);
   const [batchProcessing, setBatchProcessing] = useState<string | null>(null);
-  const [footerToast, setFooterToast] = useState<string | null>(null);
+  const [footerToast, setFooterToast] = useState<React.ReactNode | null>(null);
   const [pinned, setPinned] = useState(false);
   const [showQrInput, setShowQrInput] = useState(false);
   const [qrText, setQrText] = useState("");
@@ -70,25 +74,35 @@ export function Bubble() {
   const [batchQueueRunning, setBatchQueueRunning] = useState(false);
   const [batchQueueAction, setBatchQueueAction] = useState("");
   const [batchQueueProgress, setBatchQueueProgress] = useState({ current: 0, total: 0 });
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"name" | "size" | "type" | "date">("date");
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const cancelBatchRef = useRef(false);
+  const cancelRenameAllRef = useRef(false);
+  const cancelAudioConvertRef = useRef(false);
+  const recordingCancelledRef = useRef(false);
   const ACTION_PRESETS: { action: string; label: string; icon: string }[] = [
     { action: "compress_image", label: "Compress Images", icon: "fa-solid fa-compress" },
     { action: "convert_webp", label: "Convert to WebP", icon: "fa-solid fa-image" },
     { action: "smart_rename", label: "AI Smart Rename", icon: "fa-solid fa-wand-magic-sparkles" },
   ];
 
-  const fetchClipHistory = async () => {
+  const isLoading = items.length === 0 && settings === null && !zenithError;
+
+  const fetchClipHistory = useCallback(async () => {
     try {
       const h = await invoke<Array<{ timestamp: number; text: string; image_b64: string | null }>>("get_clipboard_history");
       setClipHistory(h);
     } catch {}
-  };
+  }, []);
 
-  const handleRecordAndRecognize = async () => {
+  const handleRecordAndRecognize = useCallback(async () => {
     if (isRecording) return;
     setIsRecording(true);
     setRecordingSeconds(0);
+    recordingCancelledRef.current = false;
     const interval = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
     try {
       const audiodbKey = settings?.audiodb_api_key || "2";
@@ -115,23 +129,34 @@ export function Bubble() {
       const detail = result.title ? `${result.artist} — ${result.title}` : (result.debug_info || "No match");
       invoke("log_activity", { action: "MicRecord", details: detail }).catch(() => {});
     } catch (e) {
-      setFooterToast(`Recording failed: ${String(e)}`);
+      if (recordingCancelledRef.current) {
+        setFooterToast("Recording stopped");
+        recordingCancelledRef.current = false;
+      } else {
+        setFooterToast(`Recording failed: ${String(e)}`);
+      }
       setTimeout(() => setFooterToast(null), 4000);
     } finally {
       clearInterval(interval);
       setIsRecording(false);
       setRecordingSeconds(0);
     }
-  };
+  }, [isRecording, settings?.audiodb_api_key, setAudioResult, setFooterToast]);
 
-  const handleBatchProcess = async (action: string) => {
+  const handleBatchProcess = useCallback(async (action: string) => {
     const targets = items.filter((i) => i.path.length > 0);
     if (targets.length === 0) return;
+    cancelBatchRef.current = false;
     setBatchQueueRunning(true);
     setBatchQueueAction(action);
     setBatchQueueProgress({ current: 0, total: targets.length });
     let ok = 0;
     for (let i = 0; i < targets.length; i++) {
+      if (cancelBatchRef.current) {
+        setFooterToast(`Batch cancelled — ${ok} of ${targets.length} items processed`);
+        setTimeout(() => setFooterToast(null), 3000);
+        break;
+      }
       const it = targets[i];
       setBatchQueueProgress({ current: i + 1, total: targets.length });
       try {
@@ -155,28 +180,51 @@ export function Bubble() {
     setBatchQueueRunning(false);
     setFooterToast(`Batch ${action}: ${ok}/${targets.length} OK`);
     setTimeout(() => setFooterToast(null), 3000);
-  };
+  }, [items, settings, stageFile, trackTokenUsage]);
 
-  const selectedItems = items.filter((i) => selectedIds.has(i.id));
-  const selectedPaths = selectedItems.filter((i) => i.path.length > 0).map((i) => i.path);
+  const getDefaultApiKey = useCallback(() => {
+    const keys = settings?.api_keys ?? [];
+    const def = keys.find((k: { is_default: boolean }) => k.is_default) || keys[0];
+    return def ? { api_key: def.key, provider: def.provider, model: def.model } : {};
+  }, [settings?.api_keys]);
+
+  const selectedItems = useMemo(() => items.filter((i) => selectedIds.has(i.id)), [items, selectedIds]);
+  const selectedPaths = useMemo(() => selectedItems.filter((i) => i.path.length > 0).map((i) => i.path), [selectedItems]);
   const AUDIO_EXTS_SET = new Set(["mp3","wav","flac","aac","ogg","wma","m4a","opus"]);
-  const selectedAudioItems = selectedItems.filter((i) => i.path.length > 0 && AUDIO_EXTS_SET.has(i.extension.toLowerCase()));
-  const audioResultValues = Object.values(audioResults);
+  const selectedAudioItems = useMemo(() => selectedItems.filter((i) => i.path.length > 0 && AUDIO_EXTS_SET.has(i.extension.toLowerCase())), [selectedItems]);
+  const audioResultValues = useMemo(() => Object.values(audioResults), [audioResults]);
   const audioResultCount = audioResultValues.length;
   const audioSavedCount = audioResultValues.filter((r) => r.saved).length;
   const audioErrorCount = audioResultValues.filter((r) => r.error).length;
 
-  const getDefaultApiKey = () => {
-    const keys = settings?.api_keys ?? [];
-    const def = keys.find((k: { is_default: boolean }) => k.is_default) || keys[0];
-    return def ? { api_key: def.key, provider: def.provider, model: def.model } : {};
-  };
-
-  const allPaths = items.filter((i) => i.path.length > 0).map((i) => i.path);
-  const textDocItems = items.filter((i) => {
+  const allPaths = useMemo(() => items.filter((i) => i.path.length > 0).map((i) => i.path), [items]);
+  const textDocItems = useMemo(() => items.filter((i) => {
     const ext = i.extension.toLowerCase();
     return i.path.length > 0 && (ext === "pdf" || ["txt","md","log","csv","json","xml","html"].includes(ext));
-  });
+  }), [items]);
+
+  const pdfItems = useMemo(() => items.filter((i) => i.extension.toLowerCase() === "pdf" && i.path.length > 0), [items]);
+
+  const filteredSortedItems = useMemo(() => {
+    let result = items;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(i =>
+        i.name.toLowerCase().includes(q) ||
+        i.extension.toLowerCase().includes(q) ||
+        i.path.toLowerCase().includes(q)
+      );
+    }
+    return [...result].sort((a, b) => {
+      switch (sortBy) {
+        case "name": return a.name.localeCompare(b.name);
+        case "size": return b.size - a.size;
+        case "type": return a.extension.localeCompare(b.extension);
+        case "date": return 0;
+        default: return 0;
+      }
+    });
+  }, [items, searchQuery, sortBy]);
 
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
@@ -313,16 +361,13 @@ export function Bubble() {
     };
   }, [expand, loadItems, loadSettings, scheduleCollapse, setDragOver, stageFile, stageText, sc?.stage_clipboard, bh?.auto_collapse_on_blur]);
 
-  // ── Ctrl+V paste handler when panel is open (v4 Task 2.1 + clipboard image support) ──
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
       if (!isExpanded) return;
-      // Don't intercept if user is typing in an input/textarea
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (tag === "input" || tag === "textarea" || tag === "select") return;
       e.preventDefault();
 
-      // ── Image from clipboard (PrintScreen paste) ──
       const items = e.clipboardData?.items;
       if (items) {
         for (let i = 0; i < items.length; i++) {
@@ -347,12 +392,11 @@ export function Bubble() {
               }
             };
             reader.readAsDataURL(blob);
-            return; // handled as image
+            return;
           }
         }
       }
 
-      // ── Text / URL from clipboard ──
       const text = e.clipboardData?.getData("text/plain")?.trim();
       if (text && text.length > 0) {
         const store = useZenithStore.getState();
@@ -369,27 +413,16 @@ export function Bubble() {
     return () => window.removeEventListener("paste", handlePaste);
   }, [isExpanded, stageText, stageFile, expand]);
 
-  const handleZipAll = useCallback(async () => {
-    const paths = items.filter((i) => i.path.length > 0).map((i) => i.path);
-    if (paths.length === 0) return;
-    setZipping(true);
-    try {
-      const argsJson = JSON.stringify({ paths, name: "zenith_bundle" });
-      const resultStr = await invoke<string>("process_file", { action: "zip_files", argsJson });
-      const result = JSON.parse(resultStr);
-      if (result.ok && result.path) {
-        await stageFile(result.path);
-        setFooterToast("Zipped!");
-        setTimeout(() => setFooterToast(null), 2000);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement === document.body) {
+        e.preventDefault();
+        setShowShortcuts(v => !v);
       }
-    } catch (e) {
-      console.error("Zip failed:", e);
-    } finally {
-      setZipping(false);
-    }
-  }, [items, stageFile]);
-
-  const pdfItems = items.filter((i) => i.extension.toLowerCase() === "pdf" && i.path.length > 0);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const handleMergePdfs = useCallback(async () => {
     const paths = pdfItems.map((i) => i.path);
@@ -401,8 +434,8 @@ export function Bubble() {
       const result = JSON.parse(resultStr);
       if (result.ok && result.path) {
         await stageFile(result.path);
-        setFooterToast(`Merged ${paths.length} PDFs!`);
-        setTimeout(() => setFooterToast(null), 2000);
+        setFooterToast(<span className="flex items-center gap-2">Merged {paths.length} PDFs! <button onClick={() => invoke("reveal_in_folder", { path: result.path }).catch(() => {})} className="underline text-cyan-300 hover:text-cyan-200">Reveal</button></span>);
+        setTimeout(() => setFooterToast(null), 3000);
       } else {
         setFooterToast(result.error || "Merge failed");
         setTimeout(() => setFooterToast(null), 3000);
@@ -415,6 +448,25 @@ export function Bubble() {
       setMerging(false);
     }
   }, [pdfItems, stageFile]);
+
+  const handleZipAll = useCallback(async () => {
+    if (allPaths.length === 0) return;
+    setZipping(true);
+    try {
+      const argsJson = JSON.stringify({ paths: allPaths, name: "zenith_bundle" });
+      const resultStr = await invoke<string>("process_file", { action: "zip_files", argsJson });
+      const result = JSON.parse(resultStr);
+      if (result.ok && result.path) {
+        await stageFile(result.path);
+        setFooterToast(<span className="flex items-center gap-2">Zipped! <button onClick={() => invoke("reveal_in_folder", { path: result.path }).catch(() => {})} className="underline text-cyan-300 hover:text-cyan-200">Reveal</button></span>);
+        setTimeout(() => setFooterToast(null), 2000);
+      }
+    } catch (e) {
+      console.error("Zip failed:", e);
+    } finally {
+      setZipping(false);
+    }
+  }, [allPaths, stageFile]);
 
   return (
     <div className="w-full h-full flex flex-col items-end justify-end">
@@ -503,8 +555,21 @@ export function Bubble() {
                      style={{ background: isRecording ? "rgba(239,68,68,0.20)" : "rgba(239,68,68,0.08)", color: isRecording ? "#fca5a5" : "#f87171", border: "1px solid rgba(255,255,255,0.06)" }}
                       title={isRecording ? `Recording ${recordingSeconds}s / 5s` : "Record 5s from mic & identify music"}
                    >
-                     {isRecording ? <span className="text-[8px] font-mono">{5 - recordingSeconds}</span> : <i className="fa-solid fa-microphone text-[10px]" />}
-                   </motion.button>
+                      {isRecording ? <span className="text-[8px] font-mono">{5 - recordingSeconds}</span> : <i className="fa-solid fa-microphone text-[10px]" />}
+                    </motion.button>
+                    {isRecording && (
+                      <motion.button whileTap={{ scale: 0.92 }}
+                        onClick={() => {
+                          recordingCancelledRef.current = true;
+                          invoke("stop_recording").catch(() => {});
+                        }}
+                        className="w-7 h-7 flex items-center justify-center transition-colors cursor-pointer hover:bg-white/[0.06] rounded-lg"
+                        style={{ background: "rgba(239,68,68,0.20)", color: "#fca5a5", border: "1px solid rgba(255,255,255,0.06)" }}
+                        title="Stop recording"
+                      >
+                        <i className="fa-solid fa-stop text-[10px]" />
+                      </motion.button>
+                    )}
                    {/* Generative Canvas */}
                    <motion.button whileTap={{ scale: 0.92 }}
                      onClick={() => invoke("open_editor_window_blank").catch((e: unknown) => { setFooterToast(String(e)); setTimeout(() => setFooterToast(null), 3000); })}
@@ -583,7 +648,16 @@ export function Bubble() {
                         <i className="fa-solid fa-spinner fa-spin text-[8px] mr-1" />
                         Batch: {batchQueueAction}
                       </span>
-                      <span className="text-[9px] text-emerald-400/70">{batchQueueProgress.current}/{batchQueueProgress.total}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] text-emerald-400/70">{batchQueueProgress.current}/{batchQueueProgress.total}</span>
+                        <button
+                          onClick={() => { cancelBatchRef.current = true; }}
+                          className="px-1.5 py-0.5 rounded text-[10px] font-medium text-red-300 hover:bg-red-500/15 transition-colors"
+                          title="Cancel batch"
+                        >
+                          <i className="fa-solid fa-stop text-[8px]" /> Stop
+                        </button>
+                      </div>
                     </div>
                     <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
                       <div className="h-full rounded-full transition-all duration-300" style={{
@@ -596,12 +670,84 @@ export function Bubble() {
               )}
             </AnimatePresence>
 
+            {/* API Key Warning */}
+            {isExpanded && items.length > 0 && settings && settings.api_keys.length === 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5" style={{ borderBottom: "1px solid var(--zen-border-subtle)", background: "rgba(224,184,120,0.06)" }}>
+                <i className="fa-solid fa-key text-[9px]" style={{ color: "rgba(224,184,120,0.6)" }} />
+                <span className="text-[10px]" style={{ color: "rgba(224,184,120,0.7)" }}>
+                  No API keys configured — AI features disabled
+                </span>
+                <button
+                  onClick={() => invoke("open_settings")}
+                  className="ml-auto text-[10px] font-medium hover:underline"
+                  style={{ color: "rgba(224,184,120,0.8)" }}
+                >
+                  Configure
+                </button>
+              </div>
+            )}
+
+            {/* Search & Sort Bar */}
+            {isExpanded && items.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: "1px solid var(--zen-border-subtle)" }}>
+                <div className="flex-1 flex items-center gap-2 px-2 py-1 rounded-md" style={{ background: "var(--zen-bg-hover)", border: "1px solid var(--zen-border-subtle)" }}>
+                  <i className="fa-solid fa-search text-[10px] text-white/25" />
+                  <input
+                    type="text"
+                    placeholder="Filter items..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    aria-label="Filter staged items"
+                    className="flex-1 bg-transparent text-[12px] text-white/80 placeholder-white/20 outline-none"
+                  />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery("")} className="text-white/20 hover:text-white/50" aria-label="Clear filter">
+                      <i className="fa-solid fa-xmark text-[9px]" />
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                  aria-label="Sort items"
+                  style={{ appearance: "none", WebkitAppearance: "none", background: "var(--zen-bg-hover)", border: "1px solid var(--zen-border-subtle)", borderRadius: 6, padding: "3px 18px 3px 6px", fontSize: 10, color: "rgba(255,255,255,0.55)", outline: "none", cursor: "pointer", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 5px center" }}
+                >
+                  <option value="date" style={{ background: "#1a1a24", color: "#ccc" }}>Recent</option>
+                  <option value="name" style={{ background: "#1a1a24", color: "#ccc" }}>Name</option>
+                  <option value="size" style={{ background: "#1a1a24", color: "#ccc" }}>Size</option>
+                  <option value="type" style={{ background: "#1a1a24", color: "#ccc" }}>Type</option>
+                </select>
+              </div>
+            )}
+
+            {/* Filter count indicator */}
+            {items.length > 0 && searchQuery.trim() && (
+              <div className="text-[9px] text-white/25 px-3 py-0.5">
+                Showing {filteredSortedItems.length} of {items.length} items
+              </div>
+            )}
+
             {/* Items list */}
             <div
               className="flex-1 overflow-y-auto px-2 pb-3"
               style={{ maxHeight: "440px" }}
             >
-              {items.length === 0 && !isDragOver ? (
+              {isLoading ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center py-12 gap-4"
+                >
+                  <motion.div
+                    animate={{ opacity: [0.3, 0.7, 0.3] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="flex items-center gap-2"
+                  >
+                    <i className="fa-solid fa-spinner fa-spin text-white/25 text-base" />
+                    <span className="text-[12px] text-white/25 font-medium">Loading...</span>
+                  </motion.div>
+                </motion.div>
+              ) : items.length === 0 && !isDragOver ? (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -622,9 +768,26 @@ export function Bubble() {
                     </span>
                   </p>
                 </motion.div>
+              ) : filteredSortedItems.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center py-12 gap-3"
+                >
+                  <motion.div
+                    animate={{ opacity: [0.3, 0.7, 0.3] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="text-xl opacity-20"
+                  >
+                    <i className="fa-solid fa-filter-circle-xmark" />
+                  </motion.div>
+                  <p className="text-[12px] text-white/20 text-center">
+                    No items match your filter
+                  </p>
+                </motion.div>
               ) : (
                 <AnimatePresence mode="popLayout">
-                  {items.map((item, i) => (
+                  {filteredSortedItems.map((item, i) => (
                     <StagedItemCard key={item.id} item={item} index={i} />
                   ))}
                 </AnimatePresence>
@@ -658,7 +821,7 @@ export function Bubble() {
                               try {
                                 const argsJson = JSON.stringify({ paths: selectedPaths, name: "zenith_selected" });
                                 const r = JSON.parse(await invoke<string>("process_file", { action: "zip_files", argsJson }));
-                                if (r.ok && r.path) { await stageFile(r.path); setFooterToast("Zipped selected!"); }
+                                if (r.ok && r.path) { await stageFile(r.path); setFooterToast(<span className="flex items-center gap-2">Zipped selected! <button onClick={() => invoke("reveal_in_folder", { path: r.path }).catch(() => {})} className="underline text-cyan-300 hover:text-cyan-200">Reveal</button></span>); }
                                 else setFooterToast(r.error || "Failed");
                               } catch (e) { setFooterToast(String(e)); }
                               finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 2000); }
@@ -755,7 +918,7 @@ export function Bubble() {
                               const pdfPaths = selectedItems.filter((i) => i.extension.toLowerCase() === "pdf").map((i) => i.path);
                               const argsJson = JSON.stringify({ paths: pdfPaths, name: "merged_selected" });
                               const r = JSON.parse(await invoke<string>("process_file", { action: "merge_pdf", argsJson }));
-                              if (r.ok && r.path) { await stageFile(r.path); setFooterToast(`Merged ${pdfPaths.length} PDFs!`); }
+                              if (r.ok && r.path) { await stageFile(r.path); setFooterToast(<span className="flex items-center gap-2">Merged {pdfPaths.length} PDFs! <button onClick={() => invoke("reveal_in_folder", { path: r.path }).catch(() => {})} className="underline text-cyan-300 hover:text-cyan-200">Reveal</button></span>); }
                               else setFooterToast(r.error || "Failed");
                             } catch (e) { setFooterToast(String(e)); }
                             finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 2000); }
@@ -831,6 +994,19 @@ export function Bubble() {
                           <i className="fa-solid fa-headphones text-[9px] mr-1" />Convert
                         </button>
                       )}
+                      <button
+                        onClick={async () => {
+                          if (settings?.behavior?.confirm_clear_all && !window.confirm(`Remove ${selectedIds.size} selected items?`)) return;
+                          for (const id of selectedIds) { await removeItem(id); }
+                          clearSelection();
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all"
+                        style={{ color: "#f87171", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)" }}
+                        aria-label={`Remove ${selectedIds.size} selected items`}
+                      >
+                        <i className="fa-solid fa-trash-can text-[9px]" />
+                        Remove {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
+                      </button>
                     </div>
                   </div>
                   {/* ── Audio Recognition: Save All / Cancel All / Undo / Redo ── */}
@@ -958,7 +1134,7 @@ export function Bubble() {
                           <div className="flex items-center gap-1.5">
                             <i className="fa-solid fa-headphones text-[9px] text-purple-400" />
                             <span className="text-[10px] text-white/50">Convert {selectedAudioItems.length} audio files to:</span>
-                            <button onClick={() => setShowBatchAudioConvert(false)} className="ml-auto text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
+                            <button onClick={() => { cancelAudioConvertRef.current = true; setShowBatchAudioConvert(false); }} className="ml-auto text-[10px] text-white/30 hover:text-white/60"><i className="fa-solid fa-xmark text-[9px]" /></button>
                           </div>
                           <div className="flex items-center gap-1 flex-wrap">
                             {["mp3","wav","flac","aac","ogg","m4a","opus","wma"].map((fmt) => (
@@ -968,8 +1144,14 @@ export function Bubble() {
                                 onClick={async () => {
                                   setShowBatchAudioConvert(false);
                                   setBatchProcessing("batch_convert_audio");
+                                  cancelAudioConvertRef.current = false;
                                   let ok = 0, fail = 0;
                                   for (const it of selectedAudioItems) {
+                                    if (cancelAudioConvertRef.current) {
+                                      setFooterToast("Conversion cancelled");
+                                      setTimeout(() => setFooterToast(null), 3000);
+                                      break;
+                                    }
                                     if (it.extension.toLowerCase() === fmt) { ok++; continue; }
                                     try {
                                       const argsJson = JSON.stringify({ path: it.path, output_format: fmt, audio_bitrate: `${batchAudioBitrate}k` });
@@ -979,9 +1161,11 @@ export function Bubble() {
                                     } catch { fail++; }
                                     setFooterToast(`Converting: ${ok + fail}/${selectedAudioItems.length}...`);
                                   }
+                                  if (!cancelAudioConvertRef.current) {
+                                    setFooterToast(`Converted ${ok} to ${fmt.toUpperCase()}${fail > 0 ? ` (${fail} failed)` : ""}`);
+                                    setTimeout(() => setFooterToast(null), 4000);
+                                  }
                                   setBatchProcessing(null);
-                                  setFooterToast(`Converted ${ok} to ${fmt.toUpperCase()}${fail > 0 ? ` (${fail} failed)` : ""}`);
-                                  setTimeout(() => setFooterToast(null), 4000);
                                 }}
                                 className="px-2 py-1 rounded-md text-[10px] font-medium text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
                               >{fmt.toUpperCase()}</button>
@@ -1032,7 +1216,7 @@ export function Bubble() {
                         Copy All
                       </button>
                       <button
-                        onClick={clearStack}
+                        onClick={() => { if (!window.confirm("Clear clipboard stack?")) return; clearStack(); }}
                         className="px-2 py-0.5 rounded text-[10px] font-medium text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                       >
                         Clear
@@ -1054,7 +1238,7 @@ export function Bubble() {
                           <i className="fa-solid fa-clipboard-list text-[9px] mr-1" />
                           Clipboard History ({clipHistory.length})
                         </span>
-                        <button onClick={async () => { await invoke("clear_clipboard_history"); setClipHistory([]); }}
+                        <button onClick={async () => { if (!window.confirm("Clear all clipboard history?")) return; await invoke("clear_clipboard_history"); setClipHistory([]); }}
                           className="text-[9px] text-white/25 hover:text-red-400 transition-colors">
                           <i className="fa-solid fa-trash text-[7px] mr-0.5" />Clear
                         </button>
@@ -1144,11 +1328,71 @@ export function Bubble() {
               )}
             </AnimatePresence>
 
+            {/* Keyboard Shortcuts Panel */}
+            <AnimatePresence>
+              {showShortcuts && isExpanded && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                  className="flex flex-col gap-2 px-4 py-3"
+                  style={{ borderTop: "1px solid var(--zen-border-subtle)", background: "var(--zen-bg-elevated)" }}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-bold text-white/60 uppercase tracking-wider">Keyboard Shortcuts</span>
+                    <button onClick={() => setShowShortcuts(false)} className="text-white/20 hover:text-white/50">
+                      <i className="fa-solid fa-xmark text-[10px]" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                    {[
+                      ["Ctrl+Shift+V", "Stage clipboard"],
+                      ["Ctrl+Shift+Z", "Toggle window"],
+                      ["Esc", "Collapse / Close"],
+                      ["?", "Show shortcuts"],
+                      ["Ctrl+A", "Select all items"],
+                      ["Ctrl+Z", "Undo last rename"],
+                      ["Ctrl+Shift+Z", "Redo rename"],
+                    ].map(([key, desc]) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <kbd className="px-1.5 py-0.5 rounded text-[9px] font-mono" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", color: "var(--zen-accent-cyan)", minWidth: 80, textAlign: "center" }}>{key}</kbd>
+                        <span className="text-[10px] text-white/40">{desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Footer */}
             <div
               className="px-3 py-2 relative"
               style={{ borderTop: "1px solid rgba(255, 255, 255, 0.04)", background: "rgba(0, 0, 0, 0.15)" }}
             >
+              {/* Undo clear-all toast */}
+              <AnimatePresence>
+                {removedItemStack && removedItemStack.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    className="flex items-center justify-between px-2.5 py-1.5 mb-1 rounded-lg"
+                    style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)" }}
+                  >
+                    <span className="text-[10px] text-red-300 font-medium">
+                      <i className="fa-solid fa-rotate-left text-[8px] mr-1" />
+                      {removedItemStack.length} item{removedItemStack.length !== 1 ? "s" : ""} removed
+                    </span>
+                    <button
+                      onClick={() => { undoRemoveLast(); setFooterToast("Items restored"); setTimeout(() => setFooterToast(null), 2000); }}
+                      className="px-2 py-0.5 rounded text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/15 transition-colors"
+                    >
+                      Undo
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               {/* Primary actions — visible labeled buttons */}
               <div className="flex items-center gap-1">
                 {/* AI group */}
@@ -1216,15 +1460,20 @@ export function Bubble() {
                       const apiKey = getDefaultApiKey();
                       if (!apiKey.api_key) { setFooterToast("Set an API key first"); setTimeout(() => setFooterToast(null), 2000); return; }
                       setBatchProcessing("rename");
+                      cancelRenameAllRef.current = false;
                       let count = 0;
                       try {
                         for (const p of allPaths) {
+                          if (cancelRenameAllRef.current) {
+                            setFooterToast(`Rename cancelled — ${count}/${allPaths.length} files renamed`);
+                            break;
+                          }
                           const argsJson = JSON.stringify({ path: p, system_prompt: settings?.ai_prompts?.smart_rename, ...apiKey });
                           const r = JSON.parse(await invoke<string>("process_file", { action: "smart_rename", argsJson }));
                           if (r.token_usage) trackTokenUsage(r.token_usage.provider, r.token_usage.model, r.token_usage.input_tokens, r.token_usage.output_tokens);
                           if (r.ok) count++;
                         }
-                        setFooterToast(`Renamed ${count}/${allPaths.length} files`);
+                        if (!cancelRenameAllRef.current) setFooterToast(`Renamed ${count}/${allPaths.length} files`);
                       } catch (e) { setFooterToast(String(e)); }
                       finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
                     }}
@@ -1234,6 +1483,15 @@ export function Bubble() {
                     {batchProcessing === "rename" ? <i className="fa-solid fa-spinner fa-spin text-[9px]" /> : <i className="fa-solid fa-font text-[9px]" />}
                     <span>Rename</span>
                   </button>
+                  {batchProcessing === "rename" && (
+                    <button
+                      onClick={() => { cancelRenameAllRef.current = true; }}
+                      className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-medium text-red-300 hover:bg-red-500/15 transition-colors cursor-pointer"
+                      title="Stop batch rename"
+                    >
+                      <i className="fa-solid fa-stop text-[8px]" /> Stop
+                    </button>
+                  )}
                 </>)}
 
                 {/* Separator when AI group is shown */}
@@ -1360,6 +1618,7 @@ export function Bubble() {
                                 const moves = allPaths.map((p) => ({ old_path: p, new_path: `${dest.trim().replace(/[\\/]$/, "")}\\${p.split(/[\\/]/).pop()}` }));
                                 const r = JSON.parse(await invoke<string>("move_files", { movesJson: JSON.stringify(moves) }));
                                 setFooterToast(`Saved ${r.moved ?? moves.length} files to folder`);
+                                setUndoable(true);
                               } catch (e) { setFooterToast(String(e)); }
                               finally { setBatchProcessing(null); setTimeout(() => setFooterToast(null), 3000); }
                             }}
@@ -1431,7 +1690,7 @@ export function Bubble() {
                                   <i className="fa-solid fa-bookmark text-[8px] text-amber-400/60" />
                                   {p.name}
                                 </button>
-                                <button onClick={() => deletePreset(p.id)}
+                                <button onClick={() => { if (!window.confirm("Delete preset?")) return; deletePreset(p.id); }}
                                   className="opacity-0 group-hover/preset:opacity-100 text-[8px] text-white/20 hover:text-red-400 transition-all">
                                   <i className="fa-solid fa-xmark text-[7px]" />
                                 </button>
@@ -1458,6 +1717,14 @@ export function Bubble() {
 
                 {/* Status dot */}
                 <div className="flex items-center gap-1.5 ml-1">
+                  <button
+                    onClick={() => setShowShortcuts(v => !v)}
+                    className="text-[9px] text-white/15 hover:text-white/40 px-1"
+                    title="Keyboard shortcuts"
+                    aria-label="Show keyboard shortcuts"
+                  >
+                    <i className="fa-solid fa-keyboard" />
+                  </button>
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-400/60" />
                   <span className="text-[9px] text-white/20 font-medium">Ready</span>
                 </div>
@@ -1558,4 +1825,4 @@ export function Bubble() {
       </AnimatePresence>
     </div>
   );
-}
+});

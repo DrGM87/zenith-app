@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 // ReactBits effects are configured here but rendered in Bubble.tsx
@@ -170,17 +170,33 @@ const POSITIONS = [
   { value: "top-left", label: "Top Left" },
 ];
 
-export function Settings() {
+const DEFAULT_PROMPTS: AiPrompts = {
+  smart_rename: "Suggest a descriptive filename. Return ONLY the filename without extension.",
+  smart_sort: "Categorize these files. Return JSON with 'file' and 'category' keys.",
+  auto_organize: "Organize files into folders by type and suggest names. Return JSON.",
+  translate: "Translate accurately. Return only the translated text.",
+  ask_data: "Answer from provided chunks only. Cite [Chunk N].",
+  summarize: "TL;DR sentence then Key Points. Use bulleted list.",
+  super_summary: "Synthesize multiple summaries. Use [Doc N] citations.",
+  ocr: "Extract all text. Return only the extracted text.",
+  dashboard: "Generate standalone HTML dashboard with Chart.js CDN and dark theme.",
+};
+
+export const Settings = memo(function Settings() {
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [settings, setSettings] = useState<ZenithSettings | null>(null);
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [saved, setSaved] = useState(false);
   const [pluginOutput, setPluginOutput] = useState<string | null>(null);
   const [runningScripts, setRunningScripts] = useState<Record<string, boolean>>({});
+  const [runningPlugins, setRunningPlugins] = useState<Record<string, boolean>>({});
+  const [pluginAbort, setPluginAbort] = useState<AbortController | null>(null);
+  const initialSettingsRef = useRef<ZenithSettings | null>(null);
 
   useEffect(() => {
     invoke<ZenithSettings>("get_settings").then((s) => {
       setSettings(s);
+      initialSettingsRef.current = JSON.parse(JSON.stringify(s));
       document.documentElement.setAttribute("data-theme", s.appearance.theme === "light" ? "light" : "dark");
       (s.scripts || []).forEach((script) => {
         invoke<boolean>("is_script_running", { scriptId: script.id })
@@ -286,20 +302,41 @@ export function Settings() {
   };
 
   const runPlugin = async (path: string) => {
+    const controller = new AbortController();
+    setPluginAbort(controller);
+    setRunningPlugins((prev) => ({ ...prev, [path]: true }));
+    setPluginOutput(null);
     try {
       const result = await invoke<string>("run_plugin", { pluginPath: path });
       setPluginOutput(result);
     } catch (e) {
-      setPluginOutput(`Error: ${e}`);
+      if (controller.signal.aborted) {
+        setPluginOutput("Plugin stopped.");
+      } else {
+        setPluginOutput(`Error: ${e}`);
+      }
+    } finally {
+      setRunningPlugins((prev) => ({ ...prev, [path]: false }));
+      setPluginAbort(null);
     }
   };
+
+  const stopPlugin = useCallback(async (path: string) => {
+    if (pluginAbort) pluginAbort.abort();
+    try {
+      await invoke("cancel_all_scripts");
+    } catch {}
+    setRunningPlugins((prev) => ({ ...prev, [path]: false }));
+    setPluginOutput("Plugin stopped.");
+    setPluginAbort(null);
+  }, [pluginAbort]);
 
   if (!settings) {
     return (
       <div className="flex items-center justify-center h-screen" style={{ background: "var(--zen-bg-base)", color: "var(--zen-text-primary)" }}>
-        <div className="text-white/40 text-sm">Loading settings...</div>
-      </div>
-    );
+        <div className="text-white/40 text-sm" role="status" aria-label="Loading settings...">Loading settings...</div>
+    </div>
+  );
   }
 
   return (
@@ -321,11 +358,13 @@ export function Settings() {
           </div>
         </div>
 
-        <nav className="flex-1 px-2 space-y-0.5">
+        <nav className="flex-1 px-2 space-y-0.5" role="tablist">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
+              role="tab"
+              aria-selected={activeTab === tab.id}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all ${
                 activeTab === tab.id
                   ? "bg-white/10 text-white border-l-2 border-cyan-400"
@@ -339,10 +378,28 @@ export function Settings() {
         </nav>
 
         {saved && (
-          <div className="mx-3 mb-4 px-3 py-2 rounded-lg bg-emerald-500/15 text-emerald-300 text-[11px] font-medium text-center">
+          <div className="mx-3 mb-2 px-3 py-2 rounded-lg bg-emerald-500/15 text-emerald-300 text-[11px] font-medium text-center">
             Settings saved
           </div>
         )}
+        <div className="mx-3 mb-4">
+          <button
+            onClick={async () => {
+              if (!window.confirm("Discard all unsaved changes and revert to last saved settings?")) return;
+              try {
+                const s = await invoke<ZenithSettings>("get_settings");
+                setSettings(s);
+                initialSettingsRef.current = JSON.parse(JSON.stringify(s));
+                setSaved(true);
+                setTimeout(() => setSaved(false), 2000);
+              } catch (e) { console.error(e); }
+            }}
+            className="w-full px-3 py-2 rounded-lg text-[11px] font-medium text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-colors"
+          >
+            <i className="fa-solid fa-rotate-left text-[9px] mr-1.5" />
+            Revert to Saved
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -428,6 +485,7 @@ export function Settings() {
                     <button
                       key={color}
                       onClick={() => updateAppearance("accent_color", color)}
+                      aria-label={`Accent color ${color}`}
                       className="w-7 h-7 rounded-full border-2 transition-transform hover:scale-110"
                       style={{
                         background: color,
@@ -702,6 +760,7 @@ export function Settings() {
                               type="text" placeholder="Label (e.g. My OpenAI Key)"
                               value={entry.label}
                               onChange={(e) => updateApiKey(idx, { label: e.target.value })}
+                              aria-label="API key label"
                               className="w-full text-[13px] font-medium text-white/85 bg-transparent outline-none placeholder:text-white/20"
                             />
                           </div>
@@ -715,7 +774,7 @@ export function Settings() {
                           >
                             {entry.is_default ? "Default" : "Set default"}
                           </button>
-                          <button onClick={() => removeApiKey(idx)} className="text-white/20 hover:text-red-400 transition-colors">
+                          <button onClick={() => { if (!window.confirm(`Delete this API key${entry.label ? ` (${entry.label})` : ""}?`)) return; removeApiKey(idx); }} aria-label="Delete API key" className="text-white/20 hover:text-red-400 transition-colors">
                             <i className="fa-solid fa-trash text-[10px]" />
                           </button>
                         </div>
@@ -728,6 +787,7 @@ export function Settings() {
                             const firstModel = (PROVIDER_MODELS[prov] || [])[0]?.id || "";
                             updateApiKey(idx, { provider: prov, model: firstModel });
                           }}
+                          aria-label="LLM provider"
                           className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 outline-none appearance-none cursor-pointer"
                         >
                           {LLM_PROVIDERS.map((p) => (
@@ -737,6 +797,7 @@ export function Settings() {
                         <select
                           value={entry.model}
                           onChange={(e) => updateApiKey(idx, { model: e.target.value })}
+                          aria-label="Model"
                           className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 outline-none appearance-none cursor-pointer"
                         >
                           {models.length === 0 && <option value="" className="bg-[#1a1a24] text-white">Custom model</option>}
@@ -753,6 +814,7 @@ export function Settings() {
                         type="password" placeholder="API Key (sk-... or similar)"
                         value={entry.key}
                         onChange={(e) => updateApiKey(idx, { key: e.target.value })}
+                        aria-label="API key value"
                         className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
                       />
                       {pricing && (
@@ -788,6 +850,7 @@ export function Settings() {
                 type="password" placeholder="VirusTotal API Key"
                 value={settings.vt_api_key ?? ""}
                 onChange={(e) => { save({ ...settings, vt_api_key: e.target.value }); if (e.target.value) invoke("store_secret_key", { keyName: "vt", value: e.target.value }).catch(() => {}); }}
+                aria-label="VirusTotal API Key"
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
               <p className="text-[10px] text-white/20 mt-1">Get a free key at <a href="https://www.virustotal.com/gui/my-apikey" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">virustotal.com/gui/my-apikey</a></p>
@@ -798,6 +861,7 @@ export function Settings() {
                 type="password" placeholder="imdbapi.dev API Key (optional — free tier works without key)"
                 value={settings.imdb_api_key ?? ""}
                 onChange={(e) => save({ ...settings, imdb_api_key: e.target.value })}
+                aria-label="IMDb API Key"
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
               <p className="text-[10px] text-white/20 mt-1">API: <a href="https://imdbapi.dev" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">imdbapi.dev</a> — works without a key for basic searches</p>
@@ -808,6 +872,7 @@ export function Settings() {
                 type="password" placeholder="OMDB API Key"
                 value={settings.omdb_api_key ?? ""}
                 onChange={(e) => save({ ...settings, omdb_api_key: e.target.value })}
+                aria-label="OMDB API Key"
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
               <p className="text-[10px] text-white/20 mt-1">Get a free key at <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">omdbapi.com/apikey.aspx</a> (1,000 requests/day)</p>
@@ -820,6 +885,7 @@ export function Settings() {
                     type="checkbox"
                     checked={settings.shazam_auto_recognize !== false}
                     onChange={(e) => save({ ...settings, shazam_auto_recognize: e.target.checked })}
+                    aria-label="Auto-recognize music in Smart Organize"
                     className="accent-amber-400"
                   />
                   <span className="text-[11px] text-white/60">Auto-recognize in Smart Organize</span>
@@ -833,6 +899,7 @@ export function Settings() {
                 type="password" placeholder="Premium API Key (leave empty for free tier)"
                 value={settings.audiodb_api_key ?? ""}
                 onChange={(e) => save({ ...settings, audiodb_api_key: e.target.value })}
+                aria-label="TheAudioDB API Key"
                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-amber-400/40 transition-colors font-mono"
               />
               <p className="text-[10px] text-white/20 mt-1">API: <a href="https://www.theaudiodb.com/free_music_api" target="_blank" rel="noopener noreferrer" className="text-cyan-400/50 hover:text-cyan-400 underline underline-offset-2 transition-colors cursor-pointer">theaudiodb.com/free_music_api</a> — free key <code className="text-white/40">523532</code> used by default</p>
@@ -860,6 +927,7 @@ export function Settings() {
                   </div>
                   <p className="text-[10px] text-white/25 mb-1.5">Suggests descriptive filenames. Filename & content preview appended automatically.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.smart_rename ?? ""} onChange={(v) => updateAiPrompt("smart_rename", v)} rows={2} />
+                  <button onClick={() => updateAiPrompt("smart_rename", DEFAULT_PROMPTS.smart_rename)} className="mt-1 text-[9px] text-white/25 hover:text-white/60 transition-colors">Reset to default</button>
                 </div>
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -868,6 +936,7 @@ export function Settings() {
                   </div>
                   <p className="text-[10px] text-white/25 mb-1.5">Categorizes and renames staged files into folders. File list appended automatically.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.auto_organize ?? ""} onChange={(v) => updateAiPrompt("auto_organize", v)} rows={3} />
+                  <button onClick={() => updateAiPrompt("auto_organize", DEFAULT_PROMPTS.auto_organize)} className="mt-1 text-[9px] text-white/25 hover:text-white/60 transition-colors">Reset to default</button>
                 </div>
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -876,6 +945,7 @@ export function Settings() {
                   </div>
                   <p className="text-[10px] text-white/25 mb-1.5">Groups files by category. File list appended automatically.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.smart_sort ?? ""} onChange={(v) => updateAiPrompt("smart_sort", v)} rows={2} />
+                  <button onClick={() => updateAiPrompt("smart_sort", DEFAULT_PROMPTS.smart_sort)} className="mt-1 text-[9px] text-white/25 hover:text-white/60 transition-colors">Reset to default</button>
                 </div>
               </div>
             </SettingGroup>
@@ -889,6 +959,7 @@ export function Settings() {
                   </div>
                   <p className="text-[10px] text-white/25 mb-1.5">Answers questions using document chunks. Relevant chunks appended automatically.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.ask_data ?? ""} onChange={(v) => updateAiPrompt("ask_data", v)} rows={2} />
+                  <button onClick={() => updateAiPrompt("ask_data", DEFAULT_PROMPTS.ask_data)} className="mt-1 text-[9px] text-white/25 hover:text-white/60 transition-colors">Reset to default</button>
                 </div>
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -897,6 +968,7 @@ export function Settings() {
                   </div>
                   <p className="text-[10px] text-white/25 mb-1.5">Creates TL;DR + detailed summary. Document text appended automatically.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.summarize ?? ""} onChange={(v) => updateAiPrompt("summarize", v)} rows={2} />
+                  <button onClick={() => updateAiPrompt("summarize", DEFAULT_PROMPTS.summarize)} className="mt-1 text-[9px] text-white/25 hover:text-white/60 transition-colors">Reset to default</button>
                 </div>
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -905,6 +977,7 @@ export function Settings() {
                   </div>
                   <p className="text-[10px] text-white/25 mb-1.5">Executive summary across multiple docs with citations. Summaries appended automatically.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.super_summary ?? ""} onChange={(v) => updateAiPrompt("super_summary", v)} rows={2} />
+                  <button onClick={() => updateAiPrompt("super_summary", DEFAULT_PROMPTS.super_summary)} className="mt-1 text-[9px] text-white/25 hover:text-white/60 transition-colors">Reset to default</button>
                 </div>
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -913,6 +986,7 @@ export function Settings() {
                   </div>
                   <p className="text-[10px] text-white/25 mb-1.5">Translates documents. Target language and text appended automatically.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.translate ?? ""} onChange={(v) => updateAiPrompt("translate", v)} rows={2} />
+                  <button onClick={() => updateAiPrompt("translate", DEFAULT_PROMPTS.translate)} className="mt-1 text-[9px] text-white/25 hover:text-white/60 transition-colors">Reset to default</button>
                 </div>
               </div>
             </SettingGroup>
@@ -926,6 +1000,7 @@ export function Settings() {
                   </div>
                   <p className="text-[10px] text-white/25 mb-1.5">Extracts text from images via LLM vision. Falls back to Tesseract if available.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.ocr ?? ""} onChange={(v) => updateAiPrompt("ocr", v)} rows={2} />
+                  <button onClick={() => updateAiPrompt("ocr", DEFAULT_PROMPTS.ocr)} className="mt-1 text-[9px] text-white/25 hover:text-white/60 transition-colors">Reset to default</button>
                 </div>
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -934,6 +1009,7 @@ export function Settings() {
                   </div>
                   <p className="text-[10px] text-white/25 mb-1.5">Creates interactive HTML dashboard from CSV. Column info appended automatically.</p>
                   <TextArea label="" description="" value={settings.ai_prompts?.dashboard ?? ""} onChange={(v) => updateAiPrompt("dashboard", v)} rows={2} />
+                  <button onClick={() => updateAiPrompt("dashboard", DEFAULT_PROMPTS.dashboard)} className="mt-1 text-[9px] text-white/25 hover:text-white/60 transition-colors">Reset to default</button>
                 </div>
               </div>
             </SettingGroup>
@@ -1030,6 +1106,7 @@ export function Settings() {
             <SettingGroup title="Actions">
               <button
                 onClick={() => {
+                  if (!window.confirm("Are you sure you want to reset ALL token usage data? This cannot be undone.")) return;
                   if (!settings) return;
                   const updated = {
                     ...settings,
@@ -1182,12 +1259,30 @@ export function Settings() {
                           <p className="text-[10px] text-white/25 truncate max-w-[300px]">{plugin.path}</p>
                         </div>
                       </div>
-                      <button
-                        onClick={() => runPlugin(plugin.path)}
-                        className="px-3 py-1.5 rounded-lg bg-white/6 hover:bg-white/10 text-[11px] font-medium text-white/60 hover:text-white/90 transition-colors"
-                      >
-                        Run
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {runningPlugins[plugin.path] ? (
+                          <>
+                            <span className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">
+                              <i className="fa-solid fa-spinner fa-spin text-[9px]" />
+                              Running
+                            </span>
+                            <button
+                              onClick={() => stopPlugin(plugin.path)}
+                              className="px-3 py-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-[11px] font-semibold text-red-300 transition-colors"
+                            >
+                              <i className="fa-solid fa-stop text-[9px] mr-1.5" />
+                              Stop
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => runPlugin(plugin.path)}
+                            className="px-3 py-1.5 rounded-lg bg-white/6 hover:bg-white/10 text-[11px] font-medium text-white/60 hover:text-white/90 transition-colors"
+                          >
+                            Run
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1228,7 +1323,7 @@ export function Settings() {
       </div>
     </div>
   );
-}
+});
 
 /* ─── Activity Log Tab ─── */
 
@@ -1245,7 +1340,7 @@ function ActivityLogTab() {
     <TabPanel title="Activity Log" description="History of file operations and AI actions">
       <SettingGroup title={`Last ${logs.length} actions`}>
         {loading ? (
-          <div className="py-8 text-center"><i className="fa-solid fa-spinner fa-spin text-white/20 text-xl" /></div>
+          <div className="py-8 text-center" role="status" aria-label="Loading activity log..."><i className="fa-solid fa-spinner fa-spin text-white/20 text-xl" /></div>
         ) : logs.length === 0 ? (
           <div className="py-8 text-center">
             <i className="fa-solid fa-history text-2xl text-white/10 mb-2 block" />
@@ -1266,7 +1361,7 @@ function ActivityLogTab() {
       </SettingGroup>
       {logs.length > 0 && (
         <SettingGroup title="Actions">
-          <button onClick={async () => { await invoke("clear_activity_log"); setLogs([]); }}
+          <button onClick={async () => { if (!window.confirm("Are you sure you want to clear the entire activity log? This cannot be undone.")) return; await invoke("clear_activity_log"); setLogs([]); }}
             className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-[12px] font-medium text-red-300 hover:bg-red-500/20 transition-colors">
             <i className="fa-solid fa-trash text-[10px] mr-1.5" />Clear Activity Log
           </button>
@@ -1316,6 +1411,9 @@ function Toggle({
       </div>
       <button
         onClick={() => onChange(!checked)}
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
         className="relative w-10 h-[22px] rounded-full transition-colors shrink-0"
         style={{
           background: checked ? "rgba(34, 211, 238, 0.6)" : "rgba(255, 255, 255, 0.1)",
@@ -1365,6 +1463,7 @@ function Slider({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
+        aria-label={label}
         className="w-full h-1.5 rounded-full appearance-none cursor-pointer mt-1"
         style={{
           background: `linear-gradient(to right, rgba(34, 211, 238, 0.5) ${((value - min) / (max - min)) * 100}%, rgba(255,255,255,0.08) ${((value - min) / (max - min)) * 100}%)`,
@@ -1396,6 +1495,7 @@ function TextInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        aria-label={label}
         className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-cyan-400/40 transition-colors"
       />
     </div>
@@ -1422,6 +1522,7 @@ function Select({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
         className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 outline-none focus:border-cyan-400/40 transition-colors appearance-none cursor-pointer"
       >
         {options.map((opt) => (
@@ -1455,6 +1556,7 @@ function TextArea({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         rows={rows}
+        aria-label={label}
         className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[13px] text-white/80 placeholder:text-white/20 outline-none focus:border-cyan-400/40 transition-colors resize-y font-mono leading-relaxed"
       />
     </div>

@@ -1,5 +1,5 @@
+import { memo, useCallback, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { formatFileSize, getFileIcon, getExtensionColor } from "../utils";
 import { useZenithStore } from "../store";
@@ -18,21 +18,23 @@ interface FolderTreeProps {
   depth?: number;
 }
 
-export function FolderTree({ path, name, depth = 0 }: FolderTreeProps) {
+export const FolderTree = memo(function FolderTree({ path, name, depth = 0 }: FolderTreeProps) {
   const [expanded, setExpanded] = useState(false);
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [dirError, setDirError] = useState<string | null>(null);
 
   const toggle = useCallback(async () => {
     if (!expanded && !loaded) {
       setLoading(true);
+      setDirError(null);
       try {
         const result = await invoke<DirEntry[]>("list_directory", { path });
         setEntries(result);
         setLoaded(true);
       } catch (e) {
-        console.error("Failed to list directory:", e);
+        setDirError(e instanceof Error ? e.message : "Failed to load");
       } finally {
         setLoading(false);
       }
@@ -44,9 +46,11 @@ export function FolderTree({ path, name, depth = 0 }: FolderTreeProps) {
   const files = entries.filter((e) => !e.is_directory);
 
   return (
-    <div style={{ paddingLeft: depth > 0 ? 12 : 0 }}>
+    <div style={{ paddingLeft: depth > 0 ? 12 : 0 }} role={depth === 0 ? "tree" : "group"}>
       <button
         onClick={toggle}
+        aria-label={expanded ? `Collapse ${name}` : `Expand ${name}`}
+        aria-expanded={expanded}
         className="flex items-center gap-2 w-full px-2 py-1 rounded-md text-left hover:bg-white/5 transition-colors group"
       >
         <motion.i
@@ -56,11 +60,33 @@ export function FolderTree({ path, name, depth = 0 }: FolderTreeProps) {
         />
         <i className={`fa-solid ${expanded ? "fa-folder-open" : "fa-folder"} text-[11px] text-amber-400/70`} />
         <span className="text-[12px] font-medium text-white/80 truncate flex-1">{name}</span>
-        {loading && <i className="fa-solid fa-spinner fa-spin text-[9px] text-white/30" />}
+        {loading && (
+          <>
+            <i className="fa-solid fa-spinner fa-spin text-[9px] text-white/30" role="status" aria-label="Loading directory..." />
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setLoading(false);
+              }}
+              className="text-[9px] text-white/30 hover:text-white/60"
+            >
+              Cancel
+            </button>
+          </>
+        )}
         {loaded && !loading && (
           <span className="text-[10px] text-white/25">{entries.length}</span>
         )}
       </button>
+
+      {dirError && (
+        <div className="text-[9px] px-2 py-0.5" style={{ color: "#fca5a5" }}>
+          {dirError}
+          <button onClick={(e) => { e.stopPropagation(); setDirError(null); }} className="ml-1 text-white/30 hover:text-white/60">
+            <i className="fa-solid fa-xmark text-[7px]" />
+          </button>
+        </div>
+      )}
 
       <AnimatePresence>
         {expanded && (
@@ -94,21 +120,21 @@ export function FolderTree({ path, name, depth = 0 }: FolderTreeProps) {
       </AnimatePresence>
     </div>
   );
-}
+});
 
-function FileEntry({ entry }: { entry: DirEntry }) {
+const FileEntry = memo(function FileEntry({ entry }: { entry: DirEntry }) {
   const extColor = getExtensionColor(entry.extension);
   const { stageFile } = useZenithStore();
   const [staged, setStaged] = useState(false);
 
-  const handleStage = async () => {
+  const handleStage = useCallback(async () => {
     await stageFile(entry.path);
     setStaged(true);
     setTimeout(() => setStaged(false), 1500);
-  };
+  }, [entry.path, stageFile]);
 
   return (
-    <div className="flex items-center gap-2 px-2 py-0.5 ml-3 rounded-md hover:bg-white/5 transition-colors group/file">
+    <div className="flex items-center gap-2 px-2 py-0.5 ml-3 rounded-md hover:bg-white/5 transition-colors group/file" role="treeitem">
       <span className="text-[11px] leading-none">{getFileIcon(entry.extension, false)}</span>
       <span className="text-[11px] text-white/70 truncate flex-1">{entry.name}</span>
       {entry.extension && (
@@ -122,6 +148,7 @@ function FileEntry({ entry }: { entry: DirEntry }) {
       <span className="text-[10px] text-white/25">{formatFileSize(entry.size)}</span>
       <button
         onClick={handleStage}
+        aria-label={`Stage ${entry.name}`}
         className="opacity-0 group-hover/file:opacity-100 px-1.5 py-0.5 rounded text-[9px] font-medium text-cyan-400 hover:bg-cyan-500/15 transition-all"
         title="Stage this file"
       >
@@ -129,4 +156,4 @@ function FileEntry({ entry }: { entry: DirEntry }) {
       </button>
     </div>
   );
-}
+});

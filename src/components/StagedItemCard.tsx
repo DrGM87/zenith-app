@@ -1,5 +1,5 @@
+import { memo, useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useZenithStore, type StagedItem, type RenameState } from "../store";
 import { formatFileSize, getFileIcon, getExtensionColor } from "../utils";
@@ -134,8 +134,8 @@ function getActionsForItem(item: StagedItem): ItemAction[] {
   return actions;
 }
 
-export function StagedItemCard({ item, index }: Props) {
-  const { removeItem, startDragOut, stageFile, toggleSelect, selectedIds, settings, trackTokenUsage, openPreview, setRenameState, cycleRenameSuggestion, renameStates, refreshRenameCounts, audioResults, setAudioResult, pushAudioUndo, tags, setItemTag, removeItemTag } = useZenithStore();
+export const StagedItemCard = memo(function StagedItemCard({ item, index }: Props) {
+  const { removeItem, startDragOut, stageFile, toggleSelect, selectedIds, settings, trackTokenUsage, openPreview, setRenameState, cycleRenameSuggestion, renameStates, refreshRenameCounts, audioResults, setAudioResult, pushAudioUndo, tags, setItemTag, removeItemTag, itemErrors, removedItemStack, undoRemoveLast, retryAction } = useZenithStore();
   const renameState = renameStates[item.id] as RenameState | undefined;
   const audioResult = audioResults[item.id] ?? null;
   const isSelected = selectedIds.has(item.id);
@@ -194,13 +194,16 @@ export function StagedItemCard({ item, index }: Props) {
   const [scanBadge, setScanBadge] = useState<"safe" | "malicious" | "unknown" | null>(null);
   const [vtReport, setVtReport] = useState<Record<string, unknown> | null>(null);
   const [processing, setProcessing] = useState<string | null>(null);
+  const cancelProcessingRef = useRef(false);
   const [toast, setToast] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState<string | null>(null);
 
-  const hasDragPath = item.path.length > 0;
-  const actions = getActionsForItem(item);
-  const extColor = getExtensionColor(item.extension);
-  const hasTimer = item.self_destruct_at !== null && item.self_destruct_at > 0;
+  const hasDragPath = useMemo(() => item.path.length > 0, [item.path]);
+  const itemError = itemErrors[item.id];
+  const isStale = itemError?.includes("no longer exists");
+  const actions = useMemo(() => getActionsForItem(item), [item]);
+  const extColor = useMemo(() => getExtensionColor(item.extension), [item.extension]);
+  const hasTimer = useMemo(() => item.self_destruct_at !== null && item.self_destruct_at > 0, [item.self_destruct_at]);
 
   const showToastMsg = useCallback((msg: string) => {
     setToast(msg);
@@ -229,10 +232,10 @@ export function StagedItemCard({ item, index }: Props) {
     showToastMsg(minutes ? `Self-destruct in ${minutes >= 60 ? `${minutes / 60}h` : `${minutes}m`}` : "Timer cleared");
   }, [item.id, showToastMsg]);
 
-  const handleDragOut = (e: React.MouseEvent) => {
+  const handleDragOut = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
     if (hasDragPath) startDragOut(item.path);
-  };
+  }, [hasDragPath, startDragOut, item.path]);
 
   const getDefaultApiKey = useCallback(() => {
     const keys = settings?.api_keys ?? [];
@@ -369,6 +372,7 @@ export function StagedItemCard({ item, index }: Props) {
     }
 
     // ── Python processing actions ──
+    cancelProcessingRef.current = false;
     setProcessing(action);
     try {
       const extraArgs: Record<string, unknown> = {};
@@ -522,6 +526,7 @@ export function StagedItemCard({ item, index }: Props) {
   }, [item.path, item.name, emailTo, emailSubject, emailBody, showToastMsg]);
 
   const handleCompressSubmit = useCallback(async () => {
+    cancelProcessingRef.current = false;
     setShowCompressOpts(false);
     setProcessing("compress_image");
     try {
@@ -537,6 +542,7 @@ export function StagedItemCard({ item, index }: Props) {
   }, [item.path, compressQuality, stageFile, showToastMsg]);
 
   const handleResizeSubmit = useCallback(async () => {
+    cancelProcessingRef.current = false;
     setShowResizeOpts(false);
     setProcessing("resize_image");
     try {
@@ -560,6 +566,7 @@ export function StagedItemCard({ item, index }: Props) {
   }, [item.path, resizeWidth, resizeHeight, resizePct, resizeFillColor, stageFile, showToastMsg]);
 
   const handleSplitSubmit = useCallback(async () => {
+    cancelProcessingRef.current = false;
     setShowSplitOpts(false);
     setProcessing("split_file");
     try {
@@ -585,10 +592,32 @@ export function StagedItemCard({ item, index }: Props) {
       onMouseLeave={() => { setIsHovered(false); setShowMore(false); setShowTimer(false); setShowPasswordPrompt(false); setShowEmailPrompt(false); setShowCompressOpts(false); setShowResizeOpts(false); setShowSplitOpts(false); setShowTranslateOpts(false); setShowAskPanel(false); setShowBase64Menu(false); setShowConvertMenu(false); setShowAudioConvertMenu(false); setShowAudioTypeAsk(false); setShowImageConvertMenu(false); setShowArchivePanel(false); setShowExifPanel(false); setShowTagPicker(false); }}
       className="group relative flex flex-col rounded-xl transition-colors"
       style={{
+        opacity: isStale ? 0.5 : 1,
         background: isHovered ? "rgba(255, 255, 255, 0.06)" : "rgba(255, 255, 255, 0.02)",
       }}
     >
     <SpotlightCard className="rounded-xl" spotlightColor="rgba(139,92,246,0.12)" disabled={settings?.appearance?.spotlight_cards === false}>
+      {index === 0 && removedItemStack.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-1.5 mb-1 rounded-md" style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.15)" }}>
+          <i className="fa-solid fa-rotate-left text-[10px]" style={{ color: "rgba(96,165,250,0.7)" }} />
+          <span className="text-[10px]" style={{ color: "rgba(147,197,253,0.7)" }}>
+            Removed "{removedItemStack[removedItemStack.length - 1].name}"
+          </span>
+          <button
+            onClick={undoRemoveLast}
+            className="text-[10px] font-medium hover:underline"
+            style={{ color: "rgba(96,165,250,0.8)" }}
+          >
+            Undo
+          </button>
+          <button
+            onClick={() => useZenithStore.getState().clearRemoveHistory()}
+            className="ml-auto text-white/15 hover:text-white/40"
+          >
+            <i className="fa-solid fa-xmark text-[8px]" />
+          </button>
+        </div>
+      )}
       {/* Main row */}
       <div className="flex items-center gap-3 px-3 py-2.5">
         {/* Selection checkbox */}
@@ -739,6 +768,31 @@ export function StagedItemCard({ item, index }: Props) {
         </motion.button>
       </div>
 
+      {itemError && (
+        <div className="flex items-center gap-1 px-3 py-0.5" style={{ background: "rgba(239,68,68,0.08)", borderTop: "1px solid rgba(239,68,68,0.12)", borderBottom: "1px solid rgba(239,68,68,0.12)" }}>
+          <i className="fa-solid fa-triangle-exclamation text-[9px]" style={{ color: "#f87171" }} />
+          <span className="text-[10px] truncate" style={{ color: "#fca5a5" }}>{itemError}</span>
+          <button
+            onClick={() => {
+              useZenithStore.getState().setItemError(item.id, null);
+              if (retryAction) {
+                retryAction();
+              }
+            }}
+            className="text-[9px] font-medium hover:underline ml-2"
+            style={{ color: "rgba(252,165,165,0.8)" }}
+          >
+            Retry
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); useZenithStore.getState().setItemError(item.id, null); }}
+            className="ml-auto text-white/20 hover:text-white/50"
+          >
+            <i className="fa-solid fa-xmark text-[8px]" />
+          </button>
+        </div>
+      )}
+
       {/* Folder tree view */}
       {item.is_directory && hasDragPath && (
         <>
@@ -813,6 +867,21 @@ export function StagedItemCard({ item, index }: Props) {
                 </button>
               )}
               <div className="ml-auto" />
+              {/* Cancel button during processing */}
+              {processing && (
+                <button
+                  onClick={() => {
+                    cancelProcessingRef.current = true;
+                    setProcessing(null);
+                    showToastMsg("Operation sent — may still complete in background");
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all hover:bg-white/10"
+                  style={{ color: "var(--zen-text-secondary)", background: "var(--zen-bg-hover)", border: "1px solid var(--zen-border-subtle)" }}
+                >
+                  <i className="fa-solid fa-xmark text-[8px]" />
+                  Cancel
+                </button>
+              )}
               {/* Self-destruct timer */}
               <button
                 onClick={() => setShowTimer(!showTimer)}
@@ -1096,6 +1165,7 @@ export function StagedItemCard({ item, index }: Props) {
                     <button
                       disabled={processing !== null}
                       onClick={async () => {
+                        cancelProcessingRef.current = false;
                         setShowTranslateOpts(false);
                         setProcessing("translate_file");
                         try {
@@ -1129,6 +1199,7 @@ export function StagedItemCard({ item, index }: Props) {
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && askQuestion.trim()) {
                           setShowAskPanel(false);
+                          cancelProcessingRef.current = false;
                           setProcessing("ask_data");
                           const run = async () => {
                             try {
@@ -1155,6 +1226,7 @@ export function StagedItemCard({ item, index }: Props) {
                       onClick={async () => {
                         if (!askQuestion.trim()) return;
                         setShowAskPanel(false);
+                        cancelProcessingRef.current = false;
                         setProcessing("ask_data");
                         try {
                           const argsJson = JSON.stringify({ path: item.path, question: askQuestion.trim(), system_prompt: settings?.ai_prompts?.ask_data, ...getDefaultApiKey() });
@@ -2055,4 +2127,4 @@ export function StagedItemCard({ item, index }: Props) {
     </SpotlightCard>
     </motion.div>
   );
-}
+});

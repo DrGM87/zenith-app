@@ -76,7 +76,7 @@ impl ApiServer {
                         handle_request(method, path, &body, &items, &sc, &ev, &app);
 
                     let response = format!(
-                        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, DELETE, PUT, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Length: {}\r\n\r\n{}",
+                        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: http://localhost:1420\r\nAccess-Control-Allow-Methods: GET, POST, DELETE, PUT, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Length: {}\r\n\r\n{}",
                         status,
                         response_body.len(),
                         response_body
@@ -133,7 +133,10 @@ fn handle_request(
                             let json = serde_json::to_string(&item).unwrap();
                             ("200 OK", json)
                         }
-                        Err(e) => ("500 Internal Server Error", format!(r#"{{"error":"{}"}}"#, e)),
+                        Err(e) => (
+                            "500 Internal Server Error",
+                            format!(r#"{{"error":"{}"}}"#, e),
+                        ),
                     }
                 }
                 Err(e) => (
@@ -150,7 +153,7 @@ fn handle_request(
             }
             match serde_json::from_str::<Req>(body) {
                 Ok(req) => {
-                    let id = format!("text-{}", uuid_v4());
+                    let id = format!("text-{}", uuid::Uuid::new_v4().to_string());
                     let item = StagedItem {
                         id: id.clone(),
                         path: String::new(),
@@ -180,7 +183,7 @@ fn handle_request(
         ("DELETE", "/items") => {
             let mut lock = items.lock().unwrap();
             lock.clear();
-            crate::persist_items(&lock);
+            crate::commands::staging::force_persist_items(&lock);
             ("200 OK", r#"{"status":"cleared"}"#.to_string())
         }
 
@@ -188,52 +191,82 @@ fn handle_request(
             let item_id = urldecode(&path[7..]);
             let mut lock = items.lock().unwrap();
             if lock.remove(&item_id).is_some() {
-                crate::persist_items(&lock);
+                crate::commands::staging::force_persist_items(&lock);
                 ("200 OK", r#"{"status":"removed"}"#.to_string())
             } else {
-                ("404 Not Found", r#"{"error":"Item not found"}"#.to_string())
+                (
+                    "404 Not Found",
+                    r#"{"error":"Item not found"}"#.to_string(),
+                )
             }
         }
 
         ("POST", "/process") => {
             #[derive(serde::Deserialize)]
-            struct Req { action: String, args: serde_json::Value }
+            struct Req {
+                action: String,
+                args: serde_json::Value,
+            }
             match serde_json::from_str::<Req>(body) {
                 Ok(req) => {
-                    let args_str = serde_json::to_string(&req.args).unwrap_or_else(|_| "{}".to_string());
-                    let resource = app.path().resource_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                    let args_str = serde_json::to_string(&req.args)
+                        .unwrap_or_else(|_| "{}".to_string());
+                    let resource = app
+                        .path()
+                        .resource_dir()
+                        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+                    let cwd = std::env::current_dir()
+                        .unwrap_or_else(|_| std::path::PathBuf::from("."));
                     let sp1 = resource.join("scripts/process_files.py");
                     let sp2 = cwd.join("scripts/process_files.py");
-                    let script: Option<std::path::PathBuf> = if sp1.exists() { Some(sp1) } else if sp2.exists() { Some(sp2) } else { None };
+                    let script: Option<std::path::PathBuf> = if sp1.exists() {
+                        Some(sp1)
+                    } else if sp2.exists() {
+                        Some(sp2)
+                    } else {
+                        None
+                    };
                     if script.is_none() {
-                        return ("500 Internal Server Error", r#"{"error":"process_files.py not found"}"#.to_string());
+                        return (
+                            "500 Internal Server Error",
+                            r#"{"error":"process_files.py not found"}"#.to_string(),
+                        );
                     }
                     let sp = script.unwrap();
                     let cmd_result = std::process::Command::new("python")
-                        .arg("-u").arg(&sp).arg(&req.action).arg(&args_str)
+                        .arg("-u")
+                        .arg(&sp)
+                        .arg(&req.action)
+                        .arg(&args_str)
                         .stdout(std::process::Stdio::piped())
                         .stderr(std::process::Stdio::piped())
                         .output();
                     match cmd_result {
                         Ok(out) => {
-                            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                            let stdout = String::from_utf8_lossy(&out.stdout)
+                                .trim()
+                                .to_string();
                             if stdout.is_empty() {
-                                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                                let msg = serde_json::json!({"error": stderr}).to_string();
+                                let stderr = String::from_utf8_lossy(&out.stderr)
+                                    .trim()
+                                    .to_string();
+                                let msg =
+                                    serde_json::json!({"error": stderr}).to_string();
                                 ("500 Internal Server Error", msg)
                             } else {
                                 ("200 OK", stdout)
                             }
                         }
                         Err(e) => {
-                            let msg = serde_json::json!({"error": e.to_string()}).to_string();
+                            let msg = serde_json::json!({"error": e.to_string()})
+                                .to_string();
                             ("500 Internal Server Error", msg)
                         }
                     }
                 }
                 Err(e) => {
-                    let msg = serde_json::json!({"error": format!("Invalid JSON: {}", e)}).to_string();
+                    let msg = serde_json::json!({"error": format!("Invalid JSON: {}", e)})
+                        .to_string();
                     ("400 Bad Request", msg)
                 }
             }
@@ -241,7 +274,8 @@ fn handle_request(
 
         ("GET", "/settings") => {
             let s = crate::settings::ZenithSettings::load();
-            let json = serde_json::to_string(&s).unwrap_or_else(|_| "{}".to_string());
+            let json =
+                serde_json::to_string(&s).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", json)
         }
 
@@ -251,45 +285,69 @@ fn handle_request(
                     let _ = new_settings.save();
                     ("200 OK", r#"{"status":"saved"}"#.to_string())
                 }
-                Err(e) => ("400 Bad Request", format!(r#"{{"error":"Invalid JSON: {}"}}"#, e)),
+                Err(e) => (
+                    "400 Bad Request",
+                    format!(r#"{{"error":"Invalid JSON: {}"}}"#, e),
+                ),
             }
         }
 
-        _ if method == "POST" && path.starts_with("/items/") && path.ends_with("/self-destruct") => {
-            let item_id = urldecode(&path[7..path.len()-15]);
+        _ if method == "POST"
+            && path.starts_with("/items/")
+            && path.ends_with("/self-destruct") =>
+        {
+            let item_id = urldecode(&path[7..path.len() - 15]);
             #[derive(serde::Deserialize)]
-            struct Req { destruct_at: Option<u64> }
+            struct Req {
+                destruct_at: Option<u64>,
+            }
             match serde_json::from_str::<Req>(body) {
                 Ok(req) => {
                     let mut lock = items.lock().unwrap();
                     if let Some(item) = lock.get_mut(&item_id) {
                         item.self_destruct_at = req.destruct_at;
-                        crate::persist_items(&lock);
+                        crate::commands::staging::force_persist_items(&lock);
                         ("200 OK", r#"{"status":"ok"}"#.to_string())
                     } else {
-                        ("404 Not Found", r#"{"error":"Item not found"}"#.to_string())
+                        (
+                            "404 Not Found",
+                            r#"{"error":"Item not found"}"#.to_string(),
+                        )
                     }
                 }
-                Err(e) => ("400 Bad Request", format!(r#"{{"error":"Invalid JSON: {}"}}"#, e)),
+                Err(e) => (
+                    "400 Bad Request",
+                    format!(r#"{{"error":"Invalid JSON: {}"}}"#, e),
+                ),
             }
         }
 
-        ("GET", "/health") => ("200 OK", r#"{"status":"ok","app":"zenith","version":"4.0"}"#.to_string()),
+        ("GET", "/health") => (
+            "200 OK",
+            r#"{"status":"ok","app":"zenith","version":"4.0"}"#.to_string(),
+        ),
 
         _ if method == "GET" && path.starts_with("/browse/") => {
-            let item_id = &path[8..]; // after "/browse/"
+            let item_id = &path[8..];
             let item_id_decoded = urldecode(item_id);
             let lock = items.lock().unwrap();
             if let Some(item) = lock.get(&item_id_decoded) {
                 if item.is_directory {
                     let children = browse_directory(&item.path);
-                    let json = serde_json::to_string(&children).unwrap_or_else(|_| "[]".to_string());
+                    let json = serde_json::to_string(&children)
+                        .unwrap_or_else(|_| "[]".to_string());
                     ("200 OK", json)
                 } else {
-                    ("400 Bad Request", r#"{"error":"Item is not a directory"}"#.to_string())
+                    (
+                        "400 Bad Request",
+                        r#"{"error":"Item is not a directory"}"#.to_string(),
+                    )
                 }
             } else {
-                ("404 Not Found", r#"{"error":"Item not found"}"#.to_string())
+                (
+                    "404 Not Found",
+                    r#"{"error":"Item not found"}"#.to_string(),
+                )
             }
         }
 
@@ -300,7 +358,10 @@ fn handle_request(
                     *lock = Some(content);
                     drop(lock);
                     let _ = app.emit("script-window-open", ());
-                    ("200 OK", r#"{"status":"ok","action":"window_open"}"#.to_string())
+                    (
+                        "200 OK",
+                        r#"{"status":"ok","action":"window_open"}"#.to_string(),
+                    )
                 }
                 Err(e) => (
                     "400 Bad Request",
@@ -316,7 +377,10 @@ fn handle_request(
                     *lock = Some(content);
                     drop(lock);
                     let _ = app.emit("script-window-update", ());
-                    ("200 OK", r#"{"status":"ok","action":"content_updated"}"#.to_string())
+                    (
+                        "200 OK",
+                        r#"{"status":"ok","action":"content_updated"}"#.to_string(),
+                    )
                 }
                 Err(e) => (
                     "400 Bad Request",
@@ -337,7 +401,8 @@ fn handle_request(
             let lock = script_content.lock().unwrap();
             match &*lock {
                 Some(content) => {
-                    let json = serde_json::to_string(content).unwrap_or_else(|_| "null".to_string());
+                    let json = serde_json::to_string(content)
+                        .unwrap_or_else(|_| "null".to_string());
                     ("200 OK", json)
                 }
                 None => ("200 OK", "null".to_string()),
@@ -361,7 +426,8 @@ fn handle_request(
         ("GET", "/window/events") => {
             let mut lock = script_events.lock().unwrap();
             let events: Vec<serde_json::Value> = lock.drain(..).collect();
-            let json = serde_json::to_string(&events).unwrap_or_else(|_| "[]".to_string());
+            let json =
+                serde_json::to_string(&events).unwrap_or_else(|_| "[]".to_string());
             ("200 OK", json)
         }
 
@@ -374,13 +440,20 @@ fn handle_request(
                 Ok(req) => {
                     let pb = std::path::PathBuf::from(&req.path);
                     if !pb.exists() {
-                        return ("404 Not Found", r#"{"error":"Path not found"}"#.to_string());
+                        return (
+                            "404 Not Found",
+                            r#"{"error":"Path not found"}"#.to_string(),
+                        );
                     }
                     if !pb.is_dir() {
-                        return ("400 Bad Request", r#"{"error":"Path is not a directory"}"#.to_string());
+                        return (
+                            "400 Bad Request",
+                            r#"{"error":"Path is not a directory"}"#.to_string(),
+                        );
                     }
                     let children = browse_directory(&req.path);
-                    let json = serde_json::to_string(&children).unwrap_or_else(|_| "[]".to_string());
+                    let json = serde_json::to_string(&children)
+                        .unwrap_or_else(|_| "[]".to_string());
                     ("200 OK", json)
                 }
                 Err(e) => (
@@ -419,10 +492,12 @@ fn browse_directory(dir_path: &str) -> Vec<FileEntry> {
             Ok(m) => m,
             Err(_) => continue,
         };
-        let name = path.file_name()
+        let name = path
+            .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        let extension = path.extension()
+        let extension = path
+            .extension()
             .map(|e| e.to_string_lossy().to_string())
             .unwrap_or_default();
         let is_dir = meta.is_dir();
@@ -447,7 +522,9 @@ fn browse_directory(dir_path: &str) -> Vec<FileEntry> {
         });
     }
     entries.sort_by(|a, b| {
-        b.is_directory.cmp(&a.is_directory).then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        b.is_directory
+            .cmp(&a.is_directory)
+            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     entries
 }
@@ -468,22 +545,4 @@ fn urldecode(s: &str) -> String {
         }
     }
     result
-}
-
-fn uuid_v4() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("{:x}-{:x}", t, rand_u32())
-}
-
-fn rand_u32() -> u32 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .subsec_nanos();
-    seed.wrapping_mul(2654435761)
 }

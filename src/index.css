@@ -301,3 +301,73 @@ html, body, #root {
 
 /* Float animation for particles */
 @keyframes float { 0%, 100% { transform: translateY(0) translateX(0); opacity: 0.3; } 50% { transform: translateY(-30px) translateX(10px); opacity: 0.6; } }
+
+/* ════════════════════════ Accessibility — Focus Indicators ═══════════ */
+*:focus-visible {
+  outline: 2px solid var(--zen-accent-cyan) !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
+}
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--zen-accent-cyan) !important;
+  outline-offset: 1px !important;
+}
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+.zenith-skip-link {
+  position: absolute;
+  top: -100px;
+  left: 8px;
+  z-index: 10000;
+  padding: 8px 16px;
+  background: var(--zen-bg-surface);
+  border: 1px solid var(--zen-border-active);
+  border-radius: 8px;
+  color: var(--zen-text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  transition: top 0.2s;
+}
+.zenith-skip-link:focus {
+  top: 8px;
+}
+
+/* ════════════════════════ Accessibility — Reduced Motion ═══════════ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .soft-aurora::before,
+  .soft-aurora::after {
+    animation: none !important;
+  }
+  .border-glow-ring {
+    animation: none !important;
+    opacity: 0.3 !important;
+  }
+  .shiny-text {
+    animation: none !important;
+    background-position: 0% center !important;
+  }
+  .shiny-bar {
+    animation: none !important;
+    background-position: 0% 0% !important;
+  }
+}
+
+/* ════════════════════════ Accessibility — Screen Reader Only ═══════════ */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

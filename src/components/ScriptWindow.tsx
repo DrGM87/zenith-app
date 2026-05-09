@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -52,6 +52,7 @@ function SButton({ c }: { c: ComponentDef }) {
   const variant = (c.variant as string) || "default";
   const disabled = c.disabled as boolean | undefined;
   const loading = c.loading as boolean | undefined;
+  const [cancelled, setCancelled] = useState(false);
   const base =
     "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed";
   const variants: Record<string, string> = {
@@ -61,20 +62,33 @@ function SButton({ c }: { c: ComponentDef }) {
     default: "bg-white/8 hover:bg-white/15 text-white/80",
   };
   return (
-    <button
-      className={`${base} ${variants[variant] || variants.default}`}
-      disabled={disabled || loading}
-      onClick={() => sendEvent({ type: "click", id: c.id })}
-    >
-      {loading ? (
-        <span className="flex items-center gap-1.5">
-          <i className="fa-solid fa-spinner fa-spin text-[10px]" />
-          {String(c.label ?? "")}
-        </span>
-      ) : (
-        String(c.label ?? "")
+    <div className="flex items-center gap-2">
+      <button
+        className={`${base} ${variants[variant] || variants.default}`}
+        disabled={disabled || loading || cancelled}
+        onClick={() => sendEvent({ type: "click", id: c.id })}
+      >
+        {loading && !cancelled ? (
+          <span className="flex items-center gap-1.5">
+            <i className="fa-solid fa-spinner fa-spin text-[10px]" />
+            {String(c.label ?? "")}
+          </span>
+        ) : (
+          String(c.label ?? "")
+        )}
+      </button>
+      {loading && !cancelled && (
+        <button
+          onClick={() => {
+            setCancelled(true);
+            invoke("stop_script", { scriptId: c.id }).catch(() => {});
+          }}
+          className="text-[9px] text-white/30 hover:text-red-400/70 transition-colors"
+        >
+          Cancel
+        </button>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -323,13 +337,17 @@ function RenderComponent({ c }: { c: ComponentDef }) {
     case "spacer":
       return <SSpacer c={c} />;
     default:
-      return null;
+      return (
+        <div style={{ padding: 8, color: "rgba(255,255,255,0.3)", fontSize: 10 }}>
+          Unknown component: {c.type}
+        </div>
+      );
   }
 }
 
 /* ─── Main ScriptWindow ─── */
 
-export function ScriptWindow() {
+export const ScriptWindow = memo(function ScriptWindow() {
   const [content, setContent] = useState<ScriptWindowContent | null>(null);
   const [pinned, setPinned] = useState(false);
   const [visible, setVisible] = useState(true);
@@ -435,11 +453,27 @@ export function ScriptWindow() {
         </div>
         <div className="flex items-center gap-1">
           <button
+            onClick={() => { setContent(null); }}
+            className="w-6 h-6 rounded-full flex items-center justify-center text-white/20 hover:text-white/50 transition-colors"
+            title="Clear content"
+          >
+            <i className="fa-solid fa-eraser text-[9px]" />
+          </button>
+          <button
             onClick={togglePin}
             className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${pinned ? "text-cyan-400 bg-cyan-500/20" : "text-white/30 hover:text-white/60"}`}
             title={pinned ? "Unpin" : "Pin open"}
           >
             <i className={`fa-solid fa-thumbtack text-[9px] ${pinned ? "" : "rotate-45"}`} />
+          </button>
+          <button
+            onClick={() => {
+              getCurrentWindow().minimize();
+            }}
+            className="w-6 h-6 rounded-full flex items-center justify-center text-white/30 hover:text-white/60 transition-colors"
+            title="Minimize"
+          >
+            <i className="fa-solid fa-minus text-[9px]" />
           </button>
           <button
             onClick={handleClose}
@@ -461,10 +495,16 @@ export function ScriptWindow() {
             <div className="text-center">
               <i className="fa-solid fa-code text-2xl mb-2 block opacity-30" />
               <p>Waiting for script...</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-2 px-3 py-1 rounded text-[10px] text-cyan-400/60 hover:text-cyan-400 border border-cyan-400/20 hover:border-cyan-400/40 transition-colors"
+              >
+                Retry
+              </button>
             </div>
           </div>
-        )}
+          )}
       </div>
     </div>
   );
-}
+});

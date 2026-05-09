@@ -1,5 +1,5 @@
+import { memo, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useZenithStore, type PreviewPane } from "../store";
@@ -37,16 +37,34 @@ function getLanguageLabel(ext: string): string {
   return map[ext.toLowerCase()] || ext.toUpperCase();
 }
 
-function PreviewContent({ pane }: { pane: PreviewPane }) {
+function PreviewContent({ pane, onCancel, onRetry }: { pane: PreviewPane; onCancel?: () => void; onRetry?: () => void }) {
   const ext = pane.item.extension.toLowerCase();
   const category = getPreviewCategory(ext);
 
   if (pane.loading) {
+    const loadingLabels: Record<string, string> = {
+      image: "Loading image preview...",
+      video: "Loading video preview...",
+      audio: "Loading audio preview...",
+      code: "Reading source file...",
+      text: "Reading file contents...",
+      data: "Parsing data file...",
+      pdf: "Extracting PDF content...",
+    };
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-2" role="status" aria-label="Loading preview...">
           <i className="fa-solid fa-spinner fa-spin text-white/30 text-lg" />
-          <span className="text-[11px] text-white/30">Loading preview...</span>
+          <span className="text-[11px] text-white/30">{loadingLabels[category] || "Loading preview..."}</span>
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              className="text-[10px] px-2 py-0.5 rounded-md"
+              style={{ color: "var(--zen-text-secondary)", background: "var(--zen-bg-hover)", border: "1px solid var(--zen-border-subtle)" }}
+            >
+              Cancel
+            </button>
+          )}
         </div>
       </div>
     );
@@ -58,6 +76,16 @@ function PreviewContent({ pane }: { pane: PreviewPane }) {
         <div className="flex flex-col items-center gap-2 text-center">
           <i className="fa-solid fa-circle-exclamation text-red-400/60 text-lg" />
           <span className="text-[11px] text-red-300/60">{pane.error}</span>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="text-[10px] px-2 py-0.5 rounded-md"
+              style={{ color: "#fca5a5", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)" }}
+            >
+              <i className="fa-solid fa-rotate-right text-[8px] mr-1" />
+              Retry
+            </button>
+          )}
         </div>
       </div>
     );
@@ -70,7 +98,7 @@ function PreviewContent({ pane }: { pane: PreviewPane }) {
       <div className="flex-1 flex items-center justify-center p-3 overflow-hidden">
         <img
           src={src}
-          alt={pane.item.name}
+          alt={`Preview of ${pane.item.name}`}
           className="max-w-full max-h-full object-contain rounded-lg"
           style={{ imageRendering: ext === "png" || ext === "bmp" ? "pixelated" : "auto" }}
           draggable={false}
@@ -143,6 +171,20 @@ function PreviewContent({ pane }: { pane: PreviewPane }) {
           <i className="fa-solid fa-code text-[9px] text-cyan-400/60" />
           <span className="text-[9px] text-white/30 font-medium">{lang}</span>
           <span className="text-[9px] text-white/20 ml-auto">{lines.length} lines</span>
+          <button
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(pane.content || "");
+                const btn = document.activeElement as HTMLElement;
+                if (btn) { btn.style.color = "#7ec99c"; setTimeout(() => { if (btn) btn.style.color = ""; }, 1000); }
+              } catch { /* ignore */ }
+            }}
+            className="text-[10px] px-1.5 py-0.5 rounded-md"
+            style={{ color: "var(--zen-text-secondary)", background: "var(--zen-bg-hover)", border: "1px solid var(--zen-border-subtle)" }}
+            aria-label="Copy content"
+          >
+            <i className="fa-solid fa-copy text-[8px]" />
+          </button>
         </div>
         <div className="flex-1 overflow-auto p-0">
           <div className="flex">
@@ -165,8 +207,22 @@ function PreviewContent({ pane }: { pane: PreviewPane }) {
         const parsed = JSON.parse(pane.content);
         const formatted = JSON.stringify(parsed, null, 2);
         return (
-          <div className="flex-1 overflow-auto p-3">
+          <div className="flex-1 overflow-auto p-3 relative">
             <pre className="text-[10px] text-emerald-300/80 font-mono whitespace-pre leading-[18px]">{formatted}</pre>
+            <button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(formatted);
+                  const btn = document.activeElement as HTMLElement;
+                  if (btn) { btn.style.color = "#7ec99c"; setTimeout(() => { if (btn) btn.style.color = ""; }, 1000); }
+                } catch { /* ignore */ }
+              }}
+              className="text-[10px] px-1.5 py-0.5 rounded-md absolute top-2 right-2"
+              style={{ color: "var(--zen-text-secondary)", background: "var(--zen-bg-hover)", border: "1px solid var(--zen-border-subtle)" }}
+              aria-label="Copy JSON"
+            >
+              <i className="fa-solid fa-copy text-[8px]" />
+            </button>
           </div>
         );
       } catch {
@@ -179,7 +235,21 @@ function PreviewContent({ pane }: { pane: PreviewPane }) {
     const headers = rows[0]?.split(sep) || [];
     const dataRows = rows.slice(1);
     return (
-      <div className="flex-1 overflow-auto p-2">
+      <div className="flex-1 overflow-auto p-2 relative">
+        <button
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(pane.content || "");
+              const btn = document.activeElement as HTMLElement;
+              if (btn) { btn.style.color = "#7ec99c"; setTimeout(() => { if (btn) btn.style.color = ""; }, 1000); }
+            } catch { /* ignore */ }
+          }}
+          className="text-[10px] px-1.5 py-0.5 rounded-md absolute top-2 right-2 z-10"
+          style={{ color: "var(--zen-text-secondary)", background: "var(--zen-bg-hover)", border: "1px solid var(--zen-border-subtle)" }}
+          aria-label="Copy table data"
+        >
+          <i className="fa-solid fa-copy text-[8px]" />
+        </button>
         <table className="w-full text-[10px] border-collapse">
           <thead>
             <tr>
@@ -206,10 +276,25 @@ function PreviewContent({ pane }: { pane: PreviewPane }) {
   // Text preview (fallback)
   if (pane.content !== undefined) {
     return (
-      <div className="flex-1 overflow-auto p-3">
+      <div className="flex-1 overflow-auto p-3 relative">
         <pre className="text-[10px] text-white/60 font-mono whitespace-pre-wrap leading-[18px]">{pane.content}</pre>
+        <button
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(pane.content || "");
+              const btn = document.activeElement as HTMLElement;
+              if (btn) { btn.style.color = "#7ec99c"; setTimeout(() => { if (btn) btn.style.color = ""; }, 1000); }
+            } catch { /* ignore */ }
+          }}
+          className="text-[10px] px-1.5 py-0.5 rounded-md absolute top-2 right-2"
+          style={{ color: "var(--zen-text-secondary)", background: "var(--zen-bg-hover)", border: "1px solid var(--zen-border-subtle)" }}
+          aria-label="Copy content"
+        >
+          <i className="fa-solid fa-copy text-[8px]" />
+        </button>
       </div>
     );
+
   }
 
   // Unknown file type
@@ -232,7 +317,7 @@ function PreviewContent({ pane }: { pane: PreviewPane }) {
   );
 }
 
-function SinglePreviewPane({ pane, onClose }: { pane: PreviewPane; onClose: () => void }) {
+const SinglePreviewPane = memo(function SinglePreviewPane({ pane, onClose }: { pane: PreviewPane; onClose: () => void }) {
   const { updatePreviewContent, updatePreviewError, setPreviewLoading } = useZenithStore();
   const ext = pane.item.extension.toLowerCase();
   const category = getPreviewCategory(ext);
@@ -250,12 +335,41 @@ function SinglePreviewPane({ pane, onClose }: { pane: PreviewPane; onClose: () =
       return;
     }
     try {
-      const content = await invoke<string>("read_file_preview", { path: pane.item.path });
+      const content = await invoke<string>("read_file_preview", { path: pane.item.path, maxBytes: 256000 });
       updatePreviewContent(pane.id, content);
     } catch (e) {
       updatePreviewError(pane.id, String(e));
     }
   }, [pane.id, pane.item.path, pane.item.name, category, updatePreviewContent, updatePreviewError, setPreviewLoading]);
+
+  const handleCancel = useCallback(() => {
+    updatePreviewError(pane.id, "Preview cancelled");
+  }, [pane.id, updatePreviewError]);
+
+  const handleRetry = useCallback(() => {
+    setPreviewLoading(pane.id, true);
+    updatePreviewError(pane.id, "");
+    invoke<string>("read_file_preview", { path: pane.item.path, maxBytes: 256000 })
+      .then((content) => updatePreviewContent(pane.id, content))
+      .catch((e) => updatePreviewError(pane.id, String(e)));
+  }, [pane.id, pane.item.path, setPreviewLoading, updatePreviewError, updatePreviewContent]);
+
+  const handleRefresh = useCallback(() => {
+    setPreviewLoading(pane.id, true);
+    updatePreviewError(pane.id, "");
+    updatePreviewContent(pane.id, undefined as unknown as string);
+    if (category === "image" || category === "video" || category === "audio") {
+      setPreviewLoading(pane.id, false);
+      return;
+    }
+    if (!pane.item.path) {
+      updatePreviewContent(pane.id, pane.item.name);
+      return;
+    }
+    invoke<string>("read_file_preview", { path: pane.item.path, maxBytes: 256000 })
+      .then((content) => updatePreviewContent(pane.id, content))
+      .catch((e) => updatePreviewError(pane.id, String(e)));
+  }, [pane.id, pane.item.path, pane.item.name, category, setPreviewLoading, updatePreviewError, updatePreviewContent]);
 
   useEffect(() => {
     if (pane.loading && pane.content === undefined && !pane.error) {
@@ -271,6 +385,8 @@ function SinglePreviewPane({ pane, onClose }: { pane: PreviewPane; onClose: () =
       exit={{ opacity: 0, x: -20, scale: 0.95 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
       className="flex flex-col rounded-xl overflow-hidden min-h-[120px]"
+      role="region"
+      aria-label="File preview"
       style={{
         background: "rgba(255, 255, 255, 0.03)",
         border: "1px solid rgba(255, 255, 255, 0.06)",
@@ -289,13 +405,23 @@ function SinglePreviewPane({ pane, onClose }: { pane: PreviewPane; onClose: () =
         <span className="text-[8px] text-white/20 uppercase px-1.5 py-0.5 rounded bg-white/5 flex-shrink-0">{ext || "TXT"}</span>
         <button
           onClick={() => invoke("open_file", { path: pane.item.path })}
+          aria-label="Open file externally"
           className="w-5 h-5 rounded flex items-center justify-center text-white/25 hover:text-white/60 hover:bg-white/5 transition-colors flex-shrink-0"
           title="Open externally"
         >
           <i className="fa-solid fa-up-right-from-square text-[8px]" />
         </button>
         <button
+          onClick={handleRefresh}
+          aria-label="Refresh preview"
+          className="w-5 h-5 rounded flex items-center justify-center text-white/20 hover:text-white/60 hover:bg-white/5 transition-colors flex-shrink-0"
+          title="Refresh preview"
+        >
+          <i className="fa-solid fa-rotate-right text-[7px]" />
+        </button>
+        <button
           onClick={onClose}
+          aria-label="Close preview"
           className="w-5 h-5 rounded flex items-center justify-center text-white/25 hover:text-red-400 hover:bg-red-500/10 transition-colors flex-shrink-0"
           title="Close preview"
         >
@@ -303,13 +429,13 @@ function SinglePreviewPane({ pane, onClose }: { pane: PreviewPane; onClose: () =
         </button>
       </div>
       {/* Preview body */}
-      <PreviewContent pane={pane} />
+      <PreviewContent pane={pane} onCancel={handleCancel} onRetry={handleRetry} />
     </SpotlightCard>
     </motion.div>
   );
-}
+});
 
-export function PreviewDrawer() {
+export const PreviewDrawer = memo(function PreviewDrawer() {
   const { previewPanes, closePreview, closeAllPreviews, settings } = useZenithStore();
   const accent = settings?.appearance?.accent_color || "#22d3ee";
   const radius = settings?.appearance?.corner_radius ?? 18;
@@ -341,6 +467,7 @@ export function PreviewDrawer() {
             <span className="text-[9px] text-white/25">{previewPanes.length} files open</span>
             <button
               onClick={closeAllPreviews}
+              aria-label="Close all previews"
               className="flex items-center gap-1 text-[9px] text-white/25 hover:text-red-400 transition-colors px-1.5 py-0.5 rounded hover:bg-red-500/10"
             >
               <i className="fa-solid fa-xmark text-[7px]" />
@@ -362,4 +489,4 @@ export function PreviewDrawer() {
       </div>
     </DraggablePanel>
   );
-}
+});

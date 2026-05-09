@@ -6,8 +6,9 @@ import { PreviewDrawer } from "./components/PreviewDrawer";
 import { ReviewStudio } from "./components/ReviewStudio";
 import { ZenithEditor } from "./components/ZenithEditor";
 import { MusicDiscoveryPage } from "./components/MusicDiscoveryPage";
+import { ErrorToast } from "./components/ErrorToast";
+import { OnboardingTour } from "./components/OnboardingTour";
 
-/* ── Error Boundary ── */
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
   static getDerivedStateFromError(error: Error) { return { error }; }
@@ -72,6 +73,8 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <OnboardingTour />
+      <ErrorToast />
       <Bubble />
       <PreviewDrawer />
       <ReviewStudio />

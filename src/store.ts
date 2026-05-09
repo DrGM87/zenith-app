@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { PRICING } from "./shared/pricing";
 
 export interface StagedItem {
@@ -283,6 +284,38 @@ interface ZenithState {
   setStudioAudioHint: (h: "auto" | "music" | "personal") => void;
   toggleStudioItem: (itemId: string) => void;
   updateStudioItemName: (itemId: string, newName: string) => void;
+
+  itemErrors: Record<string, string>;
+  setItemError: (itemId: string, error: string | null) => void;
+  clearItemErrors: () => void;
+
+  removedItemStack: StagedItem[];
+  undoRemoveLast: () => Promise<void>;
+  clearRemoveHistory: () => void;
+
+  checkItemLiveness: () => Promise<void>;
+
+  zenithError: { message: string; details?: string } | null;
+  setZenithError: (error: { message: string; details?: string } | null, retryAction?: (() => void) | null) => void;
+  retryAction: (() => void) | null;
+  setRetryAction: (action: (() => void) | null) => void;
+  clearRetry: () => void;
+}
+
+let _settingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingSettings: ZenithSettings | null = null;
+
+async function saveSettingsDebounced(settings: ZenithSettings) {
+  _pendingSettings = settings;
+  if (_settingsSaveTimer) return;
+  _settingsSaveTimer = setTimeout(async () => {
+    _settingsSaveTimer = null;
+    const s = _pendingSettings;
+    _pendingSettings = null;
+    if (s) {
+      try { await invoke("save_settings", { newSettings: s }); } catch (e) { console.error("Failed to save settings:", e); }
+    }
+  }, 2000);
 }
 
 export const useZenithStore = create<ZenithState>((set, get) => ({
@@ -299,18 +332,74 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
   renameUndoCount: 0,
   renameRedoCount: 0,
 
+  itemErrors: {},
+  removedItemStack: [],
+
+  zenithError: null,
+  retryAction: null,
+  setZenithError: (error, retryAction = null) => set({ zenithError: error, retryAction: error ? retryAction : null }),
+  setRetryAction: (action) => set({ retryAction: action }),
+  clearRetry: () => set({ retryAction: null }),
+
+  setItemError: (itemId, error) => set((s) => {
+    const next = { ...s.itemErrors };
+    if (error) next[itemId] = error; else delete next[itemId];
+    return { itemErrors: next };
+  }),
+  clearItemErrors: () => set({ itemErrors: {} }),
+
+  undoRemoveLast: async () => {
+    const s = get();
+    const last = s.removedItemStack[s.removedItemStack.length - 1];
+    if (!last) return;
+    try {
+      await invoke("stage_file", { path: last.path });
+      set((state) => ({
+        items: [...state.items, last],
+        removedItemStack: state.removedItemStack.slice(0, -1),
+      }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ zenithError: { message: "Failed to undo remove", details: msg }, retryAction: () => get().undoRemoveLast() });
+    }
+  },
+  clearRemoveHistory: () => set({ removedItemStack: [] }),
+
+  checkItemLiveness: async () => {
+    const s = get();
+    if (s.items.length === 0) return;
+    try {
+      const result = await invoke<Record<string, boolean>>("check_items_exist", { paths: s.items.map(i => i.path) });
+      const stale = s.items.filter(i => result[i.id] === false);
+      if (stale.length > 0) {
+        set((state) => ({
+          itemErrors: {
+            ...state.itemErrors,
+            ...Object.fromEntries(stale.map(i => [i.id, "File no longer exists at this path"])),
+          },
+        }));
+      }
+    } catch { /* best-effort */ }
+  },
+
   tags: {},
   loadTags: async () => {
     try {
       const tags = await invoke<Record<string, { name: string; color: string }>>("get_tags");
       set({ tags });
-    } catch { /* ignore */ }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ zenithError: { message: msg, details: undefined }, retryAction: () => get().loadTags() });
+    }
   },
   setItemTag: async (itemId, name, color) => {
     try {
       await invoke("set_tag", { itemId, tagName: name, color });
       set((s) => ({ tags: { ...s.tags, [itemId]: { name, color } } }));
-    } catch { /* ignore */ }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ zenithError: { message: msg, details: undefined }, retryAction: () => get().setItemTag(itemId, name, color) });
+    }
   },
   removeItemTag: async (itemId) => {
     try {
@@ -320,7 +409,10 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
         delete next[itemId];
         return { tags: next };
       });
-    } catch { /* ignore */ }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ zenithError: { message: msg, details: undefined }, retryAction: () => get().removeItemTag(itemId) });
+    }
   },
 
   presets: [],
@@ -328,7 +420,10 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
     try {
       const r = localStorage.getItem("zenith_presets");
       if (r) set({ presets: JSON.parse(r) });
-    } catch { set({ presets: [] }); }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ presets: [], zenithError: { message: msg, details: undefined }, retryAction: null });
+    }
   },
   savePreset: (name, action, args) => {
     const preset: ConversionPreset = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, action, args };
@@ -396,7 +491,15 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
   clearStack: () => set({ clipboardStack: [] }),
   copyStack: async () => {
     const merged = get().clipboardStack.join("\n");
-    await navigator.clipboard.writeText(merged);
+    try {
+      await writeText(merged);
+    } catch {
+      try {
+        await navigator.clipboard.writeText(merged);
+      } catch (e) {
+        set({ zenithError: { message: "Failed to copy to clipboard", details: String(e) }, retryAction: null });
+      }
+    }
   },
 
   toggleSelect: (id) => set((s) => {
@@ -426,7 +529,9 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
       set((state) => ({ items: [...state.items, item] }));
       invoke("log_activity", { action: "Stage", details: `Added: ${item.name}` }).catch(() => {});
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("Failed to stage file:", e);
+      set({ zenithError: { message: msg, details: undefined }, retryAction: () => get().stageFile(path) });
     }
   },
 
@@ -435,27 +540,44 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
       const item = await invoke<StagedItem>("stage_text", { text });
       set((state) => ({ items: [...state.items, item] }));
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("Failed to stage text:", e);
+      set({ zenithError: { message: msg, details: undefined }, retryAction: () => get().stageText(text) });
     }
   },
 
   removeItem: async (id: string) => {
     try {
+      const itemToRemove = get().items.find(i => i.id === id);
       await invoke("remove_staged_item", { id });
-      set((state) => ({ items: state.items.filter((i) => i.id !== id) }));
+      set((state) => ({
+        items: state.items.filter((i) => i.id !== id),
+        removedItemStack: itemToRemove
+          ? [...state.removedItemStack.slice(-19), itemToRemove]
+          : state.removedItemStack,
+      }));
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("Failed to remove item:", e);
+      set({ zenithError: { message: msg }, retryAction: () => get().removeItem(id) });
     }
   },
 
   clearAll: async () => {
     try {
-      const count = get().items.length;
+      const s = get();
+      const allItems = [...s.items];
       await invoke("clear_all_items");
-      set({ items: [] });
-      invoke("log_activity", { action: "Clear", details: `Cleared ${count} staged items` }).catch(() => {});
+      set((state) => ({
+        items: [],
+        removedItemStack: [...state.removedItemStack, ...allItems].slice(-50),
+        selectedIds: new Set<string>(),
+      }));
+      invoke("log_activity", { action: "Clear", details: `Cleared ${allItems.length} staged items` }).catch(() => {});
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("Failed to clear items:", e);
+      set({ zenithError: { message: msg }, retryAction: () => get().clearAll() });
     }
   },
 
@@ -464,7 +586,9 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
       const items = await invoke<StagedItem[]>("get_staged_items");
       set({ items });
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("Failed to load items:", e);
+      set({ zenithError: { message: msg, details: undefined }, retryAction: () => get().loadItems() });
     }
   },
 
@@ -473,7 +597,9 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
       const settings = await invoke<ZenithSettings>("get_settings");
       set({ settings });
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("Failed to load settings:", e);
+      set({ zenithError: { message: msg, details: undefined }, retryAction: () => get().loadSettings() });
     }
   },
 
@@ -481,7 +607,9 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
     try {
       await invoke("start_drag_out", { path });
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       console.error("Failed to start drag out:", e);
+      set({ zenithError: { message: msg, details: undefined }, retryAction: () => get().startDragOut(path) });
     }
   },
 
@@ -501,7 +629,10 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
     try {
       const r = JSON.parse(await invoke<string>("get_rename_history_counts"));
       set({ renameUndoCount: r.undo_count ?? 0, renameRedoCount: r.redo_count ?? 0 });
-    } catch { /* ignore */ }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      set({ zenithError: { message: msg, details: undefined }, retryAction: () => get().refreshRenameCounts() });
+    }
   },
 
   openPreview: (item: StagedItem) => set((s) => {
@@ -580,6 +711,6 @@ export const useZenithStore = create<ZenithState>((set, get) => ({
       },
     };
     set({ settings: updated });
-    try { await invoke("save_settings", { newSettings: updated }); } catch (e) { console.error("Failed to save token usage:", e); }
+    saveSettingsDebounced(updated);
   },
 }));

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
@@ -16,12 +16,16 @@ interface MusicTrack {
   note: string;
 }
 
-export function MusicDiscoveryPage() {
+export const MusicDiscoveryPage = memo(function MusicDiscoveryPage() {
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<MusicTrack>>({});
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [undoTrack, setUndoTrack] = useState<MusicTrack | null>(null);
+  const beforeEditRef = useRef<MusicTrack | null>(null);
+  const undoToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadTracks = useCallback(async () => {
     setLoading(true);
@@ -48,21 +52,40 @@ export function MusicDiscoveryPage() {
   const startEdit = (track: MusicTrack) => {
     setEditingId(track.id);
     setEditForm({ title: track.title, artist: track.artist, album: track.album, year: track.year, genre: track.genre, note: track.note });
+    beforeEditRef.current = { ...track };
+    setUndoTrack(null);
   };
 
   const saveTrack = async () => {
     const current = tracks.find((t) => t.id === editingId);
     if (!current) return;
+    const previous = beforeEditRef.current;
     const updated: MusicTrack = { ...current, ...editForm };
     try {
       await invoke("save_music_track", { track: updated });
       await loadTracks();
       setEditingId(null);
+      if (previous) {
+        setUndoTrack(previous);
+        if (undoToastTimer.current) clearTimeout(undoToastTimer.current);
+        undoToastTimer.current = setTimeout(() => setUndoTrack(null), 5000);
+      }
       showToast("Saved");
     } catch (e) { showToast(String(e)); }
   };
 
+  const handleUndoSave = async () => {
+    if (!undoTrack) return;
+    try {
+      await invoke("save_music_track", { track: undoTrack });
+      await loadTracks();
+      showToast("Undone");
+    } catch (e) { showToast(String(e)); }
+    finally { setUndoTrack(null); }
+  };
+
   const deleteTrack = async (id: string) => {
+    if (!window.confirm("Delete this track?")) return;
     try {
       await invoke("delete_music_track", { id });
       await loadTracks();
@@ -111,8 +134,35 @@ export function MusicDiscoveryPage() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 max-w-3xl mx-auto">
-            {tracks.map((track) => (
+          <div className="max-w-3xl mx-auto">
+            <div className="mb-3">
+              <div className="relative">
+                <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-white/20" />
+                <input
+                  type="text"
+                  placeholder="Search by title or artist..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 rounded-lg text-[12px] outline-none"
+                  style={{ background: "var(--zen-bg-surface)", border: "1px solid var(--zen-border-default)", color: "var(--zen-text-primary)" }}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-white/25 hover:text-white/50 transition-colors"
+                  >
+                    <i className="fa-solid fa-xmark" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+            {(tracks
+              .filter((t) =>
+                t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                t.artist.toLowerCase().includes(searchQuery.toLowerCase())
+              )
+              .map((track) => (
               <motion.div key={track.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 className="rounded-xl overflow-hidden p-4" style={{ background: "var(--zen-bg-surface)", border: "1px solid var(--zen-border-default)" }}>
                 {editingId === track.id ? (
@@ -172,7 +222,8 @@ export function MusicDiscoveryPage() {
                   </div>
                 )}
               </motion.div>
-            ))}
+              )))}
+            </div>
           </div>
         )}
       </div>
@@ -185,7 +236,21 @@ export function MusicDiscoveryPage() {
             {toast}
           </motion.div>
         )}
+        {undoTrack && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}
+            className="fixed bottom-16 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full text-[12px] font-medium shadow-lg z-50 flex items-center gap-2"
+            style={{ background: "var(--zen-bg-surface)", border: "1px solid var(--zen-border-default)", color: "var(--zen-text-primary)" }}>
+            <span>Changes saved</span>
+            <button
+              onClick={handleUndoSave}
+              className="text-[11px] font-semibold underline hover:opacity-80 transition-opacity"
+              style={{ color: accent }}
+            >
+              Undo
+            </button>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
-}
+});

@@ -1,5 +1,5 @@
+import { memo, useCallback, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useZenithStore, type StudioFolder, type StudioPlanItem } from "../store";
 import { DraggablePanel } from "./DraggablePanel";
@@ -28,7 +28,7 @@ function FolderNode({ folder, accent }: { folder: StudioFolder; accent: string }
   const enabledCount = folder.items.filter((i) => i.enabled).length;
 
   return (
-    <div className="mb-2">
+    <div className="mb-2" role="region" aria-label={folder.name}>
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 w-full px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors group"
@@ -125,7 +125,7 @@ function StudioItemRow({
   );
 }
 
-export function ReviewStudio() {
+export const ReviewStudio = memo(function ReviewStudio() {
   const {
     isStudioOpen, studioPlan, studioProgress, studioExecuting,
     setStudioOpen, setStudioPlan, setStudioProgress, setStudioExecuting,
@@ -140,8 +140,12 @@ export function ReviewStudio() {
   const glowSpeed = settings?.appearance?.border_glow_speed ?? 3;
 
   const [undoable, setUndoable] = useState(false);
+  const [redoStack, setRedoStack] = useState<Array<Array<{ old_path: string; new_path: string; poster_url: string; poster_local: string }>>>([]);
+  const lastMovesRef = useRef<Array<{ old_path: string; new_path: string; poster_url: string; poster_local: string }>>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [stoppedState, setStoppedState] = useState<{ moves: Array<{ old_path: string; new_path: string; poster_url: string; poster_local: string }>; current: number } | null>(null);
+  const stoppedStateRef = useRef<{ moves: Array<{ old_path: string; new_path: string; poster_url: string; poster_local: string }>; current: number } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string, duration = 3000) => {
@@ -199,31 +203,71 @@ export function ReviewStudio() {
     } finally { setReanalyzing(false); }
   }, [items, getDefaultApiKey, settings, studioGroupImages, studioGroupDocs, studioVideoHint, studioAudioHint, setStudioPlan, setStudioProgress, showToast, trackTokenUsage]);
 
-  const handleExecute = useCallback(async () => {
+  const handleExecute = useCallback(async (resumeFrom?: { moves: Array<{ old_path: string; new_path: string; poster_url: string; poster_local: string }>; current: number }) => {
     if (!studioPlan || totalEnabled === 0) return;
     setStudioExecuting(true);
-    setStudioProgress({ status: "executing", current: 0, total: totalEnabled, message: "Preparing..." });
+    const moves = resumeFrom ? resumeFrom.moves : enabledItems.map((item) => ({
+      old_path: item.old_path,
+      new_path: item.new_path,
+      poster_url: item.poster_url || "",
+      poster_local: item.poster_local || "",
+    }));
+    if (!resumeFrom) lastMovesRef.current = moves;
+    const startIdx = resumeFrom?.current ?? 0;
+    const isResume = !!resumeFrom;
+    setStudioProgress({ status: "executing", current: startIdx, total: moves.length, message: isResume ? `Resuming from ${startIdx + 1} of ${moves.length}...` : "Preparing..." });
 
     try {
-      const moves = enabledItems.map((item) => ({
-        old_path: item.old_path,
-        new_path: item.new_path,
-        poster_url: item.poster_url || "",
-        poster_local: item.poster_local || "",
-      }));
-
-      const movesJson = JSON.stringify(moves);
+      const remainingMoves = moves.slice(startIdx);
+      const movesJson = JSON.stringify(remainingMoves);
       const resultStr = await invoke<string>("execute_studio_plan", { movesJson });
       const result = JSON.parse(resultStr);
 
       if (result.moved > 0) {
         setUndoable(true);
+        setStoppedState(null);
+        stoppedStateRef.current = null;
         showToast(`Organization complete! ${result.moved} files moved.`, 5000);
         clearAll();
-        setTimeout(() => {
-          setStudioPlan(null);
-          setStudioOpen(false);
-        }, 2000);
+        setStudioProgress({ status: "executing", current: moves.length, total: moves.length, message: "Done — Review your organization" });
+      } else {
+        showToast(result.error || "No files were moved.");
+      }
+    } catch (e) {
+      showToast(String(e));
+    } finally {
+      setStudioExecuting(false);
+      if (!stoppedStateRef.current) setStudioProgress(null);
+    }
+  }, [studioPlan, totalEnabled, enabledItems, setStudioExecuting, setStudioProgress, showToast, clearAll]);
+
+  const handleUndo = useCallback(async () => {
+    try {
+      const r = JSON.parse(await invoke<string>("undo_moves"));
+      setRedoStack((prev) => [...prev, [...lastMovesRef.current]]);
+      showToast(`Reverted ${r.reverted} files${r.posters_deleted ? `, ${r.posters_deleted} posters removed` : ""}.`);
+      setUndoable(false);
+    } catch (e) {
+      showToast(String(e));
+    }
+  }, [showToast]);
+
+  const handleRedo = useCallback(async () => {
+    if (redoStack.length === 0) return;
+    const moves = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    setStudioExecuting(true);
+    setStudioProgress({ status: "executing", current: 0, total: moves.length, message: "Redoing..." });
+    try {
+      const movesJson = JSON.stringify(moves);
+      const resultStr = await invoke<string>("execute_studio_plan", { movesJson });
+      const result = JSON.parse(resultStr);
+      if (result.moved > 0) {
+        lastMovesRef.current = moves;
+        setUndoable(true);
+        showToast(`Redone! ${result.moved} files moved.`, 5000);
+        clearAll();
+        setStudioProgress({ status: "executing", current: moves.length, total: moves.length, message: "Done — Review your organization" });
       } else {
         showToast(result.error || "No files were moved.");
       }
@@ -233,23 +277,40 @@ export function ReviewStudio() {
       setStudioExecuting(false);
       setStudioProgress(null);
     }
-  }, [studioPlan, totalEnabled, enabledItems, setStudioExecuting, setStudioProgress, showToast, clearAll, setStudioPlan, setStudioOpen]);
-
-  const handleUndo = useCallback(async () => {
-    try {
-      const r = JSON.parse(await invoke<string>("undo_moves"));
-      showToast(`Reverted ${r.reverted} files${r.posters_deleted ? `, ${r.posters_deleted} posters removed` : ""}.`);
-      setUndoable(false);
-    } catch (e) {
-      showToast(String(e));
-    }
-  }, [showToast]);
+  }, [redoStack, showToast, setStudioExecuting, setStudioProgress, clearAll]);
 
   const handleClose = useCallback(() => {
     setStudioOpen(false);
     setStudioPlan(null);
     setStudioProgress(null);
+    setStoppedState(null);
+    stoppedStateRef.current = null;
+    setRedoStack([]);
   }, [setStudioOpen, setStudioPlan, setStudioProgress]);
+
+  const handleSelectAll = useCallback(() => {
+    if (!studioPlan) return;
+    const updated = {
+      ...studioPlan,
+      folders: studioPlan.folders.map((f) => ({
+        ...f,
+        items: f.items.map((i) => ({ ...i, enabled: true })),
+      })),
+    };
+    setStudioPlan(updated);
+  }, [studioPlan, setStudioPlan]);
+
+  const handleDeselectAll = useCallback(() => {
+    if (!studioPlan) return;
+    const updated = {
+      ...studioPlan,
+      folders: studioPlan.folders.map((f) => ({
+        ...f,
+        items: f.items.map((i) => ({ ...i, enabled: false })),
+      })),
+    };
+    setStudioPlan(updated);
+  }, [studioPlan, setStudioPlan]);
 
   if (!isStudioOpen) return null;
 
@@ -278,7 +339,18 @@ export function ReviewStudio() {
                   <span className="text-[9px] text-white/50 font-medium truncate">{studioProgress.message}</span>
                   <span className="text-[9px] text-white/30 shrink-0 ml-2">{studioProgress.current}/{studioProgress.total}</span>
                   <button
-                    onClick={async () => { try { await invoke("cancel_all_scripts"); } catch {} setStudioProgress(null); showToast("Cancelled"); }}
+                    onClick={async () => {
+                      try { await invoke("cancel_all_scripts"); } catch {}
+                      if (studioProgress) {
+                        const moves = lastMovesRef.current;
+                        const state = { moves, current: studioProgress.current };
+                        setStoppedState(state);
+                        stoppedStateRef.current = state;
+                      }
+                      setStudioProgress(null);
+                      showToast("Cancelled");
+                    }}
+                    aria-label="Cancel organization"
                     className="ml-1 px-1.5 py-0.5 rounded text-[8px] font-medium text-red-400/80 hover:text-red-300 hover:bg-red-500/10 transition-colors shrink-0"
                     title="Cancel operation"
                   >
@@ -307,14 +379,14 @@ export function ReviewStudio() {
             <div className="grid grid-cols-2 gap-1.5">
               <div className="flex flex-col gap-1">
                 <span className="text-[8px] text-emerald-400/50 font-medium uppercase tracking-wider px-0.5"><i className="fa-solid fa-image text-[7px] mr-1" />Images</span>
-                <select value={studioGroupImages} onChange={(e) => setStudioGroupImages(e.target.value as "date" | "vision")} style={selectStyle}>
+                <select value={studioGroupImages} onChange={(e) => setStudioGroupImages(e.target.value as "date" | "vision")} style={selectStyle} aria-label="Group images by">
                   <option value="date" style={optionStyle}>By Date</option>
                   <option value="vision" style={optionStyle}>By AI Vision</option>
                 </select>
               </div>
               <div className="flex flex-col gap-1">
                 <span className="text-[8px] text-blue-400/50 font-medium uppercase tracking-wider px-0.5"><i className="fa-solid fa-file-lines text-[7px] mr-1" />Docs</span>
-                <select value={studioGroupDocs} onChange={(e) => setStudioGroupDocs(e.target.value as "category" | "type" | "date")} style={selectStyle}>
+                <select value={studioGroupDocs} onChange={(e) => setStudioGroupDocs(e.target.value as "category" | "type" | "date")} style={selectStyle} aria-label="Group documents by">
                   <option value="category" style={optionStyle}>By Category</option>
                   <option value="type" style={optionStyle}>By Type</option>
                   <option value="date" style={optionStyle}>By Date</option>
@@ -322,7 +394,7 @@ export function ReviewStudio() {
               </div>
               <div className="flex flex-col gap-1">
                 <span className="text-[8px] text-pink-400/50 font-medium uppercase tracking-wider px-0.5"><i className="fa-solid fa-film text-[7px] mr-1" />Video</span>
-                <select value={studioVideoHint} onChange={(e) => setStudioVideoHint(e.target.value as "auto" | "movie" | "personal")} style={selectStyle}>
+                <select value={studioVideoHint} onChange={(e) => setStudioVideoHint(e.target.value as "auto" | "movie" | "personal")} style={selectStyle} aria-label="Video type">
                   <option value="auto" style={optionStyle}>Auto-detect</option>
                   <option value="movie" style={optionStyle}>Movie/Series</option>
                   <option value="personal" style={optionStyle}>Personal</option>
@@ -330,7 +402,7 @@ export function ReviewStudio() {
               </div>
               <div className="flex flex-col gap-1">
                 <span className="text-[8px] text-purple-400/50 font-medium uppercase tracking-wider px-0.5"><i className="fa-solid fa-music text-[7px] mr-1" />Audio</span>
-                <select value={studioAudioHint} onChange={(e) => setStudioAudioHint(e.target.value as "auto" | "music" | "personal")} style={selectStyle}>
+                <select value={studioAudioHint} onChange={(e) => setStudioAudioHint(e.target.value as "auto" | "music" | "personal")} style={selectStyle} aria-label="Audio type">
                   <option value="auto" style={optionStyle}>Auto-detect</option>
                   <option value="music" style={optionStyle}>Music</option>
                   <option value="personal" style={optionStyle}>Recording</option>
@@ -341,6 +413,7 @@ export function ReviewStudio() {
               <button
                 onClick={handleReanalyze}
                 disabled={reanalyzing || studioExecuting}
+                aria-label="Re-analyze with new grouping"
                 className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-medium transition-colors disabled:opacity-30"
                 style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.06)" }}
               >
@@ -351,6 +424,22 @@ export function ReviewStudio() {
           </div>
 
           {/* Body: Tree View */}
+          {studioPlan && studioPlan.folders.length > 0 && (
+            <div className="flex items-center gap-1.5 px-3 pt-2 pb-1">
+              <button
+                onClick={handleSelectAll}
+                className="text-[9px] px-2 py-0.5 rounded text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-colors"
+              >
+                Select All
+              </button>
+              <button
+                onClick={handleDeselectAll}
+                className="text-[9px] px-2 py-0.5 rounded text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-colors"
+              >
+                Deselect All
+              </button>
+            </div>
+          )}
           <div
             className="flex-1 overflow-y-auto px-2 py-2"
             style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.08) transparent" }}
@@ -366,12 +455,32 @@ export function ReviewStudio() {
                   <span className="text-[11px]">No organization plan generated yet.</span>
                 </div>
               )
-            ) : (
+            ) : studioProgress ? (
               <div className="flex flex-col items-center justify-center h-full text-white/20 gap-3 py-12">
                 <i className="fa-solid fa-spinner fa-spin text-xl" style={{ color: accent }} />
                 <span className="text-[11px] text-white/40">Analyzing {items.length} files...</span>
                 <span className="text-[9px] text-white/20">Querying APIs, fetching metadata, grouping...</span>
               </div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex flex-col items-center justify-center gap-4 p-8 text-center"
+                style={{ minHeight: 200 }}
+              >
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: "rgba(102,192,220,0.1)", border: "1px solid rgba(102,192,220,0.2)" }}>
+                  <i className="fa-solid fa-cubes text-lg" style={{ color: "var(--zen-accent-cyan)" }} />
+                </div>
+                <div>
+                  <div className="text-[13px] font-semibold" style={{ color: "var(--zen-text-primary)" }}>
+                    Organize Your Files
+                  </div>
+                  <div className="text-[10px] mt-1 leading-relaxed" style={{ color: "var(--zen-text-secondary)", maxWidth: 280 }}>
+                    Stage files in the main window, then return here to generate an intelligent organization plan.
+                    Choose grouping preferences below and click Analyze.
+                  </div>
+                </div>
+              </motion.div>
             )}
           </div>
 
@@ -402,17 +511,58 @@ export function ReviewStudio() {
               </div>
             )}
             {undoable && (
-              <button
-                onClick={handleUndo}
-                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors border border-emerald-500/15 hover:border-emerald-500/25"
-                style={{ color: "#34d399", background: "rgba(16,185,129,0.08)" }}
-              >
-                <i className="fa-solid fa-rotate-left text-[9px]" /> Undo Last Operation
-              </button>
+              <>
+                <button
+                  onClick={handleUndo}
+                  aria-label="Undo last organization"
+                  className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors border border-emerald-500/15 hover:border-emerald-500/25"
+                  style={{ color: "#34d399", background: "rgba(16,185,129,0.08)" }}
+                >
+                  <i className="fa-solid fa-rotate-left text-[9px]" /> Undo Last Operation
+                </button>
+                {redoStack.length > 0 && (
+                  <button
+                    onClick={handleRedo}
+                    disabled={studioExecuting}
+                    aria-label="Redo last operation"
+                    className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors border border-amber-500/15 hover:border-amber-500/25 disabled:opacity-30"
+                    style={{ color: "#f59e0b", background: "rgba(245,158,11,0.08)" }}
+                  >
+                    <i className="fa-solid fa-rotate-right text-[9px]" /> Redo ({redoStack.length})
+                  </button>
+                )}
+              </>
+            )}
+            {stoppedState && !studioExecuting && (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 px-1 py-1">
+                  <i className="fa-solid fa-circle-pause text-[10px] text-amber-400" />
+                  <span className="text-[9px] text-white/40">
+                    Stopped — {stoppedState.current} of {stoppedState.moves.length} files processed
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleExecute({ moves: stoppedState.moves, current: stoppedState.current })}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors"
+                    style={{ background: "rgba(34,211,238,0.12)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.15)" }}
+                  >
+                    <i className="fa-solid fa-play text-[8px]" /> Resume
+                  </button>
+                  <button
+                    onClick={() => { setStoppedState(null); handleExecute(); }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors"
+                    style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.06)" }}
+                  >
+                    <i className="fa-solid fa-rotate-left text-[8px]" /> Start Over
+                  </button>
+                </div>
+              </div>
             )}
             <button
-              onClick={handleExecute}
+              onClick={() => handleExecute()}
               disabled={!studioPlan || totalEnabled === 0 || studioExecuting}
+              aria-label="Analyze and organize files"
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[12px] font-bold tracking-wide transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               style={{
                 background: `linear-gradient(135deg, ${accent}, #a78bfa)`,
@@ -429,4 +579,4 @@ export function ReviewStudio() {
           </div>
     </DraggablePanel>
   );
-}
+});
